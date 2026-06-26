@@ -81,12 +81,6 @@ internally an append-only claim log (subject predicate object) with supersession
 a superseding claim (history intrinsic), `delete` a tombstone, `snapshot()` persists the whole
 log. Its own header comment is the source of truth for the semantics.
 
-## Why
-
-shadcn moved ownership from libraries back into your repo: stop importing black-box components,
-own the code. Eddy applies the same idea one level up: stop importing a framework runtime, own
-the app output.
-
 ## Build & test
 
 ```
