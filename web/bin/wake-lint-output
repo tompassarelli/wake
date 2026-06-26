@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# eddy-lint-output: security lint on generated server/frontend JS
-# Run after eddy-compile to catch regressions in emitter output.
+# wake-lint-output: security lint on generated server/frontend JS
+# Run after wake-compile to catch regressions in emitter output.
 # Exit 0 = clean, exit 1 = findings.
 set -euo pipefail
 
@@ -13,7 +13,7 @@ findings=0
 file="${1:-}"
 
 if [[ -z "$file" ]]; then
-  echo "Usage: eddy-lint-output <generated-file.js>" >&2
+  echo "Usage: wake-lint-output <generated-file.js>" >&2
   exit 2
 fi
 
@@ -26,7 +26,7 @@ fail() { echo -e "  ${RED}FAIL${NC} $1"; findings=$((findings + 1)); }
 warn() { echo -e "  ${YEL}WARN${NC} $1"; }
 pass() { echo -e "  ${GRN}PASS${NC} $1"; }
 
-echo "eddy security lint: $file"
+echo "wake security lint: $file"
 echo ""
 
 # --- Server checks (only if file contains createServer) ---

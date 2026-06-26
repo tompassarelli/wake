@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 const html = readFileSync(join(__dirname, "..", "public-js", "index.html"), "utf-8");
-const js = readFileSync(join("/tmp", "eddy-tracker-run", "app.js"), "utf-8");
+const js = readFileSync(join("/tmp", "wake-tracker-run", "app.js"), "utf-8");
 
 const bareHtml = html.replace('<script src="app.js"></script>', "");
 

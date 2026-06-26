@@ -1,7 +1,7 @@
 #lang beagle/js
-(ns eddy.reader)
-(require eddy.sexpr :as sexpr)
-(require eddy.ir :as ir)
+(ns wake.reader)
+(require wake.sexpr :as sexpr)
+(require wake.ir :as ir)
 
 ;; Reader: s-expressions → IR program.
 ;; Consumes output of sexpr/parse-all, produces an IrProgram.
@@ -118,7 +118,7 @@
       (ir/->IrPersist "claims" (nth form 2))
     ;; (persist :feed "url") — LIVE EXTERNAL feed: store mirrors an external HTTP endpoint
     ;; that returns a JSON array; poll + store.load() (push into the store). Read-only.
-    ;; The "key" slot carries the URL. Proves an eddy store binds to a live external graph.
+    ;; The "key" slot carries the URL. Proves an wake store binds to a live external graph.
     (kw= (nth form 1) ":feed")
       (ir/->IrPersist "feed" (nth form 2))
     :else nil))
@@ -439,7 +439,7 @@
 
 ;; --- Panel parsing ---
 ;; (panel agent-graph :mount "framescope.mountGraph")
-;; A named region the shell fills with its own JS, sharing feed+selection via window.eddy.
+;; A named region the shell fills with its own JS, sharing feed+selection via window.wake.
 (defn parse-panel [(form :- Any)] :- Any
   (let [name (sym-name (nth form 1))]
     (loop [i 2 mount-fn nil]
@@ -474,23 +474,23 @@
               (= name "panel")       (->ParseResult "panel" (parse-panel form))
               (= name "ns")          (->ParseResult "ns" (sym-name (nth form 1)))
               (= name "require")     nil
-              :else (do (.error js/console (str "eddy: unknown form (" name " ...)")) nil))))))))
+              :else (do (.error js/console (str "wake: unknown form (" name " ...)")) nil))))))))
 
 ;; --- Entry point ---
 
 (defn validate-program [(ns-name :- Any) (entities :- Any) (defstates :- Any)] :- Any
-  (if (nil? ns-name) (.error js/console "eddy: missing (ns ...) declaration") nil)
-  (if (= (count entities) 0) (.error js/console "eddy: no entity declarations found") nil)
+  (if (nil? ns-name) (.error js/console "wake: missing (ns ...) declaration") nil)
+  (if (= (count entities) 0) (.error js/console "wake: no entity declarations found") nil)
   (let [entity-names (mapv (fn [e] (.-name e)) entities)
         seen (reduce (fn [acc n]
           (if (.includes acc n)
-            (do (.error js/console (str "eddy: duplicate entity '" n "'")) acc)
+            (do (.error js/console (str "wake: duplicate entity '" n "'")) acc)
             (conj acc n)))
           [] entity-names)
         state-names (mapv (fn [d] (.-name d)) defstates)
         seen-states (reduce (fn [acc n]
           (if (.includes acc n)
-            (do (.error js/console (str "eddy: duplicate defstate '" n "'")) acc)
+            (do (.error js/console (str "wake: duplicate defstate '" n "'")) acc)
             (conj acc n)))
           [] state-names)]
     nil))
@@ -516,5 +516,5 @@
           ns-name   (if (nil? ns-form) nil (.-value ns-form))]
       (validate-program ns-name entities defstates)
       (ir/->IrProgram
-        (or ns-name "eddy.app")
+        (or ns-name "wake.app")
         entities persist defstates lds forms theme raw-sqls queries components views router auth layout panels))))

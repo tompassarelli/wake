@@ -1,7 +1,7 @@
 #lang beagle/js
-(ns eddy.sexpr)
+(ns wake.sexpr)
 
-;; S-expression reader for .eddy files.
+;; S-expression reader for .wake files.
 
 (defrecord Sym [(name :- String)])
 (defrecord Kw  [(name :- String)])

@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 
-const URL = 'http://localhost:8088/board-eddy.html';
-const OUT = '/home/tom/code/framescope/.qa-shots/board-eddy-live.png';
+const URL = 'http://localhost:8088/board-wake.html';
+const OUT = '/home/tom/code/framescope/.qa-shots/board-wake-live.png';
 
 const browser = await chromium.launch({ executablePath: '/run/current-system/sw/bin/google-chrome-stable' });
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
@@ -23,16 +23,16 @@ const before = await page.evaluate(() => {
     listRows: document.querySelectorAll('#app .cursor-pointer').length,
     kanbanCards: document.querySelectorAll('#panel-board-kanban .fk-card').length,
     cols,
-    storeRows: (window.eddy && window.eddy.stores && window.eddy.stores.threads) ? window.eddy.stores.threads.all().length : 0,
+    storeRows: (window.wake && window.wake.stores && window.wake.stores.threads) ? window.wake.stores.threads.all().length : 0,
   };
 });
 
-// click an eddy LIST row → the eddy :select detail drawer renders (the view's own
+// click an wake LIST row → the wake :select detail drawer renders (the view's own
 // selectItem path). The kanban card click drives the shared selection bus (one-way out
 // of the view); the drawer is fed by the view's list, so we click the list to populate it.
 await page.click('#app .cursor-pointer');
 await page.waitForTimeout(500);
-const selected = await page.evaluate(() => window.eddy && window.eddy.selection ? window.eddy.selection.get() : null);
+const selected = await page.evaluate(() => window.wake && window.wake.selection ? window.wake.selection.get() : null);
 const detail = await page.evaluate(() => {
   const r = document.querySelector('#app .w-1\\/2.min-h-0.overflow-y-auto') || document.querySelector('#app');
   return (r.textContent || '').replace(/\s+/g, ' ').slice(0, 200);

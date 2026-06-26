@@ -1,19 +1,19 @@
-# Eddy
+# Wake
 
-Eddy is an application compiler: `.eddy` declarations in, plain JavaScript out.
+Wake is an application compiler: `.wake` declarations in, plain JavaScript out.
 
-Declare the shape of your app — entities, views, forms, routes, derived fields — and Eddy
+Declare the shape of your app — entities, views, forms, routes, derived fields — and Wake
 emits the direct-DOM code you would otherwise write by hand. No framework runtime, no virtual
 DOM, no signal graph. The output is ordinary JavaScript you can read, debug, or keep after
-walking away from Eddy.
+walking away from Wake.
 
-The thesis — Eddy is a *projection compiler*, the same checked entity graph projected onto
-many targets — is `docs/adr/0001-eddy-is-a-projection-compiler.md`. The build log in
+The thesis — Wake is a *projection compiler*, the same checked entity graph projected onto
+many targets — is `docs/adr/0001-wake-is-a-projection-compiler.md`. The build log in
 `docs/devlog/` is the chronological "why it's shaped this way."
 
 ## What it does
 
-From one declaration, Eddy generates a direct-DOM frontend with: per-attribute compiled DOM
+From one declaration, Wake generates a direct-DOM frontend with: per-attribute compiled DOM
 mutation (no diffing), a component system with conditional rendering (`when`), click-to-select
 split-pane detail, hash routing with shared stores, compile-time-traced derived fields and
 cross-entity FK propagation, undo/redo over an event log, and persistence. Apps are themeable
@@ -25,12 +25,12 @@ validation, and the tests all follow.
 
 ## Example
 
-A small, illustrative source. The runnable demos live in `web/demo/*.eddy` — read those for
+A small, illustrative source. The runnable demos live in `web/demo/*.wake` — read those for
 current, compiler-verified syntax (this snippet is prose and can lag; the demo files can't).
 
 ```scheme
-(ns eddy.tracker)
-(persist :localStorage "eddy-tracker")
+(ns wake.tracker)
+(persist :localStorage "wake-tracker")
 
 (entity task
   (title : String)
@@ -57,22 +57,22 @@ One source, many emitters. The authoritative list of flags and outputs is the us
 the build script — read it rather than trusting a copy here:
 
 ```
-sed -n '/^# Usage/,/^$/p' web/bin/eddy-compile     # current flags + outputs
+sed -n '/^# Usage/,/^$/p' web/bin/wake-compile     # current flags + outputs
 ls web/compiler/emit-*.bjs                          # one emitter module per target
 ```
 
 Each `emit-*.bjs` is one projection of the graph (frontend, SQL, server, tests, Nix, claims
-IR, MCP catalog, …). `--all` runs them together; `--migrate old.eddy new.eddy` diffs two
+IR, MCP catalog, …). `--all` runs them together; `--migrate old.wake new.wake` diffs two
 schemas into a migration.
 
 ## Live feeds and external panes
 
 `(persist :feed "http://host/endpoint")` makes a store mirror a remote endpoint with real-time
 per-row push (diff-by-identity) instead of `localStorage`; feed-mode stores are read-only.
-For views Eddy can't express, `(panel name :mount "js.fn")` hands a pane to your own
-JavaScript, and generated apps expose a `window.eddy` bus (ready signal, selection, feed
-deltas) so mounted panes share the app's state. Working examples: `web/demo/fleet.eddy`
-(a live agent observatory) and `web/demo/schema.eddy`.
+For views Wake can't express, `(panel name :mount "js.fn")` hands a pane to your own
+JavaScript, and generated apps expose a `window.wake` bus (ready signal, selection, feed
+deltas) so mounted panes share the app's state. Working examples: `web/demo/fleet.wake`
+(a live agent observatory) and `web/demo/schema.wake`.
 
 ## Claim-backed store
 
@@ -85,13 +85,13 @@ log. Its own header comment is the source of truth for the semantics.
 
 ```
 cd web
-bin/eddy-compile demo/tracker.eddy out/app.js   # compile the compiler, then build one app
-bin/eddy-compile                                 # (no args) just rebuild compiler modules
+bin/wake-compile demo/tracker.wake out/app.js   # compile the compiler, then build one app
+bin/wake-compile                                 # (no args) just rebuild compiler modules
 npx playwright test                              # run the suites under tests/
 node --test runtime/claim-store.test.mjs         # claim-store semantics
 ```
 
-`eddy-compile` self-hosts: it compiles the `.bjs` compiler sources to JS (via Beagle — a bun
+`wake-compile` self-hosts: it compiles the `.bjs` compiler sources to JS (via Beagle — a bun
 fast path, else Racket via the flake), then runs them. It picks the toolchain at runtime; you
 don't choose.
 
@@ -100,7 +100,7 @@ don't choose.
 The stage *shape* is stable; the exact module roster is whatever `ls web/compiler/` shows.
 
 ```
-.eddy → parse (sexpr) → read to IR → expand views → CHECK graph → project to N targets
+.wake → parse (sexpr) → read to IR → expand views → CHECK graph → project to N targets
 ```
 
 The checker (`compiler/graph.bjs`) is the chokepoint: every emitter consumes the same checked
@@ -112,8 +112,8 @@ graph, which is why the projections stay consistent.
 
 ```
 web/compiler/   the compiler, self-hosted in Beagle/JS (.bjs)
-web/bin/        eddy-compile (build entry, all targets) + helpers
-web/demo/       example .eddy sources — the canonical, runnable syntax reference
+web/bin/        wake-compile (build entry, all targets) + helpers
+web/demo/       example .wake sources — the canonical, runnable syntax reference
 web/runtime/    claim-backed drop-in store
 web/tests/      Playwright suites
 web/public-js/  generated frontend artifacts

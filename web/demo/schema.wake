@@ -1,13 +1,13 @@
 (ns schema.editor)
 
-;; SCHEMA EDITOR — the fram predicate vocabulary AS an eddy view. "Edit the graph,
+;; SCHEMA EDITOR — the fram predicate vocabulary AS an wake view. "Edit the graph,
 ;; not text": each predicate is a row; cardinality (single|multi) + value_kind
 ;; (ref|literal) are the editable schema facts. The store MIRRORS framescope's
 ;; bridge /schema endpoint (start it: ~/code/framescope/bin/framescope, http :8088,
 ;; default target board daemon :7977). Field names mirror the /schema JSON keys
 ;; verbatim so load() needs no projection. Read-only feed; the WRITE-BACK rides the
 ;; (panel …) escape hatch below — feed-mode stores are read-only by design, so the
-;; cardinality/value_kind edit form is a shell-owned pane sharing window.eddy.
+;; cardinality/value_kind edit form is a shell-owned pane sharing window.wake.
 (persist :feed "http://localhost:8088/schema")
 
 (theme
@@ -51,11 +51,11 @@
   :add-form [name] :title "Schema Editor"
   :select predicate-detail)
 
-;; WRITE-BACK PANE — the editable cardinality/value_kind form. eddy carves a
-;; container and hands it { el, eddy }; the pane reads window.eddy.selection (the
+;; WRITE-BACK PANE — the editable cardinality/value_kind form. wake carves a
+;; container and hands it { el, wake }; the pane reads window.wake.selection (the
 ;; clicked predicate) + the shared /schema feed, renders <select>s, and POSTs the
 ;; change to the bridge's /schema endpoint. A successful POST triggers the feed's
 ;; re-fetch (the WS commit + 15s backstop), so the row + detail re-render with the
-;; saved value. This is the eddy SEAM: declarative list/detail/select + an
+;; saved value. This is the wake SEAM: declarative list/detail/select + an
 ;; escape-hatch pane for the mutation feed-mode can't express.
 (panel schema-edit :mount "schemaEditor.mountEditor")

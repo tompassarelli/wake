@@ -1,4 +1,4 @@
-(ns eddy.crm-auth)
+(ns wake.crm-auth)
 (persist :server)
 
 (defstate ContactStatus [:active -> :inactive :archived]

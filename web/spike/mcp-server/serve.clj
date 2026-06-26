@@ -9,14 +9,14 @@
 ;;
 ;; Protocol served (a minimal subset of MCP over JSON-RPC 2.0, newline-delimited):
 ;;   initialize           -> server capabilities
-;;   tools/list           -> the eddy emit-mcp catalog's tools
+;;   tools/list           -> the wake emit-mcp catalog's tools
 ;;   tools/call {name,arguments} -> dispatch to the claim handler, MCP result content
 ;;
 ;; Run:    bb -cp ~/code/fram/out spike/mcp-server/serve.clj   (reads requests on stdin)
 ;; Smoke:  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | bb -cp ~/code/fram/out serve.clj
 (def here (.getParent (java.io.File. (.getCanonicalPath (java.io.File. *file*)))))
 (load-file (str here "/host.clj"))
-(require '[eddy.spike.mcp-server.host :as h]
+(require '[wake.spike.mcp-server.host :as h]
          '[cheshire.core :as json]
          '[clojure.string :as str]
          '[clojure.java.io :as io])
@@ -64,7 +64,7 @@
       {:jsonrpc "2.0" :id id
        :result {:protocolVersion "2024-11-05"
                 :capabilities {:tools {}}
-                :serverInfo {:name "eddy-mcp-claim-host" :version "0.1"}}}
+                :serverInfo {:name "wake-mcp-claim-host" :version "0.1"}}}
       (= m "tools/list")
       {:jsonrpc "2.0" :id id :result {:tools (tools-list-payload)}}
       (= m "tools/call")

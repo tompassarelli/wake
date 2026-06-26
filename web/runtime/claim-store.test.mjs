@@ -1,5 +1,5 @@
 // Node test for the claim-backed gen-store drop-in. The JS analog of
-// web/spike/eddy-on-claims/store.clj: proves CRUD + intrinsic history +
+// web/spike/wake-on-claims/store.clj: proves CRUD + intrinsic history +
 // non-destructive delete + durable persist/reload, through the SAME interface
 // gen-store exposes, so it is a genuine drop-in.  run:  node claim-store.test.mjs
 import { claimStore } from "./claim-store.js";

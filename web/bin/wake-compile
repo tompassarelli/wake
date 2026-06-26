@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# eddy-compile: compile .bjs sources and wire them as ES modules.
+# wake-compile: compile .bjs sources and wire them as ES modules.
 # Produces dist/ with importable modules + CLI entry point.
 #
 # Usage:
-#   bin/eddy-compile                        # compile all modules
-#   bin/eddy-compile demo/crm-v2.eddy      # compile + build one app (JS)
-#   bin/eddy-compile --sql demo/crm-v2.eddy  # emit SQL DDL
-#   bin/eddy-compile --server demo/crm-v2.eddy # emit server.js
-#   bin/eddy-compile --mcp demo/crm-v2.eddy    # emit MCP tool catalog (JSON)
-#   bin/eddy-compile --all demo/crm-v2.eddy out/ # full stack
+#   bin/wake-compile                        # compile all modules
+#   bin/wake-compile demo/crm-v2.wake      # compile + build one app (JS)
+#   bin/wake-compile --sql demo/crm-v2.wake  # emit SQL DDL
+#   bin/wake-compile --server demo/crm-v2.wake # emit server.js
+#   bin/wake-compile --mcp demo/crm-v2.wake    # emit MCP tool catalog (JSON)
+#   bin/wake-compile --all demo/crm-v2.wake out/ # full stack
 
 set -euo pipefail
 
-eddy_root="$(cd "$(dirname "$0")/.." && pwd)"
-compiler="$eddy_root/compiler"
+wake_root="$(cd "$(dirname "$0")/.." && pwd)"
+compiler="$wake_root/compiler"
 
 BEAGLE_COMPILER="${BEAGLE_COMPILER:-$HOME/code/beagle/self-host/dist/compiler.cjs}"
 if [[ -f "$BEAGLE_COMPILER" ]] && command -v bun >/dev/null 2>&1; then
   compile() { bun run "$BEAGLE_COMPILER" "$1"; }
   echo "using beagle-bun compiler" >&2
 else
-  if [[ -z "${IN_NIX_SHELL:-}" ]] && [[ -f "$eddy_root/flake.nix" ]]; then
-    exec nix develop "$eddy_root" --command "$0" "$@"
+  if [[ -z "${IN_NIX_SHELL:-}" ]] && [[ -f "$wake_root/flake.nix" ]]; then
+    exec nix develop "$wake_root" --command "$0" "$@"
   fi
   compile() { racket "$1"; }
   echo "using racket compiler" >&2
@@ -57,7 +57,7 @@ done
 
 # graph.js — fix imports, add export
 {
-  sed "s|from './eddy/ir.js';|from './ir.js';|" \
+  sed "s|from './wake/ir.js';|from './ir.js';|" \
     "$dist/graph.js.tmp"
   echo ""
   echo "export { check_program, strip_colon, capitalize, titlecase, GField, GEntity, FkEdge, StateMachine, CheckedGraph };"
@@ -81,7 +81,7 @@ done
 
 # emit-sql.js — fix imports, add export
 {
-  sed "s|from './eddy/graph.js';|from './graph.js';|" \
+  sed "s|from './wake/graph.js';|from './graph.js';|" \
     "$dist/emit-sql.js.tmp"
   echo ""
   echo "export { gen_sql, gen_migration };"
@@ -89,7 +89,7 @@ done
 
 # emit-server.js — fix imports, add export
 {
-  sed "s|from './eddy/graph.js';|from './graph.js';|; s|from './eddy/js-ast.js';|from './js-ast.js';|" \
+  sed "s|from './wake/graph.js';|from './graph.js';|; s|from './wake/js-ast.js';|from './js-ast.js';|" \
     "$dist/emit-server.js.tmp"
   echo ""
   echo "export { gen_server };"
@@ -97,7 +97,7 @@ done
 
 # reader.js — fix imports, add export
 {
-  sed "s|from './eddy/sexpr.js';|from './sexpr.js';|; s|from './eddy/ir.js';|from './ir.js';|" \
+  sed "s|from './wake/sexpr.js';|from './sexpr.js';|; s|from './wake/ir.js';|from './ir.js';|" \
     "$dist/reader.js.tmp"
   echo ""
   echo "export { parse_program };"
@@ -105,7 +105,7 @@ done
 
 # emit-test.js — fix imports, add export
 {
-  sed "s|from './eddy/graph.js';|from './graph.js';|" \
+  sed "s|from './wake/graph.js';|from './graph.js';|" \
     "$dist/emit-test.js.tmp"
   echo ""
   echo "export { gen_tests };"
@@ -113,7 +113,7 @@ done
 
 # emit-nix.js — fix imports, add export
 {
-  sed "s|from './eddy/graph.js';|from './graph.js';|" \
+  sed "s|from './wake/graph.js';|from './graph.js';|" \
     "$dist/emit-nix.js.tmp"
   echo ""
   echo "export { gen_nix };"
@@ -121,7 +121,7 @@ done
 
 # codegen.js — fix imports, add export
 {
-  sed "s|from './eddy/ir.js';|from './ir.js';|; s|from './eddy/graph.js';|from './graph.js';|; s|from './eddy/ui.js';|from './ui.js';|" \
+  sed "s|from './wake/ir.js';|from './ir.js';|; s|from './wake/graph.js';|from './graph.js';|; s|from './wake/ui.js';|from './ui.js';|" \
     "$dist/codegen.js.tmp"
   echo ""
   echo "export { gen_program_bang };"
@@ -129,7 +129,7 @@ done
 
 # emit-claims-ir.js — fix imports, add export
 {
-  sed "s|from './eddy/graph.js';|from './graph.js';|" \
+  sed "s|from './wake/graph.js';|from './graph.js';|" \
     "$dist/emit-claims-ir.js.tmp"
   echo ""
   echo "export { gen_claims };"
@@ -137,7 +137,7 @@ done
 
 # emit-mcp.js — fix imports, add export
 {
-  sed "s|from './eddy/graph.js';|from './graph.js';|" \
+  sed "s|from './wake/graph.js';|from './graph.js';|" \
     "$dist/emit-mcp.js.tmp"
   echo ""
   echo "export { gen_mcp };"
@@ -228,21 +228,21 @@ process.stdout.write(gen_mcp(prog));
 
 if [[ $# -ge 1 && "$1" == "--all" ]]; then
   shift
-  eddy_file="$1"
+  wake_file="$1"
   out_dir="${2:-.}"
   mkdir -p "$out_dir"
-  emit_js "$eddy_file" "$out_dir/app.js"
-  emit_sql "$eddy_file" "$out_dir/schema.sql"
-  emit_server "$eddy_file" "$out_dir/server.js"
-  emit_test "$eddy_file" "$out_dir/tests.js"
-  emit_nix "$eddy_file" "$out_dir/flake.nix"
-  emit_claims "$eddy_file" "$out_dir/app.claims"
-  emit_mcp "$eddy_file" "$out_dir/mcp.json"
-  cp "$eddy_root/public-js/index.html" "$out_dir/" 2>/dev/null || true
-  cp "$eddy_root/public-js/dist.css" "$out_dir/" 2>/dev/null || true
-  "$eddy_root/bin/eddy-lint-output" "$out_dir/server.js" >&2
-  "$eddy_root/bin/eddy-lint-output" "$out_dir/app.js" >&2
-  echo "$eddy_file -> $out_dir/ (app.js + schema.sql + server.js + tests.js + flake.nix)" >&2
+  emit_js "$wake_file" "$out_dir/app.js"
+  emit_sql "$wake_file" "$out_dir/schema.sql"
+  emit_server "$wake_file" "$out_dir/server.js"
+  emit_test "$wake_file" "$out_dir/tests.js"
+  emit_nix "$wake_file" "$out_dir/flake.nix"
+  emit_claims "$wake_file" "$out_dir/app.claims"
+  emit_mcp "$wake_file" "$out_dir/mcp.json"
+  cp "$wake_root/public-js/index.html" "$out_dir/" 2>/dev/null || true
+  cp "$wake_root/public-js/dist.css" "$out_dir/" 2>/dev/null || true
+  "$wake_root/bin/wake-lint-output" "$out_dir/server.js" >&2
+  "$wake_root/bin/wake-lint-output" "$out_dir/app.js" >&2
+  echo "$wake_file -> $out_dir/ (app.js + schema.sql + server.js + tests.js + flake.nix)" >&2
 elif [[ $# -ge 1 && "$1" == "--test" ]]; then
   shift; emit_test "$1" "${2:-/dev/stdout}"
   [[ "${2:-}" ]] && echo "$1 -> $2 (tests)" >&2
@@ -274,7 +274,7 @@ elif [[ $# -ge 1 && "$1" == "--mcp" ]]; then
   [[ "${2:-}" ]] && echo "$1 -> $2 (mcp)" >&2
 elif [[ $# -ge 1 && "$1" == "--server" ]]; then
   shift; emit_server "$1" "${2:-/dev/stdout}"
-  [[ "${2:-}" ]] && "$eddy_root/bin/eddy-lint-output" "$2" >&2
+  [[ "${2:-}" ]] && "$wake_root/bin/wake-lint-output" "$2" >&2
   [[ "${2:-}" ]] && echo "$1 -> $2 (server)" >&2
 elif [[ $# -ge 1 ]]; then
   emit_js "$1" "${2:-/dev/stdout}"
@@ -283,7 +283,7 @@ fi
 
 # The trailing `[[ "${2:-}" ]] && echo ... >&2` in each branch above prints an advisory
 # message only when an output PATH was given. With no $2 (the stdout-redirect case, e.g.
-# `eddy-compile app.eddy > out.js` — exactly how CI invokes it), that bare test returns 1
+# `wake-compile app.wake > out.js` — exactly how CI invokes it), that bare test returns 1
 # and, as the script's last statement, becomes the script's exit code under `set -e` —
 # failing callers even though emit succeeded. Real emit failures abort earlier (set -e at
 # the emit_* call), so reaching here means success. Make that explicit:

@@ -1,5 +1,5 @@
-(ns eddy.projects)
-(persist :localStorage "eddy-projects")
+(ns wake.projects)
+(persist :localStorage "wake-projects")
 
 (defstate TaskStatus [:todo -> :in-progress :done]
                      [:in-progress -> :todo :done :blocked]

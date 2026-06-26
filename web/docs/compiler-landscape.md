@@ -4,11 +4,11 @@ Research from reading the source code of SolidJS, Svelte 5, Marko,
 Wasp, and Electric Clojure. All projects cloned to ~/code/ as of
 2026-05-20 for study. This document describes ideas and techniques
 in our own words with attribution — no code is reproduced or copied
-into Eddy.
+into Wake.
 
 ## What we studied and why
 
-| Project | License | Why it matters to Eddy |
+| Project | License | Why it matters to Wake |
 |---------|---------|------------------------|
 | Marko (eBay) | MIT | Per-input apply functions, flat scope objects, walk-based DOM traversal |
 | SolidJS | MIT | Fine-grained reactive graph algorithm, conditional/list compilation |
@@ -30,7 +30,7 @@ parent's `text` prop changes, only the `$text` function runs — the
 expression in its own reactive effect. Svelte 5 generates per-rune
 update code via write-version tracking.
 
-**Eddy already does this.** Our codegen emits per-attribute update
+**Wake already does this.** Our codegen emits per-attribute update
 functions (`update.name(v)`, `update.email(v)`) that directly mutate
 the specific DOM node. This is validated by three independent
 production frameworks arriving at the same design.
@@ -49,11 +49,11 @@ hydration. Marko even encodes accessor names as single characters
 
 SolidJS uses closures (each `createRoot` gets its own closure scope).
 Svelte 5 uses Proxy-wrapped state objects. The Marko approach is the
-most radical and the most relevant to Eddy because we're doing
+most radical and the most relevant to Wake because we're doing
 whole-program compilation — we control the entire output and can choose
 the representation.
 
-**Eddy implication:** Our generated components currently use closures
+**Wake implication:** Our generated components currently use closures
 (the `el_0`, `el_1` variables inside each `_create` function). For
 Phase 2 components that need cross-boundary updates, consider a flat
 scope object per component instance. This would make it easier to:
@@ -76,7 +76,7 @@ depends on both B and C, and both B and C depend on D, changing D
 marks B and C as Dirty but marks A as only Check. A doesn't recompute
 until it pulls from B and C and confirms the value actually changed.
 
-**Eddy implication:** We don't have a runtime reactive graph — our
+**Wake implication:** We don't have a runtime reactive graph — our
 update paths are compiled away. But derived fields with diamond
 dependencies (field X depends on fields A and B, which both depend on
 field C) would benefit from this pattern. Currently derived fields
@@ -85,18 +85,18 @@ chains, the three-state model prevents redundant DOM updates.
 
 ### 4. Central IR → multiple generators is proven
 
-Wasp's `AppSpec` is exactly analogous to Eddy's entity graph: a
+Wasp's `AppSpec` is exactly analogous to Wake's entity graph: a
 single intermediate representation consumed by independent generators
 (DbGenerator, ServerGenerator, SdkGenerator, WebAppGenerator).
 Electric Clojure builds a triple-store DAG that gets sliced into
-client and server code. Both validate Eddy's architecture.
+client and server code. Both validate Wake's architecture.
 
 Wasp's generators are pure functions: `AppSpec → [FileDraft]`. File
 drafts are abstract (template, copy, text) and written atomically.
 This prevents partial builds and makes generators independently
 testable.
 
-**Eddy already does this** — our emitters are pure functions from
+**Wake already does this** — our emitters are pure functions from
 entity graph to string output. The file-draft pattern could be useful
 if we add error recovery to the build.
 
@@ -111,7 +111,7 @@ All three avoid `document.createElement` for static structure because
 cloning a pre-parsed template is faster than building the DOM
 imperatively.
 
-**Eddy implication:** We currently emit `document.createElement` for
+**Wake implication:** We currently emit `document.createElement` for
 everything. Template cloning would be a straightforward optimization:
 extract the static DOM structure into a template string, clone it,
 then walk the cloned tree to find the dynamic nodes. The walk approach
@@ -140,7 +140,7 @@ of inactive branches, create new ones).
 **Marko** — conditional tags use scope-based branch tracking. The
 scope itself carries the branch state.
 
-**Eddy implication for Phase 2:** Our `(when condition body)` should:
+**Wake implication for Phase 2:** Our `(when condition body)` should:
 1. Wrap the condition in a derived/memo to avoid re-evaluating it on
    every upstream change
 2. Create/destroy the branch DOM and its reactive scope on transitions
@@ -164,7 +164,7 @@ position, updates values in-place via signals.
 **Svelte 5** — `{#each}` uses a reconciliation algorithm with
 configurable keying. Supports animated transitions on add/remove.
 
-**Eddy implication for Phase 2:** For `(each entity-store row-component)`:
+**Wake implication for Phase 2:** For `(each entity-store row-component)`:
 - Each row should get its own scope (like SolidJS createRoot)
 - Use entity ID as the key (natural identity)
 - On store changes, only create/destroy/reorder affected rows
@@ -188,11 +188,11 @@ so both peers agree on "what function is at index 0."
 the AppSpec to separate generators. Frontend and backend are fully
 separate codegen passes.
 
-**Eddy** — also explicit: the entity graph feeds independent emitters.
+**Wake** — also explicit: the entity graph feeds independent emitters.
 Each emitter reads the same graph but produces completely different
 output. No inference needed because the emitters know their target.
 
-Electric's approach is fascinating but overkill for Eddy. Our entity
+Electric's approach is fascinating but overkill for Wake. Our entity
 graph already captures everything both sides need. We don't need
 inference because we're not compiling arbitrary code — we're compiling
 declarations.
@@ -255,7 +255,7 @@ time tracing handles.
 
 Every framework maintains a runtime dependency graph with subscription
 management, cleanup, disposal, etc. This is the framework runtime that
-Eddy eliminates. Our compile-time tracing means we know exactly which
+Wake eliminates. Our compile-time tracing means we know exactly which
 DOM node to update for each attribute change — no runtime bookkeeping.
 
 Don't add a reactive runtime. The whole point is that the compiler
@@ -271,10 +271,10 @@ events are simpler and more predictable.
 
 ### Inferred client/server boundary (Electric)
 
-Elegant but unnecessary for Eddy. Our entity graph is the boundary —
+Elegant but unnecessary for Wake. Our entity graph is the boundary —
 the same declaration feeds both sides. No inference needed.
 
-## Where Eddy is genuinely novel
+## Where Wake is genuinely novel
 
 After reading five compiler codebases:
 
@@ -285,7 +285,7 @@ After reading five compiler codebases:
 
 2. **No other project achieves zero runtime with compiled per-attribute
    reactivity.** SolidJS has a reactive runtime (~7KB). Svelte has one
-   (~15KB). Marko has one. Eddy's output is self-contained — no
+   (~15KB). Marko has one. Wake's output is self-contained — no
    imports, no framework, no runtime overhead.
 
 3. **Brownfield DB mapping as a compiler concern.** No framework treats
@@ -294,7 +294,7 @@ After reading five compiler codebases:
    delegates to an ORM layer.
 
 4. **The entity graph IS the IR.** Other projects have separate
-   concepts for "data model" and "compiler IR." In Eddy, the entity
+   concepts for "data model" and "compiler IR." In Wake, the entity
    graph is both — attributes, types, constraints, FK relationships,
    state machines, all in one graph that every emitter reads.
 
@@ -302,7 +302,7 @@ After reading five compiler codebases:
 
 "Graph the meaning. Compile the motion."
 
-Eddy's entity graph is a specialized instance of Claim Normal Form's
+Wake's entity graph is a specialized instance of Claim Normal Form's
 general claim graph. The entity graph captures meaning (relationships,
 constraints, types, component bindings). The emitters compile the
 motion (DOM operations, SQL queries, HTTP handlers, test assertions).
@@ -310,7 +310,7 @@ motion (DOM operations, SQL queries, HTTP handlers, test assertions).
 The architectural move is the same one CNF describes for programs
 generally: canonical representation in the graph, text/code as
 projection. Where CNF says `graph → Racket | TypeScript | docs`,
-Eddy says `entity graph → app.js | server.js | schema.sql`.
+Wake says `entity graph → app.js | server.js | schema.sql`.
 
 This isn't coincidence — it's the same insight applied at different
 scales.
@@ -340,7 +340,7 @@ Based on this research:
 
 5. **Don't add a runtime.** The compile-time approach is validated by
    being the direction all these frameworks are moving toward — but
-   none of them have fully eliminated the runtime yet. Eddy has.
+   none of them have fully eliminated the runtime yet. Wake has.
    Keep it.
 
 ---

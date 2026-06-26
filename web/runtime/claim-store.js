@@ -1,4 +1,4 @@
-// claim-store.js — a CLAIM-BACKED drop-in for eddy's generated gen-store (ADR 0001,
+// claim-store.js — a CLAIM-BACKED drop-in for wake's generated gen-store (ADR 0001,
 // the apps pillar). Same interface (add/get/update/remove/all/snapshot/load/watch) so
 // the rest of a generated app works unchanged — but internally it is an append-only
 // CLAIM LOG (subject predicate object) with supersession, not a mutable Map of objects.
@@ -8,7 +8,7 @@
 //   - delete is a tombstone claim — non-destructive.
 //   - snapshot() returns the LOG, so localStorage persists history (not just current state);
 //     load() replays it. (persist :localStorage) keeps the audit trail across reloads.
-// This is the JS sibling of web/spike/eddy-on-claims/store.clj (which proves the same
+// This is the JS sibling of web/spike/wake-on-claims/store.clj (which proves the same
 // semantics against the real Fram engine). One store per entity type, exactly like gen-store.
 
 export function claimStore() {

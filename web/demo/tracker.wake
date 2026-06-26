@@ -1,5 +1,5 @@
-(ns eddy.tracker)
-(persist :localStorage "eddy-tracker")
+(ns wake.tracker)
+(persist :localStorage "wake-tracker")
 
 (entity task
   (title : String)

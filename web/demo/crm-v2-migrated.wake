@@ -1,11 +1,5 @@
-(ns eddy.app)
-(persist :localStorage "eddy-crm-v2-spike")
-
-;; Scope-correctness spike fixture: identical to crm-v2 EXCEPT the note entity
-;; gains a `company` field — a DECOY with the same leaf name as contact.company,
-;; on a different entity, that NOTHING derives from. A bare-leaf-name (regex-
-;; style) blast-radius will drag note.company in when contact.company changes;
-;; the scope-correct claim-graph closure must leave it out.
+(ns wake.crm-v2-migrated)
+(persist :server)
 
 (theme
   :colors (background "oklch(98% 0.002 240)"
@@ -26,30 +20,35 @@
   (name : String)
   (email : String :unique identity)
   (company : String)
+  (phone : String)
   (status : ContactStatus)
   (display-name : Derived (str name " @ " company)))
 
 (entity note
   (content : String)
   (contact : Ref)
-  (company : String)
   (created-at : String))
+
+(entity deal
+  (title : String)
+  (value : String)
+  (contact : Ref))
 
 (list-detail contact
   :title "Contacts"
-  :columns [name email company status]
+  :columns [name email company phone status]
   :search [name email company]
   :detail
     (tabs
       (tab "Overview"
-        (fields [name email company status]))
+        (fields [name email company phone status]))
       (tab "Notes"
         (related note :query [:find ?n :where [?n :note/contact ?e]]
                       :display [content created-at]))))
 
 (form add-contact
   :entity contact
-  :fields [name email company status]
+  :fields [name email company phone]
   :required [name email]
   :submit-label "Add Contact"
   :on-success :clear)

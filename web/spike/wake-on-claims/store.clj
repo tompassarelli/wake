@@ -1,6 +1,6 @@
-;; eddy-on-claims spike — gen-store's CRUD seam, backed by a Fram CLAIM store.
+;; wake-on-claims spike — gen-store's CRUD seam, backed by a Fram CLAIM store.
 ;;
-;; The greenfield thesis (ADR 0001): an eddy app's DATA should live as claims, not
+;; The greenfield thesis (ADR 0001): an wake app's DATA should live as claims, not
 ;; SQL. This prototypes the claim-backed persistence runtime that would sit where
 ;; emit-sql/emit-server sit, mirroring the JS gen-store interface (add/update/remove/
 ;; all/load) but making EVERY operation a claim operation. bb renting fram/out — the
@@ -90,7 +90,7 @@
 
 ;; ---- gate -------------------------------------------------------------------------
 (defn title-of [e] (field e "title"))
-(println "=== eddy-on-claims: the todo app's data as Fram claims (no SQL) ===\n")
+(println "=== wake-on-claims: the todo app's data as Fram claims (no SQL) ===\n")
 (println "live tasks (all()):        " (mapv title-of (all-tasks)))
 (println "spec.status (live):        " (field spec "status"))
 (println "spec.status HISTORY:       " (history spec "status") "  <- emit-sql UPDATE would keep only [done]")
@@ -112,7 +112,7 @@
 ;; ---- DURABILITY: persist (dump) -> reload into a FRESH store -> data, history, and
 ;;      reasoning all survive. This is what (persist :localStorage) needs — but claims
 ;;      give it as a real backend that ALSO retains history across the reload boundary. ----
-(def dump-file "/tmp/eddy-todo.claims-dump.edn")
+(def dump-file "/tmp/wake-todo.claims-dump.edn")
 (spit dump-file (pr-str (c/dump-store ctx)))                 ; the "save" (localStorage/SQL analog)
 (def dumpv (edn/read-string (slurp dump-file)))
 (def ctx2 (c/new-store))
@@ -141,6 +141,6 @@
    ["DURABLE: history (todo/doing/done) persisted in dump"   (>= spec-status-persisted 3)]])
 (doseq [[nm ok] reload-checks] (println (if ok "  [PASS] " "  [FAIL] ") nm))
 (if (every? second (concat checks reload-checks))
-  (do (println "\nGATE PASS — an eddy app's data lives as claims: CRUD + history + scope-correct reasoning,")
+  (do (println "\nGATE PASS — an wake app's data lives as claims: CRUD + history + scope-correct reasoning,")
       (println "            durable across persist/reload. All free; no SQL, no schema, no migrations.") (System/exit 0))
-  (do (println "\nGATE FAIL — eddy-on-claims does not hold on this fixture.") (System/exit 1)))
+  (do (println "\nGATE FAIL — wake-on-claims does not hold on this fixture.") (System/exit 1)))

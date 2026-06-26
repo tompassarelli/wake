@@ -1,4 +1,4 @@
-(ns eddy.crm-server)
+(ns wake.crm-server)
 (persist :server)
 
 (theme

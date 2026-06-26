@@ -3,7 +3,7 @@
 ;; BEAGLE (.bclj) instead of raw Clojure. Measures whether the periphery (engine-glue /
 ;; spikes) can be dogfooded: does beagle resolve fram's modules + type the claim API, or
 ;; force Any everywhere? Does the .bclj then become chartroom-refactorable?
-(ns eddy.spike.store-bclj-probe)
+(ns wake.spike.store-bclj-probe)
 (require fram.cnf :as c)
 (require fram.datalog :as d)
 

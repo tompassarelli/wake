@@ -1,5 +1,5 @@
-;; App-level blast-radius scope-correctness gate (eddy x Beagle unified plan, move 1).
-;; Loads eddy's app-claim graph into a Fram store and derives the blast radius of a
+;; App-level blast-radius scope-correctness gate (wake x Beagle unified plan, move 1).
+;; Loads wake's app-claim graph into a Fram store and derives the blast radius of a
 ;; field change via a transitive reaches-closure over `dep` edges. Asserts the result
 ;; is SCOPE-CORRECT: it includes the genuine dependent and EXCLUDES a same-leaf-named
 ;; decoy on an unrelated entity (which a bare-name/regex pass wrongly drags in).

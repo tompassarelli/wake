@@ -1,7 +1,7 @@
 #lang beagle/js
-(ns eddy.codegen)
-(require eddy.graph :as graph)
-(require eddy.ui :as ui)
+(ns wake.codegen)
+(require wake.graph :as graph)
+(require wake.ui :as ui)
 
 ;; Codegen: Checked Entity Graph → self-contained JavaScript IIFE.
 ;; Produces direct-DOM code: entity stores, compiled update paths,
@@ -933,7 +933,7 @@ function startFeed() {
   _feedTimer = setInterval(loadFromFeed, 15000);   // slow backstop for any dropped commit
 }
 
-// --- window.eddy: the cross-surface bus (SEAM with the shell). The shell owns the outer
+// --- window.wake: the cross-surface bus (SEAM with the shell). The shell owns the outer
 // layout and reads our stores/selection/feed by contract. Selection speaks IDENTITY (uuid);
 // we map uuid->eid at our boundary so neither side leaks its internal id. ---
 const _feedSubs = new Set();
@@ -941,14 +941,14 @@ let _selectedUuid = null;
 
 function _emitFeedUpdate(changed) {
   const payload = { name: _feedStoreName, changed };     // { name, changed:[uuid,...] } — the delta we already diffed
-  for (const cb of _feedSubs) { try { cb(payload); } catch (err) { console.error('eddy feed subscriber threw:', err); } }
+  for (const cb of _feedSubs) { try { cb(payload); } catch (err) { console.error('wake feed subscriber threw:', err); } }
 }
 
-(function installEddyBus() {
-  const eddy = (window.eddy = window.eddy || {});
-  eddy.stores = eddy.stores || {};
-  eddy.stores[_feedStoreName] = _feedStore;
-  eddy.selection = eddy.selection || {
+(function installWakeBus() {
+  const wake = (window.wake = window.wake || {});
+  wake.stores = wake.stores || {};
+  wake.stores[_feedStoreName] = _feedStore;
+  wake.selection = wake.selection || {
     // uuid -> eid at our boundary. No-op (false) if the agent isn't indexed yet; never throws.
     set(uuid) {
       if (uuid == null) { _selectedUuid = null; return false; }
@@ -959,24 +959,24 @@ function _emitFeedUpdate(changed) {
     },
     get() { return _selectedUuid; },                       // null cleanly when nothing is selected
   };
-  eddy.feed = eddy.feed || {};
-  eddy.feed.name = _feedStoreName;
-  eddy.feed.onUpdate = (cb) => { if (typeof cb === 'function') _feedSubs.add(cb); return () => _feedSubs.delete(cb); };
+  wake.feed = wake.feed || {};
+  wake.feed.name = _feedStoreName;
+  wake.feed.onUpdate = (cb) => { if (typeof cb === 'function') _feedSubs.add(cb); return () => _feedSubs.delete(cb); };
   // Ready signal: resolve a promise AND fire an event — a subscriber loading before OR after
   // us both win, with no guarding for undefined.
-  window.eddyReady = Promise.resolve(eddy);
-  try { window.dispatchEvent(new CustomEvent('eddy:ready', { detail: eddy })); } catch (_) {}
+  window.wakeReady = Promise.resolve(wake);
+  try { window.dispatchEvent(new CustomEvent('wake:ready', { detail: wake })); } catch (_) {}
 })();
 
 // Bridge the view's internal eid → bus identity. The view calls this on every selectItem;
 // we resolve the entity's identity field and push it to the shared selection (custom panes
-// read eddy.selection.get()). eid===null clears. No id field ⇒ no-op (bus stays uuid-clean).
-function _eddyPushSelection(eid) {
-  if (!window.eddy || !window.eddy.selection) return;
-  if (eid == null) { window.eddy.selection.set(null); return; }
+// read wake.selection.get()). eid===null clears. No id field ⇒ no-op (bus stays uuid-clean).
+function _wakePushSelection(eid) {
+  if (!window.wake || !window.wake.selection) return;
+  if (eid == null) { window.wake.selection.set(null); return; }
   const ent = _feedStore.get ? _feedStore.get(eid) : null;
   const idv = (ent && _feedIdField) ? ent[_feedIdField] : null;
-  window.eddy.selection.set(idv == null ? null : idv);
+  window.wake.selection.set(idv == null ? null : idv);
 }
 "#)
 
@@ -989,7 +989,7 @@ function _eddyPushSelection(eid) {
 
 ;; --- Theme: (theme :colors (background "oklch(...)" ...)) sets CSS custom properties on
 ;; :root so the utility classes (text-foreground, bg-background, …) resolve. Emitted as an
-;; injected <style> in init so a no-build deploy (eddy app dropped into a static host) is
+;; injected <style> in init so a no-build deploy (wake app dropped into a static host) is
 ;; self-contained — the var values ride in the JS, the utility→var mapping rides in dist.css.
 ;; (Was parsed-and-threaded but never emitted — a silent no-op; this closes that.) ---
 (defn gen-theme-style [(theme :- Any)] :- String
@@ -1003,14 +1003,14 @@ function _eddyPushSelection(eid) {
            "    document.head.appendChild(_themeStyle); }\n"))))
 
 ;; --- Escape-hatch panels: mount shell-owned custom panes (Cytoscape/stream) into named
-;; containers carved from the eddy view. The pane fn receives { el, eddy } so it shares the
+;; containers carved from the wake view. The pane fn receives { el, wake } so it shares the
 ;; same feed (feed.onUpdate) + selection as the entity-view. mount-fn is a dotted path
 ;; resolved off window at runtime; a missing fn warns and no-ops (never throws). ---
 (defn gen-panels-mount [(panels :- Any) (parent-var :- String)] :- String
   (if (empty? panels) ""
     (str
-      "\n  // ── Escape-hatch panels (shell-owned custom panes; share window.eddy) ──────\n"
-      "  const _eddyResolve = (path) => path.split('.').reduce((o, k) => (o == null ? null : o[k]), window);\n"
+      "\n  // ── Escape-hatch panels (shell-owned custom panes; share window.wake) ──────\n"
+      "  const _wakeResolve = (path) => path.split('.').reduce((o, k) => (o == null ? null : o[k]), window);\n"
       (.join
         (mapv (fn [p]
           (let [ref (id->ref (.-name p))
@@ -1018,11 +1018,11 @@ function _eddyPushSelection(eid) {
                 mfn (.-mount-fn p)]
             (str "  const panel_" ref " = document.createElement('div');\n"
                  "  panel_" ref ".id = " (q dom-id) ";\n"
-                 "  panel_" ref ".className = 'eddy-panel';\n"
+                 "  panel_" ref ".className = 'wake-panel';\n"
                  "  " parent-var ".appendChild(panel_" ref ");\n"
-                 "  { const _fn = " (q mfn) " ? _eddyResolve(" (q mfn) ") : null;\n"
-                 "    if (typeof _fn === 'function') { try { _fn({ el: panel_" ref ", eddy: window.eddy || null }); } catch (err) { console.error('eddy: panel mount threw:', err); } }\n"
-                 "    else if (" (q mfn) ") console.warn('eddy: panel mount fn not found:', " (q mfn) "); }\n")))
+                 "  { const _fn = " (q mfn) " ? _wakeResolve(" (q mfn) ") : null;\n"
+                 "    if (typeof _fn === 'function') { try { _fn({ el: panel_" ref ", wake: window.wake || null }); } catch (err) { console.error('wake: panel mount threw:', err); } }\n"
+                 "    else if (" (q mfn) ") console.warn('wake: panel mount fn not found:', " (q mfn) "); }\n")))
           panels) ""))))
 
 ;; --- Server persistence (sync to server) ---
@@ -1447,7 +1447,7 @@ function _eddyPushSelection(eid) {
           "\n")]
     (str
       (if is-server "async function init() {\n" "function init() {\n")
-      "  const root = document.getElementById(window.EDDY_MOUNT_ID || 'app');\n"
+      "  const root = document.getElementById(window.WAKE_MOUNT_ID || 'app');\n"
       "\n"
       (.-code layout-result) "\n"
       "\n"
@@ -1674,7 +1674,7 @@ function _eddyPushSelection(eid) {
 
         init-open #r#"
           function init() {
-            const root = document.getElementById(window.EDDY_MOUNT_ID || 'app');
+            const root = document.getElementById(window.WAKE_MOUNT_ID || 'app');
             const container = document.createElement('div');
             container.className = 'flex flex-col h-screen';
 
@@ -1725,7 +1725,7 @@ function _eddyPushSelection(eid) {
               selectedEid = eid;
               // Push selection onto the shared bus (IDENTITY, not eid) so custom panes
               // (Cytoscape/stream) highlight in lockstep. Guarded: no-op when no feed bus.
-              if (typeof _eddyPushSelection === 'function') _eddyPushSelection(eid);
+              if (typeof _wakePushSelection === 'function') _wakePushSelection(eid);
               if (detailInst) { detailInst.destroy(); detailInst = null; }
               if (eid === null) { detailEmpty.style.display = ''; return; }
               detailEmpty.style.display = 'none';
@@ -1771,9 +1771,9 @@ function _eddyPushSelection(eid) {
         ]
 
     (str
-      "// Generated by eddy — semantic UI compiler\n"
+      "// Generated by wake — semantic UI compiler\n"
       "// Source: " src-name "\n"
-      "// This file is a build artifact. Edit the .eddy source, not this file.\n\n"
+      "// This file is a build artifact. Edit the .wake source, not this file.\n\n"
       "(function() {\n"
       "'use strict';\n\n"
 
@@ -2368,7 +2368,7 @@ function _eddyPushSelection(eid) {
           "")
 
         saved-search-js (if is-server
-          (str "    const _ssKey = 'eddy_searches_" store-name "';\n"
+          (str "    const _ssKey = 'wake_searches_" store-name "';\n"
                "    const _ssLoad = document.createElement('select');\n"
                "    _ssLoad.className = 'px-2 py-1.5 border border-border rounded-md bg-background text-foreground text-xs';\n"
                "    _ssLoad.innerHTML = '<option value=\"\">Saved Searches</option>';\n"
@@ -2902,9 +2902,9 @@ function _eddyPushSelection(eid) {
 ]
 
     (str
-      "// Generated by eddy — semantic UI compiler\n"
+      "// Generated by wake — semantic UI compiler\n"
       "// Source: " src-name "\n"
-      "// This file is a build artifact. Edit the .eddy source, not this file.\n\n"
+      "// This file is a build artifact. Edit the .wake source, not this file.\n\n"
       "(function() {\n"
       "'use strict';\n\n"
 
@@ -2940,7 +2940,7 @@ function _eddyPushSelection(eid) {
       "// ── Init ─────────────────────────────────────────────\n"
       (if is-server "async function init() {\n" "function init() {\n")
       #r#"
-  const root = document.getElementById(window.EDDY_MOUNT_ID || 'app');
+  const root = document.getElementById(window.WAKE_MOUNT_ID || 'app');
   const app = document.createElement('div');
   app.className = 'sidebar-layout';
 
@@ -3061,9 +3061,9 @@ function _eddyPushSelection(eid) {
         src-name (.-ns g)]
 
     (str
-      "// Generated by eddy — semantic UI compiler\n"
+      "// Generated by wake — semantic UI compiler\n"
       "// Source: " src-name "\n"
-      "// This file is a build artifact. Edit the .eddy source, not this file.\n\n"
+      "// This file is a build artifact. Edit the .wake source, not this file.\n\n"
       "(function() {\n"
       "'use strict';\n\n"
 

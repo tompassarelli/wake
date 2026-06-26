@@ -1,8 +1,8 @@
-# Eddy
+# Wake
 
-Projection compiler: `.eddy` declarations → a checked entity graph → many targets
+Projection compiler: `.wake` declarations → a checked entity graph → many targets
 (direct-DOM JS, SQL, server, tests, …). Thesis & invariants:
-`docs/adr/0001-eddy-is-a-projection-compiler.md`. Chronological why: `docs/devlog/`.
+`docs/adr/0001-wake-is-a-projection-compiler.md`. Chronological why: `docs/devlog/`.
 
 <!-- beagle -->
 ## Beagle
@@ -25,17 +25,17 @@ The build script's own usage header is the source of truth for flags and outputs
 don't trust a copy:
 
 ```
-sed -n '/^# Usage/,/^$/p' web/bin/eddy-compile
+sed -n '/^# Usage/,/^$/p' web/bin/wake-compile
 ```
 
 Typical loop (from `web/`):
 
 ```
-bin/eddy-compile demo/<app>.eddy out/app.js   # rebuilds compiler modules, then emits
+bin/wake-compile demo/<app>.wake out/app.js   # rebuilds compiler modules, then emits
 npx playwright test                            # or a single tests/<name>.spec.ts
 ```
 
-`eddy-compile` recompiles the `.bjs` sources every run and self-selects its toolchain
+`wake-compile` recompiles the `.bjs` sources every run and self-selects its toolchain
 (bun-beagle fast path, else Racket via the flake) — you don't pick. After editing a `.bjs`,
 just rebuild and run tests. Validate a `.bjs` with `racket <file>` to catch paren errors
 before chasing a logic bug.
@@ -48,18 +48,18 @@ does not):
 | Anchor | Role |
 |--------|------|
 | `compiler/sexpr.bjs` | s-expression parser |
-| `compiler/reader.bjs` | `.eddy` → IR (`compiler/ir.bjs` defines the IR records) |
+| `compiler/reader.bjs` | `.wake` → IR (`compiler/ir.bjs` defines the IR records) |
 | `compiler/ui.bjs` | view expansion (list-detail, selection) |
 | `compiler/graph.bjs` | **the checker** — every emitter consumes this one checked graph |
 | `compiler/codegen.bjs` | IR → direct-DOM JS (builds JS via `compiler/js-ast.bjs`) |
 | `compiler/emit-*.bjs` | one projection each (SQL, server, tests, nix, claims, mcp, …) — `ls` them |
-| `bin/eddy-compile` | build entry; wires modules + every emit target |
+| `bin/wake-compile` | build entry; wires modules + every emit target |
 | `runtime/claim-store.js` | claim-backed drop-in store (its header explains the semantics) |
-| `demo/*.eddy` | canonical, runnable syntax reference — read these, not prose, for syntax |
+| `demo/*.wake` | canonical, runnable syntax reference — read these, not prose, for syntax |
 | `tests/*.spec.ts` | Playwright suites — `ls` for the current set |
 
 `public-js/app.js` and everything under `out/` are **build artifacts** — never hand-edit;
-change the `.eddy` source or the codegen.
+change the `.wake` source or the codegen.
 
 ## Architecture
 
@@ -71,9 +71,9 @@ event log, split-pane selection) are realized in `codegen.bjs`; read it as the s
 
 Live/seam features (real, see the demos for syntax): `(persist :feed "http://…")` mirrors a
 remote endpoint with real-time per-row push (read-only stores); `(panel name :mount "js.fn")`
-is the escape hatch to mount external JS; generated apps expose a `window.eddy` bus (ready
-signal, selection, feed deltas) so mounted panes share state. Demos: `demo/fleet.eddy`,
-`demo/schema.eddy`.
+is the escape hatch to mount external JS; generated apps expose a `window.wake` bus (ready
+signal, selection, feed deltas) so mounted panes share state. Demos: `demo/fleet.wake`,
+`demo/schema.wake`.
 
 ## Authoring rules
 

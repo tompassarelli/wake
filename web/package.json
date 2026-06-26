@@ -1,9 +1,9 @@
 {
-  "name": "eddy",
+  "name": "wake",
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "build": "bin/eddy-compile demo/crm-v2.eddy public-js/app.js",
+    "build": "bin/wake-compile demo/crm-v2.wake public-js/app.js",
     "test": "npx playwright test tests/crm-js.spec.ts"
   },
   "keywords": [],

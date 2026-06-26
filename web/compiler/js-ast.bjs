@@ -1,5 +1,5 @@
 #lang beagle/js
-(ns eddy.js-ast)
+(ns wake.js-ast)
 
 ;; --- Expression nodes ---
 

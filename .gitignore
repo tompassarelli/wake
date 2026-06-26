@@ -14,7 +14,7 @@ web/compiler/*.js
 .claude/
 # shadow-cljs build cache
 .shadow-cljs/
-# eddy-compile build outputs (generated from .eddy sources)
+# wake-compile build outputs (generated from .wake sources)
 web/out/
 web/app.js
 web/server.js

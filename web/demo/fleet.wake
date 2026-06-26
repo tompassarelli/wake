@@ -54,8 +54,8 @@
   :select agent-detail)
 
 ;; ESCAPE-HATCH PANELS — framescope's custom Cytoscape graph + live stream-tail mount
-;; INSIDE this eddy view, sharing the same /presence feed + selection via window.eddy.
-;; The shell defines window.framescope.{mountGraph,mountStream}({ el, eddy }); eddy carves
-;; the container and hands it the bus. This is framescope-cockpit-in-eddy on a real pane.
+;; INSIDE this wake view, sharing the same /presence feed + selection via window.wake.
+;; The shell defines window.framescope.{mountGraph,mountStream}({ el, wake }); wake carves
+;; the container and hands it the bus. This is framescope-cockpit-in-wake on a real pane.
 (panel agent-graph :mount "framescope.mountGraph")
 (panel agent-stream :mount "framescope.mountStream")

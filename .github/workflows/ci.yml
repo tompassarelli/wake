@@ -1,6 +1,6 @@
 name: ci
 
-# Eddy CI locks the apps pillar (ADR 0001 in fram): an eddy app's data can live as Fram
+# Wake CI locks the apps pillar (ADR 0001 in fram): an wake app's data can live as Fram
 # claims, not SQL — history + scope-correct reasoning + durability for free.
 
 on:
@@ -27,8 +27,8 @@ jobs:
         with:
           repository: tompassarelli/fram
           path: .fram
-      - name: eddy-on-claims spike — app data as claims (history + reasoning + durable)
-        run: FRAM_OUT="$GITHUB_WORKSPACE/.fram/out" web/spike/eddy-on-claims/run.sh
+      - name: wake-on-claims spike — app data as claims (history + reasoning + durable)
+        run: FRAM_OUT="$GITHUB_WORKSPACE/.fram/out" web/spike/wake-on-claims/run.sh
 
   # Heavier gate: actually COMPILE a (persist :claims) app through the beagle toolchain
   # and assert codegen emitted the claim-backed store (not the object store). Needs racket
@@ -58,16 +58,16 @@ jobs:
       - name: Compile a :claims app and assert the claim-backed store is emitted
         run: |
           cd web
-          # IN_NIX_SHELL=1 forces eddy-compile's racket path (skip the nix-develop re-exec).
-          IN_NIX_SHELL=1 bin/eddy-compile demo/todo-claims.eddy > /tmp/todo-claims.js
+          # IN_NIX_SHELL=1 forces wake-compile's racket path (skip the nix-develop re-exec).
+          IN_NIX_SHELL=1 bin/wake-compile demo/todo-claims.wake > /tmp/todo-claims.js
           echo "compiled $(wc -l < /tmp/todo-claims.js) lines"
           grep -q "__tombstoned" /tmp/todo-claims.js || { echo "FAIL: claim store not emitted"; exit 1; }
           ! grep -q "const entities = new Map" /tmp/todo-claims.js || { echo "FAIL: object store leaked into a :claims app"; exit 1; }
           # regression: a :localStorage app still gets the object store, not claims
-          IN_NIX_SHELL=1 bin/eddy-compile demo/todo.eddy > /tmp/todo.js
+          IN_NIX_SHELL=1 bin/wake-compile demo/todo.wake > /tmp/todo.js
           grep -q "const entities = new Map" /tmp/todo.js || { echo "FAIL: object store missing from :localStorage app"; exit 1; }
           ! grep -q "__tombstoned" /tmp/todo.js || { echo "FAIL: claim store leaked into a :localStorage app"; exit 1; }
           echo "PASS: :claims emits the claim store; :localStorage emits the object store"
           # emit-mcp: the schema -> MCP tool catalog projection must emit valid JSON with the CRUD tools
-          IN_NIX_SHELL=1 bin/eddy-compile --mcp demo/todo-claims.eddy > /tmp/mcp.json
+          IN_NIX_SHELL=1 bin/wake-compile --mcp demo/todo-claims.wake > /tmp/mcp.json
           python3 -c "import json; d=json.load(open('/tmp/mcp.json')); ns=[t['name'] for t in d['tools']]; assert 'task.create' in ns and 'task.list' in ns, ns; print('PASS: emit-mcp catalog valid —', len(d['tools']), 'tools')"

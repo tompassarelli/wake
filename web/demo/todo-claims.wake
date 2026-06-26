@@ -1,5 +1,5 @@
-(ns eddy.todo-claims)
-(persist :claims "eddy-todo-claims")
+(ns wake.todo-claims)
+(persist :claims "wake-todo-claims")
 
 (entity task
   (title : String)

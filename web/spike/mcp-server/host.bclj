@@ -1,12 +1,12 @@
 #lang beagle/clj
-;; mcp-server spike (task #41, ADR 0001 — eddy = projection compiler): a RUNNABLE
-;; MCP-SERVER HOST that serves an eddy `emit-mcp` tool catalog over a Fram CLAIM store.
+;; mcp-server spike (task #41, ADR 0001 — wake = projection compiler): a RUNNABLE
+;; MCP-SERVER HOST that serves an wake `emit-mcp` tool catalog over a Fram CLAIM store.
 ;;
 ;; This is the host that sits behind the catalog `web/compiler/emit-mcp.bjs` emits:
 ;; emit-mcp projects a schema into an MCP tool surface (per entity: CRUD; per Ref
 ;; field: a transitive *_closure query). THIS file is the other half — the dispatch
 ;; core + claim-backed handlers that actually answer `tools/call`, reusing the proven
-;; handler shapes from web/spike/mcp-projection/catalog.clj and web/spike/eddy-on-claims/
+;; handler shapes from web/spike/mcp-projection/catalog.clj and web/spike/wake-on-claims/
 ;; store.clj (create -> entity!+claim!; get/list -> by-lp/by-pr; update -> superseding
 ;; claim; remove -> tombstone; *_closure -> a 2-rule Datalog reaches over the claim graph).
 ;;
@@ -17,7 +17,7 @@
 ;; The genuinely-dynamic boundary (catalog JSON parsing + the JSON-RPC stdin loop) is
 ;; NOT here — it's the thin .clj driver (run.sh / the gate), and is GAP-LISTed. This file
 ;; is the typed core: the MCP semantics + every handler, expressed against real fram types.
-(ns eddy.spike.mcp-server.host)
+(ns wake.spike.mcp-server.host)
 (require fram.cnf :as c)
 (require fram.datalog :as d)
 (require fram.types :as t)
@@ -55,7 +55,7 @@
 
 ;; ============================================================================
 ;; HANDLERS — the dispatch targets. Each mirrors a proven handler in mcp-projection/
-;; catalog.clj + eddy-on-claims/store.clj, but typed against the real fram API.
+;; catalog.clj + wake-on-claims/store.clj, but typed against the real fram API.
 ;; ============================================================================
 
 ;; relate -> an edge claim (entity -[pred]-> target). target is an entity-id (a Ref).

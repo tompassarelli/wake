@@ -1,4 +1,4 @@
-;; mcp-projection spike (ADR 0001 — eddy = projection compiler): a SCHEMA (as claims, the
+;; mcp-projection spike (ADR 0001 — wake = projection compiler): a SCHEMA (as claims, the
 ;; shape emit-claims-ir emits) projects MECHANICALLY into an MCP tool catalog + claim-backed
 ;; handlers. Proves the charter for the MCP/API surface: the tool set falls out of the schema
 ;; (entities x CRUD + declared relations -> a closure query), and every handler runs against a
@@ -78,5 +78,5 @@
 (ck "named-query tool runs Datalog over claims: ship's depends_on closure = {build, spec}"
     (= (set (map #(:title (d-get %)) (d-closure ship "depends_on"))) #{"build" "spec"}))
 (if (zero? @f)
-  (do (println "\nGATE PASS — an MCP tool catalog + claim-backed handlers fall out of the schema MECHANICALLY. The API/MCP projection is a real eddy target.") (System/exit 0))
+  (do (println "\nGATE PASS — an MCP tool catalog + claim-backed handlers fall out of the schema MECHANICALLY. The API/MCP projection is a real wake target.") (System/exit 0))
   (do (println "\nGATE FAIL") (System/exit 1)))

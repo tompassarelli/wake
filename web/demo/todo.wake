@@ -1,5 +1,5 @@
-(ns eddy.todo)
-(persist :localStorage "eddy-todo")
+(ns wake.todo)
+(persist :localStorage "wake-todo")
 
 (entity task
   (title : String)

@@ -1,12 +1,12 @@
-# mcp-server spike — an MCP host serving an eddy `emit-mcp` catalog over Fram claims
+# mcp-server spike — an MCP host serving an wake `emit-mcp` catalog over Fram claims
 
-Task #41. A **runnable MCP-server host** that serves an eddy `emit-mcp` tool
+Task #41. A **runnable MCP-server host** that serves an wake `emit-mcp` tool
 catalog (`web/compiler/emit-mcp.bjs`) over a **Fram claim store**. The other half
 of the projection: `emit-mcp` projects a schema into an MCP tool *surface*; this
 host is the *dispatch core + claim-backed handlers* that actually answer
 `tools/call`.
 
-ADR 0001 — eddy = projection compiler. The tool set falls out of the schema
+ADR 0001 — wake = projection compiler. The tool set falls out of the schema
 mechanically (per entity: CRUD; per `:Ref` field: a transitive `*_closure`
 query); every handler runs against a real claim store. No bespoke logic.
 
@@ -22,7 +22,7 @@ claim calls type as the **real fram types** (Int ids, Bool, the Datalog
 ```
 
 Handlers (reusing the proven shapes from `web/spike/mcp-projection/catalog.clj`
-and `web/spike/eddy-on-claims/store.clj`):
+and `web/spike/wake-on-claims/store.clj`):
 
 | op | handler | claim mechanism |
 |----|---------|-----------------|

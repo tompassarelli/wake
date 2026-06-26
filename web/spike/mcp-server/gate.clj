@@ -8,7 +8,7 @@
 ;; the MCP result shape — lives TYPED in host.bclj (beagle check --agent: 0 errors). The
 ;; gate only feeds that core and checks its answers.
 ;;
-;; What it exercises (the REQUIRED scenario): an eddy emit-mcp catalog (demo/crm-v2.eddy)
+;; What it exercises (the REQUIRED scenario): an wake emit-mcp catalog (demo/crm-v2.wake)
 ;; -> tools/list -> tools/call for create x2 + a relation EDGE + list + the *_closure tool,
 ;; asserting correct results over real fram. crm-v2 has a Ref (note.contact), so the
 ;; catalog includes note.contact_closure — the Datalog reaches tool.
@@ -16,7 +16,7 @@
 ;; (run.sh rebuilds it from host.bclj first), then require its ns.
 (def here (.getParent (java.io.File. *file*)))
 (load-file (str here "/host.clj"))
-(require '[eddy.spike.mcp-server.host :as h]
+(require '[wake.spike.mcp-server.host :as h]
          '[clojure.string :as str]
          '[clojure.edn :as edn])
 
@@ -28,11 +28,11 @@
 ;; ============================================================================
 (def cat-file (or (System/getenv "CATALOG") "/tmp/cat.json"))
 (def catalog-text
-  ;; exists-AND-non-empty: a 0-byte /tmp/cat.json left by a flaky/aborted eddy-compile
+  ;; exists-AND-non-empty: a 0-byte /tmp/cat.json left by a flaky/aborted wake-compile
   ;; must NOT shadow the hand-supplied fallback (belt-and-suspenders vs run.sh's -s guard).
   (if (let [f (java.io.File. cat-file)] (and (.exists f) (pos? (.length f))))
     (slurp cat-file)
-    ;; hand-supplied crm-v2 catalog (matches emit-mcp output) if eddy-compile unavailable
+    ;; hand-supplied crm-v2 catalog (matches emit-mcp output) if wake-compile unavailable
     (str "{\"tools\":["
          "{\"name\":\"contact.create\"},{\"name\":\"contact.get\"},{\"name\":\"contact.list\"},"
          "{\"name\":\"contact.update\"},{\"name\":\"contact.remove\"},"
@@ -83,7 +83,7 @@
     (swap! eid-of assoc token (long e))
     e))
 
-(println "=== mcp-server: eddy emit-mcp catalog served over a Fram claim store (BEAGLE host) ===\n")
+(println "=== mcp-server: wake emit-mcp catalog served over a Fram claim store (BEAGLE host) ===\n")
 (println "catalog:" cat-file " (" (count tool-names) "tools)")
 
 ;; tools/list
@@ -115,7 +115,7 @@
 (defn ck [name ok] (println (if ok "  [PASS] " "  [FAIL] ") name) (when-not ok (swap! fails inc)))
 (println)
 
-(ck "tools/list returns the eddy catalog's tools (>= 11 for crm-v2: contact x5 + note x5 + closure)"
+(ck "tools/list returns the wake catalog's tools (>= 11 for crm-v2: contact x5 + note x5 + closure)"
     (>= (count listed) 11))
 (ck "catalog includes the per-Ref *_closure tool (note.contact_closure)"
     (some #{"note.contact_closure"} tool-names))
@@ -147,6 +147,6 @@
     (str/includes? (h/result-text get-res) "[\"status\" \"inactive\"]"))
 
 (if (zero? @fails)
-  (do (println "\nGATE PASS — the BEAGLE-authored MCP host serves an eddy emit-mcp catalog over a real Fram claim store: tools/list + tools/call (create/list/remove/update + the Datalog *_closure tool) all dispatch to typed claim handlers.")
+  (do (println "\nGATE PASS — the BEAGLE-authored MCP host serves an wake emit-mcp catalog over a real Fram claim store: tools/list + tools/call (create/list/remove/update + the Datalog *_closure tool) all dispatch to typed claim handlers.")
       (System/exit 0))
   (do (println "\nGATE FAIL —" @fails "assertion(s) failed") (System/exit 1)))

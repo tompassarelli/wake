@@ -1,7 +1,7 @@
 #lang beagle/js
-(ns eddy.ir)
+(ns wake.ir)
 
-;; IR data structures for the Eddy compiler.
+;; IR data structures for the Wake compiler.
 ;; Produced by the reader, consumed by codegen.
 
 (defrecord IrAttr [(name :- String) (type :- String) (opts :- Any)])
@@ -26,7 +26,7 @@
 (defrecord IrNavGroup [(label :- String) (items :- (Vec String))])
 (defrecord IrLayout [(style :- String) (title :- String?) (groups :- (Vec IrNavGroup))])
 ;; A custom-pane escape hatch: the shell mounts its own JS (Cytoscape/stream) into a named
-;; container carved from the eddy view, sharing feed+selection via window.eddy. mount-fn is a
+;; container carved from the wake view, sharing feed+selection via window.wake. mount-fn is a
 ;; dotted path resolved off window at runtime (e.g. "framescope.mountGraph").
 (defrecord IrPanel [(name :- String) (mount-fn :- String)])
 (defrecord IrProgram [(ns :- String) (entities :- (Vec IrEntity)) (persist :- IrPersist?) (defstates :- (Vec IrDefstate)) (list-details :- (Vec IrListDetail)) (forms :- (Vec IrSmartForm)) (theme :- IrTheme?) (raw-sqls :- (Vec IrRawSql)) (queries :- (Vec IrQuery)) (components :- (Vec IrComponent)) (views :- (Vec IrView)) (router :- IrRouter?) (auth :- IrAuth?) (layout :- IrLayout?) (panels :- (Vec IrPanel))])

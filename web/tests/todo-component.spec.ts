@@ -3,7 +3,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 const html = readFileSync(join(__dirname, "..", "public-js", "index.html"), "utf-8");
-const js = readFileSync(join("/tmp", "eddy-todo-run", "app.js"), "utf-8");
+const js = readFileSync(join("/tmp", "wake-todo-run", "app.js"), "utf-8");
 
 const bareHtml = html.replace('<script src="app.js"></script>', "");
 
@@ -60,7 +60,7 @@ test.describe("Component-based view: compiled update paths across component boun
     // Directly call store.update — the compiled update path should
     // flow through the component instance's update function
     await page.evaluate(() => {
-      (window as any).__eddyStore = (document as any).__eddyStore;
+      (window as any).__wakeStore = (document as any).__wakeStore;
     });
     await page.evaluate(`
       // Access the store through the IIFE closure via the watcher

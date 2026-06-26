@@ -1,8 +1,8 @@
 #lang beagle/js
-(ns eddy.emit-claims-ir)
-(require eddy.graph :as graph)
+(ns wake.emit-claims-ir)
+(require wake.graph :as graph)
 
-;; IR-as-claims emitter (layer 2 of eddy-as-claims).
+;; IR-as-claims emitter (layer 2 of wake-as-claims).
 ;; The checked entity graph → CNF claim triples — one [subject "predicate"
 ;; object] EDN triple per line, loadable into Fram. Subjects/objects are
 ;; string ids: an entity name, or "entity.field" for a field node.

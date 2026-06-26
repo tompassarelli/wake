@@ -1,5 +1,5 @@
-(ns eddy.crm-v2-migrated)
-(persist :server)
+(ns wake.app)
+(persist :localStorage "wake-crm-v2")
 
 (theme
   :colors (background "oklch(98% 0.002 240)"
@@ -20,7 +20,6 @@
   (name : String)
   (email : String :unique identity)
   (company : String)
-  (phone : String)
   (status : ContactStatus)
   (display-name : Derived (str name " @ " company)))
 
@@ -29,26 +28,21 @@
   (contact : Ref)
   (created-at : String))
 
-(entity deal
-  (title : String)
-  (value : String)
-  (contact : Ref))
-
 (list-detail contact
   :title "Contacts"
-  :columns [name email company phone status]
+  :columns [name email company status]
   :search [name email company]
   :detail
     (tabs
       (tab "Overview"
-        (fields [name email company phone status]))
+        (fields [name email company status]))
       (tab "Notes"
         (related note :query [:find ?n :where [?n :note/contact ?e]]
                       :display [content created-at]))))
 
 (form add-contact
   :entity contact
-  :fields [name email company phone]
+  :fields [name email company status]
   :required [name email]
   :submit-label "Add Contact"
   :on-success :clear)

@@ -1,14 +1,14 @@
 # Spike: app-level blast radius is scope-correct
 
-**The first falsifiable test of the eddy × Beagle unification** ("the app falls out of
-claims"). It proves *whether*, not *when*: does eddy's app-claim graph yield a
+**The first falsifiable test of the wake × Beagle unification** ("the app falls out of
+claims"). It proves *whether*, not *when*: does wake's app-claim graph yield a
 **scope-correct** field-change blast radius — the app-level mirror of Beagle's
 `mod_a/mod_b` cascade receipt (which proved graph-native repair beats regex on a
 same-named collision)?
 
 ## The fixture
 
-`demo/crm-v2-spike.eddy` = `crm-v2` + **one decoy**: a `company` field on the `note`
+`demo/crm-v2-spike.wake` = `crm-v2` + **one decoy**: a `company` field on the `note`
 entity. So two field nodes share the leaf name `company`:
 
 - `contact.company` — the change target. `contact.display-name` is `(Derived (str name " @ " company))`, so it carries `["contact.display-name" "dep" "contact.company"]`.
@@ -32,7 +32,7 @@ decoy**. Kill-criterion #1 cleared: app-as-claims reasoning is scope-correct.
 ## Run it
 
 ```sh
-./run.sh           # regenerates claims via `eddy-compile --claims`, runs the gate
+./run.sh           # regenerates claims via `wake-compile --claims`, runs the gate
 ```
 
 Exit 0 = scope-correct; exit 1 = the decoy leaked into the graph result (the
