@@ -1,0 +1,61 @@
+(ns schema.editor)
+
+;; SCHEMA EDITOR — the fram predicate vocabulary AS an eddy view. "Edit the graph,
+;; not text": each predicate is a row; cardinality (single|multi) + value_kind
+;; (ref|literal) are the editable schema facts. The store MIRRORS framescope's
+;; bridge /schema endpoint (start it: ~/code/framescope/bin/framescope, http :8088,
+;; default target board daemon :7977). Field names mirror the /schema JSON keys
+;; verbatim so load() needs no projection. Read-only feed; the WRITE-BACK rides the
+;; (panel …) escape hatch below — feed-mode stores are read-only by design, so the
+;; cardinality/value_kind edit form is a shell-owned pane sharing window.eddy.
+(persist :feed "http://localhost:8088/schema")
+
+(theme
+  :colors (background "oklch(98% 0.002 240)"
+           foreground "oklch(14% 0.004 285)"
+           muted "oklch(93% 0.004 260)"
+           muted-foreground "oklch(55% 0.014 260)"
+           border "oklch(87% 0.006 260)"
+           primary "oklch(42% 0.095 260)"
+           primary-foreground "oklch(98% 0.002 240)"
+           accent "oklch(60% 0.13 30)"))
+
+(entity predicate
+  (name : String :unique identity)
+  (cardinality : String)
+  (value_kind : String)
+  (domain : String))
+
+(component predicate-row
+  :props [name cardinality value_kind]
+  (div :class "px-4 py-2.5 border-b border-border"
+    (div :class "flex items-center justify-between"
+      (span :class "text-sm font-medium text-foreground" :text name)
+      (span :class "text-xs text-muted-foreground" :text value_kind))
+    (div :class "text-xs text-muted-foreground mt-1" :text cardinality)))
+
+(component predicate-detail
+  :props [name cardinality value_kind domain]
+  (div :class "p-6 flex flex-col gap-3"
+    (h2 :class "text-lg font-semibold text-foreground" :text name)
+    (div :class "flex flex-col gap-1 mt-2"
+      (div :class "text-xs uppercase text-muted-foreground" :text "Cardinality")
+      (div :class "text-sm text-foreground" :text cardinality)
+      (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Value kind")
+      (div :class "text-sm text-foreground" :text value_kind)
+      (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Sample domain")
+      (div :class "text-sm text-foreground" :text domain))))
+
+(view schema
+  :entity predicate :each predicate-row
+  :add-form [name] :title "Schema Editor"
+  :select predicate-detail)
+
+;; WRITE-BACK PANE — the editable cardinality/value_kind form. eddy carves a
+;; container and hands it { el, eddy }; the pane reads window.eddy.selection (the
+;; clicked predicate) + the shared /schema feed, renders <select>s, and POSTs the
+;; change to the bridge's /schema endpoint. A successful POST triggers the feed's
+;; re-fetch (the WS commit + 15s backstop), so the row + detail re-render with the
+;; saved value. This is the eddy SEAM: declarative list/detail/select + an
+;; escape-hatch pane for the mutation feed-mode can't express.
+(panel schema-edit :mount "schemaEditor.mountEditor")

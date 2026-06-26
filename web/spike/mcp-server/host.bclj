@@ -1,0 +1,217 @@
+#lang beagle/clj
+;; mcp-server spike (task #41, ADR 0001 — eddy = projection compiler): a RUNNABLE
+;; MCP-SERVER HOST that serves an eddy `emit-mcp` tool catalog over a Fram CLAIM store.
+;;
+;; This is the host that sits behind the catalog `web/compiler/emit-mcp.bjs` emits:
+;; emit-mcp projects a schema into an MCP tool surface (per entity: CRUD; per Ref
+;; field: a transitive *_closure query). THIS file is the other half — the dispatch
+;; core + claim-backed handlers that actually answer `tools/call`, reusing the proven
+;; handler shapes from web/spike/mcp-projection/catalog.clj and web/spike/eddy-on-claims/
+;; store.clj (create -> entity!+claim!; get/list -> by-lp/by-pr; update -> superseding
+;; claim; remove -> tombstone; *_closure -> a 2-rule Datalog reaches over the claim graph).
+;;
+;; DOGFOOD (the policy): the fram API is now typed in beagle (stdlib-fram.rkt), so the
+;; dispatch core + handlers are authored HERE in BEAGLE (.bclj) and the fram calls TYPE
+;; (Int ids, Bool, the Datalog Map/Set/Vec shapes) — not Any. Verify:
+;;   ~/code/beagle/bin/beagle check --agent host.bclj      (expect: 0 errors)
+;; The genuinely-dynamic boundary (catalog JSON parsing + the JSON-RPC stdin loop) is
+;; NOT here — it's the thin .clj driver (run.sh / the gate), and is GAP-LISTed. This file
+;; is the typed core: the MCP semantics + every handler, expressed against real fram types.
+(ns eddy.spike.mcp-server.host)
+(require fram.cnf :as c)
+(require fram.datalog :as d)
+(require fram.types :as t)
+(require clojure.string :as str)
+
+;; ============================================================================
+;; The claim-backed store the handlers dispatch to. ctx is fram's Store atom; tx is
+;; the write transaction; sup is the interned "supersedes" predicate value-id (an
+;; update is a NEW claim that supersedes the prior live one — history kept, ADR 0001).
+;; ============================================================================
+(defrecord Store [ctx :- (Atom t/Store) tx :- Int sup :- Int])
+
+(defn new-store! [] :- Store
+  (let [ctx (c/new-store)
+        tx  (c/begin-tx! ctx "mcp")
+        sup (c/value! ctx "mcp-supersedes")]
+    (c/set-supersedes-pred! ctx sup)
+    (->Store ctx tx sup)))
+
+;; --- intern helpers ---------------------------------------------------------
+;; pid! : a predicate/string -> its interned value-id, MINTING if absent (write paths).
+(defn pid! [s :- Store name :- String] :- Int (c/value! (:ctx s) name))
+;; pidr : the read variant — non-minting (c/value-id), nil if never interned (read paths
+;; stay pure; mirrors fram schema.bclj's cardinality/find-by, which guard value-id on nil).
+(defn pidr [s :- Store name :- String] :- Int? (c/value-id (:ctx s) name))
+
+;; recover the live r-value of (entity, predicate) as its literal (String|Nil)
+(defn field [s :- Store e :- Int p :- String] :- Any
+  (let [pv (pidr s p)
+        cids (if (some? pv) (c/by-lp (:ctx s) e pv) [])]
+    (if (empty? cids) nil (c/literal (:ctx s) (:r (c/claim-of (:ctx s) (first cids)))))))
+(defn tombstoned? [s :- Store e :- Int] :- Bool
+  (let [pv (pidr s "mcp-tombstoned")]
+    (if (some? pv) (not (empty? (c/by-lp (:ctx s) e pv))) false)))
+
+;; ============================================================================
+;; HANDLERS — the dispatch targets. Each mirrors a proven handler in mcp-projection/
+;; catalog.clj + eddy-on-claims/store.clj, but typed against the real fram API.
+;; ============================================================================
+
+;; relate -> an edge claim (entity -[pred]-> target). target is an entity-id (a Ref).
+(defn h-relate! [s :- Store e :- Int rel :- String target :- Int] :- Int
+  (c/claim! (:ctx s) e (pid! s rel) target (:tx s)))
+
+;; update -> a SUPERSEDING claim: the new (e,attr,value) claim supersedes the prior
+;; live ones (mirrors store.clj/update!). History is kept (superseded != destroyed).
+(defn h-update! [s :- Store e :- Int attr :- String value :- String] :- Int
+  (let [pv (pid! s attr)
+        new-cid (c/claim! (:ctx s) e pv (c/value! (:ctx s) value) (:tx s))]
+    (doseq [old (c/by-lp (:ctx s) e pv)]
+      (when (not (= old new-cid))
+        (c/claim! (:ctx s) new-cid (:sup s) old (:tx s))))
+    new-cid))
+
+;; remove -> a tombstone claim (mirrors remove!). Non-destructive: the entity leaves
+;; the live .list view but its claims remain for audit.
+(defn h-remove! [s :- Store e :- Int] :- Int
+  (c/claim! (:ctx s) e (pid! s "mcp-tombstoned") (c/value! (:ctx s) "true") (:tx s)))
+
+;; list -> live (non-tombstoned) entities of a kind (mirrors d-list / all-tasks via by-pr).
+(defn h-list [s :- Store kind :- String] :- (Vec Int)
+  (let [kp (pidr s "mcp-kind")
+        kv (c/value-id (:ctx s) kind)
+        cids (if (and (some? kp) (some? kv)) (c/by-pr (:ctx s) kp kv) [])
+        ents (mapv (fn [cid :- Int] :- Int (:l (c/claim-of (:ctx s) cid))) cids)]
+    (filterv (fn [e :- Int] :- Bool (not (tombstoned? s e))) ents)))
+
+;; get -> the live field values of one entity, as (Vec [attr value]) (mirrors d-get).
+(defn h-get [s :- Store e :- Int attrs :- (Vec String)] :- (Vec (Vec Any))
+  (mapv (fn [a :- String] :- (Vec Any) [a (field s e a)]) attrs))
+
+;; *_closure -> the transitive closure of `rel` out of `e`: a 2-rule Datalog reaches
+;; over the claim graph (mirrors d-closure / store.clj's `waits`). Scope-correct — it
+;; reaches over exactly the named predicate, not bare-name text.
+
+;; the closure body, with the predicate already resolved to its value-id (Int).
+(defn h-closure-with [s :- Store e :- Int rp :- Int] :- (Set Int)
+  (let [db (d/run-rules (:ctx s)
+             [(d/rule "reaches" [(d/v :x) (d/v :y)]
+                      [(d/lit "triple" [(d/v :x) rp (d/v :y)])])
+              (d/rule "reaches" [(d/v :x) (d/v :z)]
+                      [(d/lit "triple" [(d/v :x) rp (d/v :m)])
+                       (d/lit "reaches" [(d/v :m) (d/v :z)])])])
+        rows (d/facts db "reaches")]
+    (into #{}
+          (mapv (fn [row :- (Vec Any)] :- Any (first (rest row)))
+                (filterv (fn [row :- (Vec Any)] :- Bool (= e (first row))) rows)))))
+
+(defn h-closure [s :- Store e :- Int rel :- String] :- (Set Int)
+  (let [rp (pidr s rel)]
+    (if (nil? rp) #{}
+      (h-closure-with s e rp))))
+
+;; ============================================================================
+;; MCP CORE — tools/list + tools/call dispatch.
+;; ============================================================================
+
+;; tools/call dispatch: a tool name is "<entity>.<op>"; op is one of the CRUD verbs or
+;; "<rel>_closure". Returns the MCP result text (the .clj driver wraps it in
+;; {content:[{type:"text", text:...}]}). args is the MCP `arguments` map.
+;; This is the DISPATCH CORE: name -> handler, mechanical (no per-entity bespoke code).
+(defn op-of [tool-name :- String] :- String
+  (let [parts (str/split tool-name #"\.")] (last parts)))
+(defn entity-of [tool-name :- String] :- String
+  (let [parts (str/split tool-name #"\.")] (first parts)))
+(defn closure-op? [op :- String] :- Bool (str/ends-with? op "_closure"))
+(defn rel-of [op :- String] :- String (subs op 0 (- (count op) (count "_closure"))))
+
+;; Per-entity schema the dispatch needs (the slice of the emit-mcp catalog that drives
+;; the handlers): the entity's stored fields, which of them are Refs, in entity order.
+(defrecord EntitySchema [name :- String fields :- (Vec String) refs :- (Set String)])
+
+;; A relation edge (a :Ref field, e.g. note.contact) is created by .create with the
+;; field value being an ENTITY-ID, not an interned string. The schema knows which
+;; fields are refs (emit-mcp marks them: .-ref f); the host carries that as `refs`.
+;; create with refs: a ref field claims the target entity-id directly (h-relate);
+;; a scalar field interns its string value (h-create's per-field claim!).
+(defn h-create-with-refs! [s :- Store kind :- String fields :- (Vec (Vec String))
+                           refs :- (Set String) ent-of :- (Map String Int)] :- Int
+  (let [e (c/entity! (:ctx s))]
+    (c/claim! (:ctx s) e (pid! s "mcp-kind") (c/value! (:ctx s) kind) (:tx s))
+    (doseq [kv fields]
+      (let [k (first kv) v (first (rest kv))]
+        (if (contains? refs k)
+          (h-relate! s e k (get ent-of v -1))                ; Ref: edge to target entity
+          (c/claim! (:ctx s) e (pid! s k) (c/value! (:ctx s) v) (:tx s)))))  ; scalar: interned value
+    e))
+
+;; render a handler result as MCP text (the .clj driver wraps this string as the MCP
+;; result content {content:[{type:"text", text:...}]}). Kept here so the formatting
+;; for each op is typed/centralized.
+(defn fmt-eid [e :- Int] :- String (str "eid=" e))
+(defn fmt-list [es :- (Vec Int)] :- String (str "live=" (vec (sort es))))
+(defn fmt-get [pairs :- (Vec (Vec Any))] :- String (str pairs))
+(defn fmt-closure [es :- (Set Int)] :- String (str "closure=" (vec (sort (vec es)))))
+
+;; ----------------------------------------------------------------------------
+;; THE DISPATCH CORE: a tool-call -> the right handler -> an MCP result string.
+;; Mechanical (no per-entity bespoke code): the op suffix selects the handler.
+;;   args      : the MCP `arguments` map (String->String, as JSON-RPC delivers it).
+;;   eid-of    : token -> entity-id, for eid/Ref args (the .clj driver tracks created
+;;               entities; in-process callers pass real ids). Missing -> -1.
+;; Returns the text payload; the JSON-RPC driver wraps it in {content:[{type text}]}.
+;; ----------------------------------------------------------------------------
+(defn arg [args :- (Map String String) k :- String] :- String (get args k ""))
+(defn eid-arg [args :- (Map String String) eid-of :- (Map String Int) k :- String] :- Int
+  (get eid-of (get args k "") -1))
+
+(defn dispatch! [s :- Store sch :- EntitySchema tool :- String
+                 args :- (Map String String) eid-of :- (Map String Int)] :- String
+  (let [op (op-of tool)]
+    (cond
+      (closure-op? op)
+      (fmt-closure (h-closure s (eid-arg args eid-of "eid") (rel-of op)))
+
+      (= op "create")
+      (let [fields (mapv (fn [f :- String] :- (Vec String) [f (arg args f)]) (:fields sch))]
+        (fmt-eid (h-create-with-refs! s (:name sch) fields (:refs sch) eid-of)))
+
+      (= op "list")
+      (fmt-list (h-list s (:name sch)))
+
+      (= op "get")
+      (fmt-get (h-get s (eid-arg args eid-of "eid") (:fields sch)))
+
+      (= op "update")
+      (fmt-eid (h-update! s (eid-arg args eid-of "eid") (arg args "attr") (arg args "value")))
+
+      (= op "remove")
+      (fmt-eid (h-remove! s (eid-arg args eid-of "eid")))
+
+      :else (str "ERROR: unknown op " op " in tool " tool))))
+
+;; ----------------------------------------------------------------------------
+;; MCP protocol surface (the two methods the host serves):
+;;   tools/list -> the catalog's tools (name + description + the input keys).
+;;   tools/call {name, arguments} -> dispatch to the handler, return an MCP result
+;;     {:content [{:type "text" :text <payload>}]} (the JSON-RPC envelope is the driver).
+;; ----------------------------------------------------------------------------
+(defrecord Tool [name :- String desc :- String input :- (Vec String)])
+
+;; tools/list — the catalog IS the tool list. The driver parses emit-mcp's JSON into
+;; (Vec Tool); this returns them unchanged (the host's view of "what can be called").
+(defn tools-list [catalog :- (Vec Tool)] :- (Vec Tool) catalog)
+
+;; wrap a handler's text payload as the MCP tools/call result content block.
+(defn mcp-result [text :- String] :- (Map Keyword Any)
+  {:content [{:type "text" :text text}]})
+
+;; tools/call — the MCP entry point: dispatch to the claim handler, wrap as a result.
+(defn tools-call! [s :- Store sch :- EntitySchema tool :- String
+                   args :- (Map String String) eid-of :- (Map String Int)] :- (Map Keyword Any)
+  (mcp-result (dispatch! s sch tool args eid-of)))
+
+;; pull the text payload back out of an MCP result (for the gate's assertions).
+(defn result-text [res :- (Map Keyword Any)] :- Any
+  (:text (first (:content res))))

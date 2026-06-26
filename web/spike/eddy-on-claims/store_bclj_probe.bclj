@@ -1,0 +1,25 @@
+#lang beagle/clj
+;; DOGFOOD PROBE (task #37): the same fram-renting logic as store.clj, but authored in
+;; BEAGLE (.bclj) instead of raw Clojure. Measures whether the periphery (engine-glue /
+;; spikes) can be dogfooded: does beagle resolve fram's modules + type the claim API, or
+;; force Any everywhere? Does the .bclj then become chartroom-refactorable?
+(ns eddy.spike.store-bclj-probe)
+(require fram.cnf :as c)
+(require fram.datalog :as d)
+
+;; the claim-store essence: assert a depends_on edge, derive the transitive closure as a
+;; recursive Datalog rule, count it. (The core of store.clj, typed.)
+(defn probe! [] :- Int
+  (let [ctx (c/new-store)
+        tx  (c/begin-tx! ctx "probe")
+        a   (c/entity! ctx)
+        b   (c/entity! ctx)
+        e   (c/entity! ctx)
+        dep (c/value! ctx "depends_on")]
+    (c/claim! ctx b dep a tx)     ; b depends_on a
+    (c/claim! ctx e dep b tx)     ; e depends_on b  => e transitively reaches a
+    (let [db (d/run-rules ctx
+               [(d/rule "reaches" [(d/v :x) (d/v :y)] [(d/lit "triple" [(d/v :x) dep (d/v :y)])])
+                (d/rule "reaches" [(d/v :x) (d/v :z)] [(d/lit "triple" [(d/v :x) dep (d/v :m)])
+                                                       (d/lit "reaches" [(d/v :m) (d/v :z)])])])]
+      (count (d/facts db "reaches")))))

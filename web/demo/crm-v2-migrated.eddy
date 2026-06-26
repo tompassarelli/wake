@@ -1,0 +1,54 @@
+(ns eddy.crm-v2-migrated)
+(persist :server)
+
+(theme
+  :colors (background "oklch(98% 0.002 240)"
+           foreground "oklch(14% 0.004 285)"
+           muted "oklch(93% 0.004 260)"
+           muted-foreground "oklch(55% 0.014 260)"
+           border "oklch(87% 0.006 260)"
+           input "oklch(87% 0.006 260)"
+           ring "oklch(55% 0.15 260)"
+           primary "oklch(42% 0.095 260)"
+           primary-foreground "oklch(98% 0.002 240)"))
+
+(defstate ContactStatus [:active -> :inactive :archived]
+                        [:inactive -> :active :archived]
+                        [:archived -> :active])
+
+(entity contact
+  (name : String)
+  (email : String :unique identity)
+  (company : String)
+  (phone : String)
+  (status : ContactStatus)
+  (display-name : Derived (str name " @ " company)))
+
+(entity note
+  (content : String)
+  (contact : Ref)
+  (created-at : String))
+
+(entity deal
+  (title : String)
+  (value : String)
+  (contact : Ref))
+
+(list-detail contact
+  :title "Contacts"
+  :columns [name email company phone status]
+  :search [name email company]
+  :detail
+    (tabs
+      (tab "Overview"
+        (fields [name email company phone status]))
+      (tab "Notes"
+        (related note :query [:find ?n :where [?n :note/contact ?e]]
+                      :display [content created-at]))))
+
+(form add-contact
+  :entity contact
+  :fields [name email company phone]
+  :required [name email]
+  :submit-label "Add Contact"
+  :on-success :clear)

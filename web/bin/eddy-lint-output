@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# eddy-lint-output: security lint on generated server/frontend JS
+# Run after eddy-compile to catch regressions in emitter output.
+# Exit 0 = clean, exit 1 = findings.
+set -euo pipefail
+
+RED='\033[0;31m'
+YEL='\033[0;33m'
+GRN='\033[0;32m'
+NC='\033[0m'
+
+findings=0
+file="${1:-}"
+
+if [[ -z "$file" ]]; then
+  echo "Usage: eddy-lint-output <generated-file.js>" >&2
+  exit 2
+fi
+
+if [[ ! -f "$file" ]]; then
+  echo "File not found: $file" >&2
+  exit 2
+fi
+
+fail() { echo -e "  ${RED}FAIL${NC} $1"; findings=$((findings + 1)); }
+warn() { echo -e "  ${YEL}WARN${NC} $1"; }
+pass() { echo -e "  ${GRN}PASS${NC} $1"; }
+
+echo "eddy security lint: $file"
+echo ""
+
+# --- Server checks (only if file contains createServer) ---
+if grep -q "createServer" "$file"; then
+
+  # Path traversal guard
+  if grep -q 'filePath.startsWith(__dirname)' "$file"; then
+    pass "path traversal guard present"
+  else
+    fail "missing path traversal guard — static file handler can escape __dirname"
+  fi
+
+  # Body size limit
+  if grep -q 'size > 1e6\|size > 1048576\|size >' "$file"; then
+    pass "body size limit present"
+  else
+    fail "no body size limit in parseBody — DoS via large POST"
+  fi
+
+  # Generic error responses
+  if grep -q "json(res, { error: err.message" "$file"; then
+    fail "error handler leaks err.message to client"
+  else
+    pass "error handler returns generic message"
+  fi
+
+  # SQL parameterization — flag any string concat in SQL
+  if grep -Pn "query\(.*\+.*\)|exec\(.*\+.*\)" "$file" | grep -v "console\.\|//"; then
+    fail "possible SQL string concatenation (check manually)"
+  else
+    pass "no obvious SQL string concatenation"
+  fi
+
+  # innerHTML with non-constant value
+  if grep -Pn '\.innerHTML\s*=' "$file" | grep -v "innerHTML = ''\\|innerHTML = ''" | grep -v "svg\|SVG\|path d=\|<svg"; then
+    fail "innerHTML assigned non-constant value"
+  else
+    pass "no dangerous innerHTML usage"
+  fi
+
+  # Check for IDENTITY_INSERT / useEid pattern
+  if grep -q "useEid\|IDENTITY_INSERT" "$file"; then
+    warn "eid injection pattern present (useEid/IDENTITY_INSERT) — verify admin-only"
+  else
+    pass "no eid injection pattern"
+  fi
+
+  # Rate limiter cleanup
+  if grep -q "setInterval.*_rates\|setInterval.*rateOk" "$file"; then
+    pass "rate limiter has periodic cleanup"
+  else
+    warn "rate limiter may leak memory (no cleanup interval)"
+  fi
+
+fi
+
+# --- Frontend checks (if file contains createElement or document.) ---
+if grep -q "document\.\|createElement" "$file"; then
+
+  # innerHTML with user data
+  if grep -Pn '\.innerHTML\s*=' "$file" | grep -v "innerHTML = ''\\|innerHTML = ''" | grep -v "svg\|SVG\|path d=\|<svg"; then
+    fail "innerHTML assigned non-constant value — XSS risk"
+  else
+    pass "no dangerous innerHTML in frontend"
+  fi
+
+  # eval / Function constructor
+  if grep -Pn '\beval\s*\(|new\s+Function\s*\(' "$file"; then
+    fail "eval() or new Function() detected"
+  else
+    pass "no eval/Function constructor"
+  fi
+
+  # document.write
+  if grep -q 'document\.write' "$file"; then
+    fail "document.write detected"
+  else
+    pass "no document.write"
+  fi
+
+fi
+
+echo ""
+if [[ $findings -gt 0 ]]; then
+  echo -e "${RED}$findings finding(s)${NC} — fix before deploying"
+  exit 1
+else
+  echo -e "${GRN}clean${NC}"
+  exit 0
+fi

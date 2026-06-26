@@ -1,0 +1,106 @@
+#lang beagle/js
+(ns eddy.emit-claims-ir)
+(require eddy.graph :as graph)
+
+;; IR-as-claims emitter (layer 2 of eddy-as-claims).
+;; The checked entity graph → CNF claim triples — one [subject "predicate"
+;; object] EDN triple per line, loadable into Fram. Subjects/objects are
+;; string ids: an entity name, or "entity.field" for a field node.
+
+(defn edn-str [(s :- String)] :- String
+  (str "\"" (.replaceAll s "\"" "\\\"") "\""))
+
+(defn triple [(s :- String) (p :- String) (o :- String)] :- String
+  (str "[" (edn-str s) " " (edn-str p) " " (edn-str o) "]"))
+
+(defn bool-triple [(s :- String) (p :- String) (b :- Bool)] :- String
+  (str "[" (edn-str s) " " (edn-str p) " " (if b "true" "false") "]"))
+
+(defn field-claims [(e :- Any) (f :- Any)] :- String
+  (let [ename (.-name e)
+        fid (str ename "." (.-name f))
+        base [(triple ename "field" fid)
+              (triple fid "name" (.-name f))
+              (triple fid "type" (.-type f))
+              (triple fid "column" (.-column f))]
+        with-u (if (nil? (.-unique f)) base (conj base (bool-triple fid "unique" true)))
+        with-d (if (.-derived f) (conj with-u (bool-triple fid "derived" true)) with-u)
+        with-r (if (.-ref f) (conj with-d (bool-triple fid "ref" true)) with-d)
+        dep-lines (if (.-derived f)
+                    (mapv (fn [(dep :- String)] :- String (triple fid "dep" (str ename "." dep))) (.-deps f))
+                    [])]
+    (str (.join with-r "\n")
+         (if (> (count dep-lines) 0) (str "\n" (.join dep-lines "\n")) ""))))
+
+(defn entity-claims [(e :- Any)] :- String
+  (let [ename (.-name e)
+        head [(triple ename "kind" "entity")
+              (triple ename "store" (.-store-name e))
+              (triple ename "table" (.-table-name e))
+              (triple ename "pk" (.-pk-column e))]
+        field-strs (mapv (fn [(f :- Any)] :- String (field-claims e f)) (.-fields e))]
+    (str (.join head "\n") "\n" (.join field-strs "\n"))))
+
+(defn fk-claims [(fk :- Any)] :- String
+  (str (triple (.-from-entity fk) "fk-to" (.-to-entity fk)) "\n"
+       (triple (str (.-from-entity fk) "." (.-from-field fk)) "fk-target" (.-to-entity fk))))
+
+(defn sm-claims [(sm :- Any)] :- String
+  (str (triple (.-entity sm) "state-field" (.-field sm)) "\n"
+       (triple (str (.-entity sm) "." (.-field sm)) "state-type" (.-state-type sm)) "\n"
+       (triple (str (.-entity sm) "." (.-field sm)) "initial" (.-initial sm))))
+
+(defn view-claims [(v :- Any)] :- String
+  (str (triple (.-name v) "kind" "view") "\n"
+       (triple (.-name v) "shows" (.-entity-name v)) "\n"
+       (triple (.-name v) "uses-component" (.-component v))))
+
+;; --- layer 3: generated OUTPUT structure (component → element tree, routes) ---
+;; IrElement vs IrWhen are distinguished by a non-nil .-prop (codegen does the
+;; same). Node ids are path-based (parent/idx) — no mutable counter, so no
+;; purity (!) leak. Self-recursive over the (Any-typed) children vector.
+
+(defn elem-tree [(parent-id :- String) (idx :- Int) (node :- Any)] :- String
+  (let [eid (str parent-id "/" idx)
+        is-when (not (nil? (.-prop node)))
+        head (if is-when
+               (str (triple parent-id "when-child" eid) "\n" (triple eid "when" (.-prop node)))
+               (str (triple parent-id "child" eid) "\n" (triple eid "tag" (.-tag node))))
+        children (.-children node)
+        kid-strs (loop [i :- Int 0 acc :- (Vec String) []]
+                   (if (or (nil? children) (>= i (count children)))
+                     acc
+                     (recur (+ i 1) (conj acc (elem-tree eid i (nth children i))))))]
+    (str head (if (> (count kid-strs) 0) (str "\n" (.join kid-strs "\n")) ""))))
+
+(defn component-claims [(c :- Any)] :- String
+  (let [cname (.-name c)
+        prop-strs (mapv (fn [(p :- String)] :- String (triple cname "prop" p)) (.-props c))
+        body (.-body c)
+        el-strs (loop [i :- Int 0 acc :- (Vec String) []]
+                  (if (>= i (count body))
+                    acc
+                    (recur (+ i 1) (conj acc (elem-tree cname i (nth body i))))))]
+    (str (triple cname "kind" "component") "\n"
+         (.join prop-strs "\n")
+         (if (> (count el-strs) 0) (str "\n" (.join el-strs "\n")) ""))))
+
+(defn router-claims [(r :- Any)] :- String
+  (str (triple "router" "default-route" (.-default-route r)) "\n"
+       (.join (mapv (fn [(rt :- Any)] :- String (triple (.-path rt) "route-view" (.-view-name rt))) (.-routes r)) "\n")))
+
+(defn gen-claims [(prog :- Any)] :- String
+  (let [g (graph/check-program prog)
+        entity-strs (mapv (fn [(e :- Any)] :- String (entity-claims e)) (.-entities g))
+        fk-strs (mapv (fn [(fk :- Any)] :- String (fk-claims fk)) (.-fk-edges g))
+        sm-strs (mapv (fn [(sm :- Any)] :- String (sm-claims sm)) (.-state-machines g))
+        view-strs (mapv (fn [(v :- Any)] :- String (view-claims v)) (.-views g))
+        comp-strs (mapv (fn [(c :- Any)] :- String (component-claims c)) (.-components g))
+        router-str (if (nil? (.-router g)) "" (router-claims (.-router g)))]
+    (str "@file " (.-ns g) "\n"
+         (.join entity-strs "\n") "\n"
+         (.join fk-strs "\n") "\n"
+         (.join sm-strs "\n") "\n"
+         (.join view-strs "\n") "\n"
+         (.join comp-strs "\n") "\n"
+         router-str "\n")))

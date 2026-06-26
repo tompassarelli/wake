@@ -1,0 +1,61 @@
+(ns fleet.observatory)
+
+;; LIVE EXTERNAL FEED — the store mirrors framescope's bridge /presence endpoint
+;; (start it: ~/code/framescope/bin/framescope, default http :8088, target daemon :7978).
+;; Field names mirror the presence JSON keys verbatim so load() needs no projection.
+(persist :feed "http://localhost:8088/presence")
+
+(theme
+  :colors (background "oklch(98% 0.002 240)"
+           foreground "oklch(14% 0.004 285)"
+           muted "oklch(93% 0.004 260)"
+           muted-foreground "oklch(55% 0.014 260)"
+           border "oklch(87% 0.006 260)"
+           primary "oklch(42% 0.095 260)"
+           primary-foreground "oklch(98% 0.002 240)"))
+
+(entity agent
+  (uuid : String :unique identity)
+  (roles : String)
+  (model : String)
+  (online : String)
+  (current_thread : String)
+  (active_workflow : String)
+  (cost_usd : String))
+
+(component agent-row
+  :props [uuid roles online]
+  (div :class "px-4 py-3 border-b border-border"
+    (div :class "flex items-center justify-between"
+      (span :class "text-sm font-medium text-foreground" :text uuid)
+      (span :class "text-xs text-muted-foreground" :text online))
+    (div :class "text-xs text-muted-foreground mt-1" :text roles)))
+
+(component agent-detail
+  :props [uuid roles model online current_thread active_workflow cost_usd]
+  (div :class "p-6 flex flex-col gap-3"
+    (h2 :class "text-lg font-semibold text-foreground" :text uuid)
+    (div :class "text-sm text-muted-foreground" :text roles)
+    (div :class "flex flex-col gap-1 mt-2"
+      (div :class "text-xs uppercase text-muted-foreground" :text "Model")
+      (div :class "text-sm text-foreground" :text model)
+      (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Online")
+      (div :class "text-sm text-foreground" :text online)
+      (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Thread")
+      (div :class "text-sm text-foreground" :text current_thread)
+      (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Workflow")
+      (div :class "text-sm text-foreground" :text active_workflow)
+      (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Cost (USD)")
+      (div :class "text-sm text-foreground" :text cost_usd))))
+
+(view fleet
+  :entity agent :each agent-row
+  :add-form [uuid] :title "Fleet Observatory"
+  :select agent-detail)
+
+;; ESCAPE-HATCH PANELS — framescope's custom Cytoscape graph + live stream-tail mount
+;; INSIDE this eddy view, sharing the same /presence feed + selection via window.eddy.
+;; The shell defines window.framescope.{mountGraph,mountStream}({ el, eddy }); eddy carves
+;; the container and hands it the bus. This is framescope-cockpit-in-eddy on a real pane.
+(panel agent-graph :mount "framescope.mountGraph")
+(panel agent-stream :mount "framescope.mountStream")

@@ -1,0 +1,20 @@
+{
+  "name": "eddy",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "build": "bin/eddy-compile demo/crm-v2.eddy public-js/app.js",
+    "test": "npx playwright test tests/crm-js.spec.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "AGPL-3.0-only",
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.8.0",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.10.0"
+  }
+}

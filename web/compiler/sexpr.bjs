@@ -1,0 +1,158 @@
+#lang beagle/js
+(ns eddy.sexpr)
+
+;; S-expression reader for .eddy files.
+
+(defrecord Sym [(name :- String)])
+(defrecord Kw  [(name :- String)])
+(defrecord SexprVec [(items :- Any)])
+(defunion SExpr Sym Kw SexprVec)
+(defrecord PR  [(val :- Any) (pos :- Int)])
+
+(def CH-SPACE     :- Int 32)
+(def CH-NL        :- Int 10)
+(def CH-CR        :- Int 13)
+(def CH-TAB       :- Int 9)
+(def CH-COMMA     :- Int 44)
+(def CH-LPAREN    :- Int 40)
+(def CH-RPAREN    :- Int 41)
+(def CH-LBRACKET  :- Int 91)
+(def CH-RBRACKET  :- Int 93)
+(def CH-DQUOTE    :- Int 34)
+(def CH-SEMICOLON :- Int 59)
+(def CH-COLON     :- Int 58)
+(def CH-BACKSLASH :- Int 92)
+(def CH-DASH      :- Int 45)
+(def CH-DOT       :- Int 46)
+(def CH-ZERO      :- Int 48)
+(def CH-NINE      :- Int 57)
+
+(defn ws? [(c :- Int)] :- Bool
+  (if (= c CH-SPACE) true
+    (if (= c CH-NL) true
+      (if (= c CH-CR) true
+        (if (= c CH-TAB) true
+          (= c CH-COMMA))))))
+
+(defn digit? [(c :- Int)] :- Bool
+  (if (>= c CH-ZERO) (<= c CH-NINE) false))
+
+(defn sym-ch? [(c :- Int)] :- Bool
+  (if (ws? c) false
+    (if (= c CH-LPAREN) false
+      (if (= c CH-RPAREN) false
+        (if (= c CH-LBRACKET) false
+          (if (= c CH-RBRACKET) false
+            (if (= c CH-DQUOTE) false
+              (if (= c CH-SEMICOLON) false
+                true))))))))
+
+(defn skip-ws [(src :- String) (pos :- Int) (len :- Int)] :- Int
+  (loop [i pos]
+    (if (>= i len) i
+      (let [c (.charCodeAt src i)]
+        (if (ws? c)
+          (recur (+ i 1))
+          (if (= c CH-SEMICOLON)
+            (recur (loop [j (+ i 1)]
+              (if (>= j len) j
+                (if (= (.charCodeAt src j) CH-NL)
+                  (+ j 1)
+                  (recur (+ j 1))))))
+            i))))))
+
+(defn parse-string [(src :- String) (pos :- Int) (len :- Int)] :- PR
+  (let [end (loop [i (+ pos 1) esc false]
+              (if (>= i len) i
+                (let [c (.charCodeAt src i)]
+                  (if esc
+                    (recur (+ i 1) false)
+                    (if (= c CH-BACKSLASH)
+                      (recur (+ i 1) true)
+                      (if (= c CH-DQUOTE)
+                        (+ i 1)
+                        (recur (+ i 1) false)))))))]
+    (->PR (JSON/parse (.slice src pos end)) end)))
+
+(defn num-str? [(tok :- String)] :- Bool
+  (let [tlen (count tok)
+        start (if (= tlen 0) 0
+                (if (= (.charCodeAt tok 0) CH-DASH) 1 0))]
+    (if (= tlen 0) false
+      (if (>= start tlen) false
+        (loop [i start found false dot false]
+          (if (>= i tlen) found
+            (let [c (.charCodeAt tok i)]
+              (if (digit? c)
+                (recur (+ i 1) true dot)
+                (if (= c CH-DOT)
+                  (if dot false
+                    (recur (+ i 1) found true))
+                  false)))))))))
+
+(defn parse-sym-or-num [(src :- String) (pos :- Int) (len :- Int)] :- PR
+  (let [end (loop [i pos]
+              (if (>= i len) i
+                (if (sym-ch? (.charCodeAt src i))
+                  (recur (+ i 1))
+                  i)))
+        tok (.slice src pos end)]
+    (if (num-str? tok)
+      (->PR (* tok 1) end)
+      (->PR (->Sym tok) end))))
+
+(defn parse-kw [(src :- String) (pos :- Int) (len :- Int)] :- PR
+  (let [end (loop [i (+ pos 1)]
+              (if (>= i len) i
+                (if (sym-ch? (.charCodeAt src i))
+                  (recur (+ i 1))
+                  i)))]
+    (->PR (->Kw (.slice src pos end)) end)))
+
+(declare-extern parse-one [String Int Int -> Any])
+
+(defn collect-list [(src :- String) (pos :- Int) (len :- Int) (closer :- Int) (items :- Any)] :- PR
+  (if (>= pos len)
+    (->PR items pos)
+    (if (= (.charCodeAt src pos) closer)
+      (->PR items (+ pos 1))
+      (let [r (parse-one src pos len)]
+        (if (nil? r)
+          (->PR items pos)
+          (collect-list src
+                        (skip-ws src (pr-pos r) len)
+                        len closer
+                        (conj items (pr-val r))))))))
+
+(defn parse-list [(src :- String) (pos :- Int) (len :- Int) (closer :- Int)] :- PR
+  (collect-list src (skip-ws src (+ pos 1) len) len closer []))
+
+(defn parse-vec [(src :- String) (pos :- Int) (len :- Int)] :- PR
+  (let [r (parse-list src pos len CH-RBRACKET)]
+    (->PR (->SexprVec (pr-val r)) (pr-pos r))))
+
+(defn parse-one [(src :- String) (pos :- Int) (len :- Int)] :- Any
+  (let [i (skip-ws src pos len)]
+    (if (>= i len)
+      nil
+      (let [c (.charCodeAt src i)]
+        (cond
+          (= c CH-LPAREN)   (parse-list src i len CH-RPAREN)
+          (= c CH-LBRACKET) (parse-vec src i len)
+          (= c CH-DQUOTE)   (parse-string src i len)
+          (= c CH-COLON)    (parse-kw src i len)
+          :else             (parse-sym-or-num src i len))))))
+
+(defn collect-all [(src :- String) (pos :- Int) (len :- Int) (forms :- Any)] :- Any
+  (if (>= pos len)
+    forms
+    (let [r (parse-one src pos len)]
+      (if (nil? r)
+        forms
+        (collect-all src
+                     (skip-ws src (pr-pos r) len)
+                     len
+                     (conj forms (pr-val r)))))))
+
+(defn parse-all [(src :- String)] :- Any
+  (collect-all src (skip-ws src 0 (count src)) (count src) []))

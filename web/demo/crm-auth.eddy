@@ -1,0 +1,29 @@
+(ns eddy.crm-auth)
+(persist :server)
+
+(defstate ContactStatus [:active -> :inactive :archived]
+                        [:inactive -> :active :archived]
+                        [:archived -> :active])
+
+(entity user
+  (email : String :unique identity)
+  (password : String)
+  (name : String))
+
+(entity contact
+  (name : String)
+  (email : String :unique identity)
+  (company : String)
+  (status : ContactStatus))
+
+(entity note
+  (content : String)
+  (contact : Ref)
+  (created-at : String))
+
+(auth
+  :entity user
+  :login-field email
+  :password-field password
+  :session cookie
+  :protect [contacts notes])

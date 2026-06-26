@@ -1,0 +1,177 @@
+#lang beagle/js
+(ns eddy.js-ast)
+
+;; --- Expression nodes ---
+
+(defrecord JsIdent [(name :- String)])
+(defrecord JsLiteral [(value :- Any)])
+(defrecord JsRawExpr [(code :- String)])
+(defrecord JsCall [(callee :- JsExpr) (args :- (Vec JsExpr))])
+(defrecord JsMember [(obj :- JsExpr) (prop :- String)])
+(defrecord JsIndex [(obj :- JsExpr) (index :- JsExpr)])
+(defrecord JsBinary [(op :- String) (left :- JsExpr) (right :- JsExpr)])
+(defrecord JsUnary [(op :- String) (expr :- JsExpr)])
+(defrecord JsTernary [(test :- JsExpr) (then-expr :- JsExpr) (else-expr :- JsExpr)])
+(defrecord JsArrow [(params :- (Vec String)) (body :- JsExpr)])
+(defrecord JsArrowBlock [(params :- (Vec String)) (body :- (Vec JsStmt))])
+(defrecord JsTemplate [(parts :- (Vec Any))])
+(defrecord JsArray [(items :- (Vec JsExpr))])
+(defrecord JsObject [(pairs :- (Vec Any))])
+(defrecord JsSpread [(expr :- JsExpr)])
+(defrecord JsAwait [(expr :- JsExpr)])
+(defrecord JsNew [(callee :- JsExpr) (args :- (Vec JsExpr))])
+
+(defunion JsExpr
+  JsIdent JsLiteral JsRawExpr JsCall JsMember JsIndex
+  JsBinary JsUnary JsTernary JsArrow JsArrowBlock JsTemplate
+  JsArray JsObject JsSpread JsAwait JsNew)
+
+;; --- Statement nodes ---
+
+(defrecord JsRawStmt [(code :- String)])
+(defrecord JsConst [(name :- String) (value :- JsExpr)])
+(defrecord JsLet [(name :- String) (value :- JsExpr)])
+(defrecord JsAssign [(target :- JsExpr) (value :- JsExpr)])
+(defrecord JsReturn [(expr :- JsExpr)])
+(defrecord JsIf [(test :- JsExpr) (then :- (Vec JsStmt)) (else-branch :- (Vec JsStmt))])
+(defrecord JsBlock [(stmts :- (Vec JsStmt))])
+(defrecord JsFunction [(name :- String) (params :- (Vec String)) (body :- (Vec JsStmt))])
+(defrecord JsAsyncFn [(name :- String) (params :- (Vec String)) (body :- (Vec JsStmt))])
+(defrecord JsForOf [(binding :- String) (iterable :- JsExpr) (body :- (Vec JsStmt))])
+(defrecord JsThrow [(expr :- JsExpr)])
+(defrecord JsTry [(body :- (Vec JsStmt)) (catch-name :- String) (catch-body :- (Vec JsStmt))])
+(defrecord JsExprStmt [(expr :- JsExpr)])
+
+(defunion JsStmt
+  JsRawStmt JsConst JsLet JsAssign JsReturn JsIf JsBlock
+  JsFunction JsAsyncFn JsForOf JsThrow JsTry JsExprStmt)
+
+;; --- Indentation helper ---
+
+(defn indent [(depth :- Int)] :- String
+  (loop [i 0 acc ""]
+    (if (>= i depth)
+      acc
+      (recur (+ i 1) (str acc "  ")))))
+
+;; --- Expression emitter ---
+
+(defn emit-expr [(node :- JsExpr)] :- String
+  (match node
+    [(JsIdent name) name]
+
+    [(JsLiteral value)
+     (if (string? value)
+       (str "'" value "'")
+       (str value))]
+
+    [(JsRawExpr code) code]
+
+    [(JsCall callee args)
+     (str (emit-expr callee) "(" (.join (mapv emit-expr args) ", ") ")")]
+
+    [(JsMember obj prop)
+     (str (emit-expr obj) "." prop)]
+
+    [(JsIndex obj index)
+     (str (emit-expr obj) "[" (emit-expr index) "]")]
+
+    [(JsBinary op left right)
+     (str (emit-expr left) " " op " " (emit-expr right))]
+
+    [(JsUnary op expr)
+     (str op (emit-expr expr))]
+
+    [(JsTernary test then-expr else-expr)
+     (str (emit-expr test) " ? " (emit-expr then-expr) " : " (emit-expr else-expr))]
+
+    [(JsArrow params body)
+     (str "(" (.join params ", ") ") => " (emit-expr body))]
+
+    [(JsArrowBlock params body)
+     (str "(" (.join params ", ") ") => {\n" (emit-stmts body 1) "\n}")]
+
+    [(JsTemplate parts)
+     (str "`" (.join (mapv (fn [p]
+       (if (string? p) p (str "${" (emit-expr p) "}")))
+       parts) "") "`")]
+
+    [(JsArray items)
+     (str "[" (.join (mapv emit-expr items) ", ") "]")]
+
+    [(JsObject pairs)
+     (let [entries (mapv (fn [pair]
+             (str (first pair) ": " (emit-expr (second pair))))
+           pairs)]
+       (str "{ " (.join entries ", ") " }"))]
+
+    [(JsSpread expr)
+     (str "..." (emit-expr expr))]
+
+    [(JsAwait expr)
+     (str "await " (emit-expr expr))]
+
+    [(JsNew callee args)
+     (str "new " (emit-expr callee) "(" (.join (mapv emit-expr args) ", ") ")")]))
+
+;; --- Statement emitter ---
+
+(defn emit-stmt [(node :- JsStmt) (depth :- Int)] :- String
+  (let [pad (indent depth)]
+    (match node
+      [(JsRawStmt code)
+       (str pad code)]
+
+      [(JsConst name value)
+       (str pad "const " name " = " (emit-expr value) ";")]
+
+      [(JsLet name value)
+       (str pad "let " name " = " (emit-expr value) ";")]
+
+      [(JsAssign target value)
+       (str pad (emit-expr target) " = " (emit-expr value) ";")]
+
+      [(JsReturn expr)
+       (str pad "return " (emit-expr expr) ";")]
+
+      [(JsExprStmt expr)
+       (str pad (emit-expr expr) ";")]
+
+      [(JsIf test then else-branch)
+       (let [then-str (str " {\n" (emit-stmts then (+ depth 1)) "\n" pad "}")
+             else-str (if (= (count else-branch) 0) ""
+                        (str " else {\n" (emit-stmts else-branch (+ depth 1)) "\n" pad "}"))]
+         (str pad "if (" (emit-expr test) ")" then-str else-str))]
+
+      [(JsBlock stmts)
+       (emit-stmts stmts depth)]
+
+      [(JsFunction name params body)
+       (str pad "function " name "(" (.join params ", ") ") {\n"
+            (emit-stmts body (+ depth 1)) "\n" pad "}")]
+
+      [(JsAsyncFn name params body)
+       (str pad "async function " name "(" (.join params ", ") ") {\n"
+            (emit-stmts body (+ depth 1)) "\n" pad "}")]
+
+      [(JsForOf binding iterable body)
+       (str pad "for (const " binding " of " (emit-expr iterable) ") {\n"
+            (emit-stmts body (+ depth 1)) "\n" pad "}")]
+
+      [(JsThrow expr)
+       (str pad "throw " (emit-expr expr) ";")]
+
+      [(JsTry body catch-name catch-body)
+       (str pad "try {\n"
+            (emit-stmts body (+ depth 1)) "\n"
+            pad "} catch (" catch-name ") {\n"
+            (emit-stmts catch-body (+ depth 1)) "\n"
+            pad "}")])))
+
+;; --- Top-level ---
+
+(defn emit-stmts [(stmts :- (Vec JsStmt)) (depth :- Int)] :- String
+  (.join (mapv (fn [s] (emit-stmt s depth)) stmts) "\n"))
+
+(defn emit-program [(stmts :- (Vec JsStmt))] :- String
+  (emit-stmts stmts 0))

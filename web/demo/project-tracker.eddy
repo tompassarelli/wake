@@ -1,0 +1,42 @@
+(ns eddy.projects)
+(persist :localStorage "eddy-projects")
+
+(defstate TaskStatus [:todo -> :in-progress :done]
+                     [:in-progress -> :todo :done :blocked]
+                     [:blocked -> :in-progress :todo]
+                     [:done -> :todo])
+
+(entity project
+  (name : String)
+  (description : String)
+  (owner : String :unique identity))
+
+(entity task
+  (title : String)
+  (status : TaskStatus)
+  (project : Ref)
+  (due-date : String))
+
+(list-detail project
+  :title "Projects"
+  :columns [name owner]
+  :search [name owner description]
+  :detail
+    (tabs
+      (tab "Overview"
+        (fields [name description owner]))
+      (tab "Tasks"
+        (related task :query [:find ?t :where [?t :task/project ?e]]
+                      :display [title status due-date]))))
+
+(form add-project
+  :entity project
+  :fields [name description owner]
+  :required [name]
+  :submit-label "Add Project")
+
+(raw-sql "CREATE VIEW task_summary AS SELECT p.name AS project, COUNT(t.eid) AS task_count, SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS done_count FROM project p LEFT JOIN task t ON t.project = p.eid GROUP BY p.eid")
+
+(query overdue-tasks
+  :sql "SELECT t.*, p.name AS project_name FROM task t JOIN project p ON t.project = p.eid WHERE t.\"due-date\" < date('now') AND t.status != 'done'"
+  :params [])

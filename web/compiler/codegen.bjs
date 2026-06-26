@@ -1,0 +1,3128 @@
+#lang beagle/js
+(ns eddy.codegen)
+(require eddy.graph :as graph)
+(require eddy.ui :as ui)
+
+;; Codegen: Checked Entity Graph → self-contained JavaScript IIFE.
+;; Produces direct-DOM code: entity stores, compiled update paths,
+;; list-detail view, form handler, undo/redo, persistence.
+
+;; --- Typed records ---
+
+(defrecord RenderResult [(code :- String) (vname :- String) (bindings :- Any)])
+(defrecord Binding [(prop :- String) (vname :- String) (dom-prop :- String)])
+(defrecord LayoutRef [(id :- String) (vname :- String)])
+(defrecord LayoutResult [(code :- String) (refs :- (Vec LayoutRef))])
+
+;; --- JS AST (inline, typed) ---
+
+(defrecord JsIdent [(name :- String)])
+(defrecord JsLiteral [(value :- Any)])
+(defrecord JsRawExpr [(code :- String)])
+(defrecord JsCall [(callee :- JsExpr) (args :- (Vec JsExpr))])
+(defrecord JsMember [(obj :- JsExpr) (prop :- String)])
+(defrecord JsBinary [(op :- String) (left :- JsExpr) (right :- JsExpr)])
+(defrecord JsAwait [(expr :- JsExpr)])
+(defrecord JsArrowBlock [(params :- (Vec String)) (body :- (Vec JsStmt))])
+(defrecord JsArray [(items :- (Vec JsExpr))])
+(defrecord JsSpread [(expr :- JsExpr)])
+
+(defunion JsExpr JsIdent JsLiteral JsRawExpr JsCall JsMember JsBinary JsAwait JsArrowBlock JsArray JsSpread)
+
+(defrecord JsRawStmt [(code :- String)])
+(defrecord JsConst [(name :- String) (value :- JsExpr)])
+(defrecord JsAssign [(target :- JsExpr) (value :- JsExpr)])
+(defrecord JsReturn [(expr :- JsExpr)])
+(defrecord JsIf [(test :- JsExpr) (then :- (Vec JsStmt)) (else-branch :- (Vec JsStmt))])
+(defrecord JsBlock [(stmts :- (Vec JsStmt))])
+(defrecord JsExprStmt [(expr :- JsExpr)])
+
+(defunion JsStmt JsRawStmt JsConst JsAssign JsReturn JsIf JsBlock JsExprStmt)
+
+;; --- JS AST emitter ---
+
+(defn emit-expr [(node :- JsExpr)] :- String
+  (match node
+    [(JsIdent name) name]
+    [(JsLiteral value) (if (string? value) (str "'" value "'") (str value))]
+    [(JsRawExpr code) code]
+    [(JsCall callee args) (str (emit-expr callee) "(" (.join (mapv emit-expr args) ", ") ")")]
+    [(JsMember obj prop) (str (emit-expr obj) "." prop)]
+    [(JsBinary op left right) (str (emit-expr left) " " op " " (emit-expr right))]
+    [(JsAwait expr) (str "await " (emit-expr expr))]
+    [(JsArrowBlock params body) (str "(" (.join params ", ") ") => {\n" (emit-stmts body 1) "\n}")]
+    [(JsArray items) (str "[" (.join (mapv emit-expr items) ", ") "]")]
+    [(JsSpread expr) (str "..." (emit-expr expr))]))
+
+(defn indent [(depth :- Int)] :- String
+  (loop [i 0 acc ""]
+    (if (>= i depth) acc (recur (+ i 1) (str acc "  ")))))
+
+(defn emit-stmt [(node :- JsStmt) (depth :- Int)] :- String
+  (let [pad (indent depth)]
+    (match node
+      [(JsRawStmt code) (str pad code)]
+      [(JsConst name value) (str pad "const " name " = " (emit-expr value) ";")]
+      [(JsAssign target value) (str pad (emit-expr target) " = " (emit-expr value) ";")]
+      [(JsReturn expr) (str pad "return " (emit-expr expr) ";")]
+      [(JsExprStmt expr) (str pad (emit-expr expr) ";")]
+      [(JsIf test then else-branch)
+       (let [then-str (str " {\n" (emit-stmts then (+ depth 1)) "\n" pad "}")
+             else-str (if (= (count else-branch) 0) ""
+                        (str " else {\n" (emit-stmts else-branch (+ depth 1)) "\n" pad "}"))]
+         (str pad "if (" (emit-expr test) ")" then-str else-str))]
+      [(JsBlock stmts) (emit-stmts stmts depth)])))
+
+(defn emit-stmts [(stmts :- (Vec JsStmt)) (depth :- Int)] :- String
+  (.join (mapv (fn [s] (emit-stmt s depth)) stmts) "\n"))
+
+;; --- DOM AST helpers ---
+
+(defn dom-create [(tag :- String)] :- JsExpr
+  (->JsCall (->JsMember (->JsIdent "document") "createElement") [(->JsLiteral tag)]))
+
+(defn dom-set-prop [(target :- JsExpr) (prop :- String) (value :- JsExpr)] :- JsStmt
+  (->JsAssign (->JsMember target prop) value))
+
+(defn dom-append [(parent :- JsExpr) (child :- JsExpr)] :- JsStmt
+  (->JsExprStmt (->JsCall (->JsMember parent "appendChild") [child])))
+
+(defn dom-add-listener [(target :- JsExpr) (event :- String) (handler :- JsExpr)] :- JsStmt
+  (->JsExprStmt (->JsCall (->JsMember target "addEventListener") [(->JsLiteral event) handler])))
+
+;; --- Helpers ---
+
+(defn id->ref [(s :- String)] :- String
+  (.replaceAll (.replaceAll s "-" "_") "." "_"))
+
+(defn titlecase [(s :- String)] :- String
+  (if (= (count s) 0) s
+    (.join
+      (mapv (fn [w] (if (= (count w) 0) w (str (.toUpperCase (subs w 0 1)) (subs w 1))))
+            (.split s " "))
+      " ")))
+
+(defn q [(s :- String)] :- String
+  (str "\"" s "\""))
+
+(defn sym? [(x :- Any)] :- Bool
+  (if (nil? x) false (= (.-_tag x) "Sym")))
+
+(defn sym-name [(x :- Any)] :- String
+  (.-name x))
+
+
+(defn compile-derived-expr [(expr :- Any) (subst :- Any)] :- String
+  (if (sym? expr)
+    (let [name (sym-name expr)]
+      (if (and (not (nil? subst)) (not (nil? (get subst name))))
+        (get subst name)
+        (str "(entity." name " || '')")))
+    (if (and (vector? expr) (> (count expr) 0)
+             (sym? (nth expr 0)) (= (sym-name (nth expr 0)) "str"))
+      (.join
+        (mapv (fn [p]
+          (if (string? p) (q p)
+            (if (sym? p)
+              (let [name (sym-name p)]
+                (if (and (not (nil? subst)) (not (nil? (get subst name))))
+                  (get subst name)
+                  (str "(entity." name " || '')")))
+              (compile-derived-expr p subst))))
+          (subvec expr 1))
+        " + ")
+      (if (string? expr) (q expr) "''"))))
+
+;; --- Inlined value-equality runtime (change-gating) ---
+
+;; gen-equiv-runtime — emit equiv/hash/mix as PLAIN (non-exported) function
+;; declarations, copied VERBATIM from beagle core.js (lib/beagle/core.js), so
+;; each generated app is self-contained (ZERO imports). These back the store
+;; change-gate: a write whose value is structurally EQUAL to the current value
+;; becomes a true no-op (no mutation, no notify, no superseding claim).
+(defn gen-equiv-runtime [] :- String
+  (.join
+    ["// ── Value equality (Clojure = semantics) ─────────────"
+     "function equiv(a, b) {"
+     "  // nil: both null and undefined represent Clojure nil."
+     "  if (a == null || b == null) return a == null && b == null;"
+     "  // identical refs are trivially equal."
+     "  if (a === b) return true;"
+     "  const ta = typeof a, tb = typeof b;"
+     "  // scalars: numbers, strings (keywords emit as bare strings), booleans."
+     "  if (ta !== \"object\" || tb !== \"object\") return a === b;"
+     "  // both are objects (arrays, plain objects/records, Sets, ...)."
+     "  const aArr = Array.isArray(a), bArr = Array.isArray(b);"
+     "  if (aArr || bArr) {"
+     "    if (!aArr || !bArr) return false;"
+     "    if (a.length !== b.length) return false;"
+     "    for (let i = 0; i < a.length; i++) if (!equiv(a[i], b[i])) return false;"
+     "    return true;"
+     "  }"
+     "  const aSet = a instanceof Set, bSet = b instanceof Set;"
+     "  if (aSet || bSet) {"
+     "    if (!aSet || !bSet) return false;"
+     "    if (a.size !== b.size) return false;"
+     "    const bItems = [...b];"
+     "    const used = new Array(bItems.length).fill(false);"
+     "    outer: for (const x of a) {"
+     "      for (let i = 0; i < bItems.length; i++) {"
+     "        if (!used[i] && equiv(x, bItems[i])) { used[i] = true; continue outer; }"
+     "      }"
+     "      return false;"
+     "    }"
+     "    return true;"
+     "  }"
+     "  // plain objects: maps AND records — same own keys, recursive equiv."
+     "  const ak = Object.keys(a), bk = Object.keys(b);"
+     "  if (ak.length !== bk.length) return false;"
+     "  for (const k of ak) {"
+     "    if (!Object.prototype.hasOwnProperty.call(b, k)) return false;"
+     "    if (!equiv(a[k], b[k])) return false;"
+     "  }"
+     "  return true;"
+     "}"
+     "function mix(h, c) {"
+     "  return ((h << 5) - h + c) | 0;"
+     "}"
+     "function hash(x) {"
+     "  if (x == null) return 0;"
+     "  const t = typeof x;"
+     "  if (t === \"number\") {"
+     "    return mix(1, x | 0) ^ ((x * 2654435761) | 0);"
+     "  }"
+     "  if (t === \"string\") {"
+     "    let h = 2;"
+     "    for (let i = 0; i < x.length; i++) h = mix(h, x.charCodeAt(i));"
+     "    return h | 0;"
+     "  }"
+     "  if (t === \"boolean\") return x ? 3 : 4;"
+     "  if (Array.isArray(x)) {"
+     "    let h = 5;"
+     "    for (let i = 0; i < x.length; i++) h = mix(h, hash(x[i]));"
+     "    return h | 0;"
+     "  }"
+     "  if (x instanceof Set) {"
+     "    let acc = 0;"
+     "    for (const e of x) acc = (acc + hash(e)) | 0;"
+     "    return mix(6, acc);"
+     "  }"
+     "  if (t === \"object\") {"
+     "    let acc = 0;"
+     "    for (const k of Object.keys(x)) {"
+     "      acc = (acc + mix(hash(k), hash(x[k]))) | 0;"
+     "    }"
+     "    return mix(7, acc);"
+     "  }"
+     "  return mix(8, hash(String(x)));"
+     "}"
+     ""]
+    "\n"))
+
+;; --- Entity store ---
+
+(defn gen-store [(name :- String) (fk-methods :- Any)] :- String
+  (let [fk-lines (mapv (fn [fk]
+                   (str "    by" (titlecase fk) "(fkEid) { return Array.from(entities.values()).filter(e => e." fk " === fkEid); },"))
+                   fk-methods)]
+    (.join
+      (.concat
+        [(str "const " name " = (() => {")
+         "  let nextEid = 1;"
+         "  const entities = new Map();"
+         "  const watchers = [];"
+         "  function notify(evt) { for (const fn of watchers) fn(evt); }"
+         "  return {"
+         "    add(fields) {"
+         "      const eid = nextEid++;"
+         "      const entity = { ...fields, eid };"
+         "      entities.set(eid, entity);"
+         "      notify({ type: 'add', eid, entity });"
+         "      return entity;"
+         "    },"
+         "    get(eid) { return entities.get(eid); },"
+         "    update(eid, attr, value) {"
+         "      const entity = entities.get(eid);"
+         "      if (!entity) return false;"
+         "      const old = entity[attr];"
+         "      if (equiv(old, value)) return false;"
+         "      entity[attr] = value;"
+         "      notify({ type: 'update', eid, entity, attr, old, 'new': value });"
+         "      return true;"  ;; change-gated: feed reads this to emit only moved uuids
+         "    },"
+         "    all() { return Array.from(entities.values()); },"
+         "    remove(eid) {"
+         "      const entity = entities.get(eid);"
+         "      if (!entity) return;"
+         "      entities.delete(eid);"
+         "      notify({ type: 'remove', eid, entity });"
+         "    },"
+         "    addBack(entity) {"
+         "      entities.set(entity.eid, entity);"
+         "      if (entity.eid >= nextEid) nextEid = entity.eid + 1;"
+         "      notify({ type: 'add', eid: entity.eid, entity });"
+         "    },"]
+        fk-lines
+        ["    watch(fn) { watchers.push(fn); },"
+         "    load(items) {"
+         "      entities.clear();"
+         "      let maxEid = 0;"
+         "      for (const item of items) { entities.set(item.eid, item); if (item.eid > maxEid) maxEid = item.eid; }"
+         "      nextEid = maxEid + 1;"
+         "      notify({ type: 'load' });"
+         "    },"
+         "    snapshot() { return Array.from(entities.values()); }"
+         "  };"
+         "})();"])
+      "\n")))
+
+;; gen-store-claims — a CLAIM-BACKED store with gen-store's exact interface (ADR 0001).
+;; Internally an append-only claim log (subject predicate object) with supersession:
+;; update keeps the old value (marked sup) so HISTORY is intrinsic; remove tombstones
+;; (non-destructive); snapshot() is the LOG so localStorage persists history, not just
+;; current state. The rest of the app is unchanged. JS sibling: web/runtime/claim-store.js.
+(defn gen-store-claims [(name :- String) (fk-methods :- Any)] :- String
+  (let [fk-lines (mapv (fn [fk]
+                   (str "    by" (titlecase fk) "(fkEid) { return entityIds().filter(e => !tombstoned(e)).map(project).filter(e => e." fk " === fkEid); },"))
+                   fk-methods)]
+    (.join
+      (.concat
+        [(str "const " name " = (() => {")
+         "  let nextEid = 1, nextCid = 1;"
+         "  const claims = [];"
+         "  const watchers = [];"
+         "  function notify(evt) { for (const fn of watchers) fn(evt); }"
+         "  function liveClaim(eid, attr) { let f = null; for (const c of claims) if (c.l === eid && c.p === attr && !c.sup) f = c; return f; }"
+         "  function tombstoned(eid) { return !!liveClaim(eid, '__tombstoned'); }"
+         "  function project(eid) { const e = { eid }; for (const c of claims) if (c.l === eid && !c.sup && !c.p.startsWith('__')) e[c.p] = c.r; return e; }"
+         "  function entityIds() { const seen = new Set(), out = []; for (const c of claims) if (!seen.has(c.l)) { seen.add(c.l); out.push(c.l); } return out; }"
+         "  return {"
+         "    add(fields) { const eid = nextEid++; for (const k in fields) claims.push({ cid: nextCid++, l: eid, p: k, r: fields[k], sup: false }); const entity = project(eid); notify({ type: 'add', eid, entity }); return entity; },"
+         "    get(eid) { return (tombstoned(eid) || !entityIds().includes(eid)) ? undefined : project(eid); },"
+         "    update(eid, attr, value) { const old = liveClaim(eid, attr); if (old && equiv(old.r, value)) return false; if (old) old.sup = true; claims.push({ cid: nextCid++, l: eid, p: attr, r: value, sup: false }); notify({ type: 'update', eid, entity: project(eid), attr, old: old ? old.r : undefined, 'new': value }); return true; },"
+         "    all() { return entityIds().filter(e => !tombstoned(e)).map(project); },"
+         "    remove(eid) { claims.push({ cid: nextCid++, l: eid, p: '__tombstoned', r: true, sup: false }); notify({ type: 'remove', eid }); },"
+         "    addBack(entity) { const t = liveClaim(entity.eid, '__tombstoned'); if (t) t.sup = true; if (!entityIds().includes(entity.eid)) { for (const k in entity) if (k !== 'eid') claims.push({ cid: nextCid++, l: entity.eid, p: k, r: entity[k], sup: false }); if (entity.eid >= nextEid) nextEid = entity.eid + 1; } notify({ type: 'add', eid: entity.eid, entity: project(entity.eid) }); },"]
+        fk-lines
+        ["    watch(fn) { watchers.push(fn); },"
+         "    load(snap) { claims.length = 0; if (snap && Array.isArray(snap.claims)) { for (const c of snap.claims) claims.push({ ...c }); nextEid = snap.nextEid || 1; nextCid = snap.nextCid || 1; } else if (Array.isArray(snap)) { for (const it of snap) { for (const k in it) if (k !== 'eid') claims.push({ cid: nextCid++, l: it.eid, p: k, r: it[k], sup: false }); if (it.eid >= nextEid) nextEid = it.eid + 1; } } notify({ type: 'load' }); },"
+         "    snapshot() { return { claims: claims.map(c => ({ ...c })), nextEid, nextCid }; },"
+         "    history(eid, attr) { return claims.filter(c => c.l === eid && c.p === attr).map(c => ({ value: c.r, live: !c.sup })); }"
+         "  };"
+         "})();"])
+      "\n")))
+
+;; --- Detail panel ---
+
+(defn gen-detail [(en :- String) (store-name :- String) (overview-fields :- Any)
+                  (derived-attrs :- Any) (related-info :- Any) (field-info :- Any)] :- String
+  (let [tab-active-cls "px-4 py-2 text-sm font-medium border-b-2 border-primary text-foreground"
+        tab-inactive-cls "px-4 py-2 text-sm font-medium text-muted-foreground"
+        delete-svg "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M3 6h18\"></path><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"></path><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"></path></svg>"
+        close-svg "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><line x1=\"18\" y1=\"6\" x2=\"6\" y2=\"18\"></line><line x1=\"6\" y1=\"6\" x2=\"18\" y2=\"18\"></line></svg>"
+        container-ref (id->ref (str "ld-" en "-detail"))
+
+        ;; Delete cascade lines
+        delete-lines (.join
+          (mapv (fn [ri]
+            (str "    for (const r of " (.-store ri) ".by" (titlecase (.-fk-field ri)) "(selectedContact)) " (.-store ri) ".remove(r.eid);"))
+            related-info)
+          "\n")
+
+        ;; Tab bar construction
+        tab-bar-lines (str
+          "  detailNodes.tabOverview = document.createElement('button');\n"
+          "  detailNodes.tabOverview.textContent = 'Overview';\n"
+          "  detailNodes.tabOverview.className = '" tab-active-cls "';\n"
+          "  detailNodes.tabOverview.addEventListener('click', () => { activeTab = 'overview'; renderDetail(); });\n"
+          "  tabBar.appendChild(detailNodes.tabOverview);\n"
+          (.join
+            (mapv (fn [ri]
+              (let [key (.-key ri)]
+                (str "  detailNodes.tab_" key " = document.createElement('button');\n"
+                     "  detailNodes.tab_" key ".textContent = " (q (titlecase key)) ";\n"
+                     "  detailNodes.tab_" key ".className = '" tab-inactive-cls "';\n"
+                     "  detailNodes.tab_" key ".addEventListener('click', () => { activeTab = " (q key) "; renderDetail(); });\n"
+                     "  tabBar.appendChild(detailNodes.tab_" key ");")))
+              related-info)
+            "\n"))
+
+        ;; Overview field grid
+        field-grid-lines (.join
+          (mapv (fn [f]
+            (str "  const " f "Label = document.createElement('span');\n"
+                 "  " f "Label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
+                 "  " f "Label.textContent = " (q (titlecase f)) ";\n"
+                 "  grid.appendChild(" f "Label);\n"
+                 "  detailNodes.field_" f " = document.createElement('span');\n"
+                 "  detailNodes.field_" f ".className = 'text-sm';\n"
+                 "  grid.appendChild(detailNodes.field_" f ");\n"
+                 "  makeEditable(detailNodes.field_" f ", " (q f) ");"))
+            overview-fields)
+          "\n")
+
+        ;; Derived field grid entries (non-editable)
+        derived-grid-lines (.join
+          (mapv (fn [da]
+            (let [dname (id->ref (.-name da))
+                  label (titlecase (.replaceAll (.-name da) "-" " "))]
+              (str "  const " dname "Label = document.createElement('span');\n"
+                   "  " dname "Label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
+                   "  " dname "Label.textContent = " (q label) ";\n"
+                   "  grid.appendChild(" dname "Label);\n"
+                   "  detailNodes.field_" dname " = document.createElement('span');\n"
+                   "  detailNodes.field_" dname ".className = 'text-sm italic text-muted-foreground';\n"
+                   "  grid.appendChild(detailNodes.field_" dname ");")))
+            derived-attrs)
+          "\n")
+
+        ;; Related tab content areas (typed AST)
+        related-content-lines (.join
+          (mapv (fn [ri]
+            (let [key (.-key ri)
+                  rel-en (.-entity ri)
+                  rel-store (.-store ri)
+                  fk-field (.-fk-field ri)
+                  dn (->JsIdent "detailNodes")
+                  content (->JsMember dn (str key "Content"))
+                  header (->JsMember dn (str key "Header"))
+                  lst (->JsMember dn (str key "List"))
+                  input (->JsMember dn (str key "Input"))
+                  form-row (->JsIdent (str key "FormRow"))
+                  add-btn (->JsIdent (str key "AddBtn"))
+                  wrapper (->JsMember dn "wrapper")]
+              (emit-stmts
+                [(dom-set-prop dn (str key "Content") (dom-create "div"))
+                 (dom-set-prop content "className" (->JsLiteral "p-4 flex-1 overflow-y-auto flex flex-col"))
+                 (dom-set-prop content "style.display" (->JsLiteral "none"))
+                 (dom-set-prop dn (str key "Header") (dom-create "h3"))
+                 (dom-set-prop header "className" (->JsLiteral "text-sm font-medium mb-2"))
+                 (dom-append content header)
+                 (dom-set-prop dn (str key "List") (dom-create "div"))
+                 (dom-set-prop lst "className" (->JsLiteral "flex-1 space-y-2 mb-3"))
+                 (dom-append content lst)
+                 (->JsConst (str key "FormRow") (dom-create "div"))
+                 (dom-set-prop form-row "className" (->JsLiteral "flex gap-2"))
+                 (dom-set-prop dn (str key "Input") (dom-create "textarea"))
+                 (dom-set-prop input "className" (->JsLiteral "flex-1 px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm resize-none"))
+                 (dom-set-prop input "placeholder" (->JsLiteral (str "Add a " rel-en "...")))
+                 (dom-set-prop input "rows" (->JsRawExpr "2"))
+                 (dom-append form-row input)
+                 (->JsConst (str key "AddBtn") (dom-create "button"))
+                 (dom-set-prop add-btn "className" (->JsLiteral "px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 self-end"))
+                 (dom-set-prop add-btn "textContent" (->JsLiteral "Add"))
+                 (dom-add-listener add-btn "click"
+                   (->JsArrowBlock []
+                     [(->JsConst "content" (->JsRawExpr (str "detailNodes." key "Input.value.trim()")))
+                      (->JsRawStmt (str "if (!content || !selectedContact) return;"))
+                      (->JsExprStmt (->JsCall (->JsMember (->JsIdent rel-store) "add")
+                        [(->JsRawExpr (str "{ content, " fk-field ": selectedContact, 'created-at': new Date().toISOString() }"))]))
+                      (dom-set-prop input "value" (->JsLiteral ""))]))
+                 (dom-append form-row add-btn)
+                 (dom-append content form-row)
+                 (dom-append wrapper content)]
+                1)))
+            related-info)
+          "\n")
+
+        ;; Related tab render functions
+        render-related-fns (.join
+          (mapv (fn [ri]
+            (let [key (.-key ri)
+                  rel-store (.-store ri)
+                  fk-field (.-fk-field ri)
+                  display (or (.-display ri) [])
+                  render-fn (str "render" (titlecase key))]
+              (str "function " render-fn "() {\n"
+                   "  detailNodes." key "List.innerHTML = '';\n"
+                   "  if (!selectedContact) return;\n"
+                   "  detailNodes." key "Header.textContent = '" (titlecase key) " for ' + (" store-name ".get(selectedContact)?.name || '');\n"
+                   "  const items = " rel-store ".by" (titlecase fk-field) "(selectedContact)\n"
+                   "    .sort((a, b) => (b['created-at'] || '').localeCompare(a['created-at'] || ''));\n"
+                   "  if (items.length === 0) {\n"
+                   "    const empty = document.createElement('div');\n"
+                   "    empty.className = 'text-sm text-muted-foreground';\n"
+                   "    empty.textContent = 'No " key " yet';\n"
+                   "    detailNodes." key "List.appendChild(empty);\n"
+                   "    return;\n"
+                   "  }\n"
+                   "  for (const item of items) {\n"
+                   "    const el = document.createElement('div');\n"
+                   "    el.className = 'p-2 border border-border rounded-md flex justify-between items-start gap-2';\n"
+                   "    const elBody = document.createElement('div');\n"
+                   "    elBody.className = 'flex-1 min-w-0';\n"
+                   (.join
+                     (mapv (fn [col]
+                       (let [cref (id->ref col)
+                             tag (if (= col "content") "p" "span")
+                             cls (if (= col "content") "text-sm" "text-xs text-muted-foreground mt-1 block")]
+                         (str "    const " cref "El = document.createElement('" tag "');\n"
+                              "    " cref "El.className = '" cls "';\n"
+                              "    " cref "El.textContent = item['" col "'] || '';\n"
+                              "    elBody.appendChild(" cref "El);")))
+                       display)
+                     "\n")
+                   "\n    el.appendChild(elBody);\n"
+                   "    const delBtn = document.createElement('button');\n"
+                   "    delBtn.className = 'text-muted-foreground hover:text-red-600 text-sm px-1 flex-shrink-0';\n"
+                   "    delBtn.textContent = '\\u00d7';\n"
+                   "    delBtn.addEventListener('click', () => " rel-store ".remove(item.eid));\n"
+                   "    el.appendChild(delBtn);\n"
+                   "    detailNodes." key "List.appendChild(el);\n"
+                   "  }\n"
+                   "}\n")))
+            related-info)
+          "\n")
+
+        ;; renderDetail function
+        clear-fields (.join
+          (mapv (fn [f] (str "    detailNodes.field_" f ".textContent = '';"))
+                overview-fields)
+          "\n")
+        clear-derived (.join
+          (mapv (fn [da]
+            (str "    detailNodes.field_" (id->ref (.-name da)) ".textContent = '';"))
+            derived-attrs)
+          "\n")
+        set-fields (.join
+          (mapv (fn [f] (str "  detailNodes.field_" f ".textContent = entity." f " || '';"))
+                overview-fields)
+          "\n")
+        set-derived (.join
+          (mapv (fn [da]
+            (str "  detailNodes.field_" (id->ref (.-name da)) ".textContent = " (compile-derived-expr (.-expr da) nil) ";"))
+            derived-attrs)
+          "\n")
+        subtitle-field (if (> (count overview-fields) 1) (nth overview-fields 1) nil)
+        tab-active-update (str
+          "  detailNodes.tabOverview.className = activeTab === 'overview'\n"
+          "    ? '" tab-active-cls "'\n"
+          "    : '" tab-inactive-cls "';\n"
+          (.join
+            (mapv (fn [ri]
+              (let [key (.-key ri)]
+                (str "  detailNodes.tab_" key ".className = activeTab === " (q key) "\n"
+                     "    ? '" tab-active-cls "'\n"
+                     "    : '" tab-inactive-cls "';")))
+              related-info)
+            "\n"))
+        tab-visibility (str
+          "  detailNodes.overviewContent.style.display = activeTab !== 'overview' ? 'none' : '';\n"
+          (.join
+            (mapv (fn [ri]
+              (str "  detailNodes." (.-key ri) "Content.style.display = activeTab !== " (q (.-key ri)) " ? 'none' : '';"))
+              related-info)
+            "\n"))
+        tab-render (.join
+          (mapv (fn [ri]
+            (let [key (.-key ri)]
+              (str "  if (activeTab === " (q key) ") render" (titlecase key) "();")))
+            related-info)
+          "\n")]
+
+    (str
+      "let selectedContact = null;\n"
+      "let activeTab = 'overview';\n\n"
+      "function selectContact(eid) {\n"
+      "  selectedContact = eid;\n"
+      "  renderDetail();\n"
+      "}\n\n"
+      "const detailNodes = {};\n\n"
+
+      ;; makeEditable — type-aware inline editing
+      ;; fieldTypes maps attr names to { kind, options }
+      "const fieldTypes = " (gen-field-types-map field-info) ";\n\n"
+      "function makeEditable(el, attr) {\n"
+      "  el.style.cursor = 'pointer';\n"
+      "  el.addEventListener('click', () => {\n"
+      "    if (!selectedContact) return;\n"
+      "    let done = false;\n"
+      "    const ft = fieldTypes[attr];\n"
+      "    const kind = ft ? ft.kind : 'text';\n"
+      "    let input;\n"
+      "    if (kind === 'select') {\n"
+      "      input = document.createElement('select');\n"
+      "      for (const opt of ft.options) {\n"
+      "        const o = document.createElement('option');\n"
+      "        o.value = opt; o.textContent = opt;\n"
+      "        if (opt === el.textContent) o.selected = true;\n"
+      "        input.appendChild(o);\n"
+      "      }\n"
+      "    } else if (kind === 'checkbox') {\n"
+      "      input = document.createElement('input');\n"
+      "      input.type = 'checkbox';\n"
+      "      input.checked = el.textContent === 'true';\n"
+      "    } else {\n"
+      "      input = document.createElement('input');\n"
+      "      input.type = kind;\n"
+      "      input.value = el.textContent;\n"
+      "    }\n"
+      "    input.className = 'text-sm w-full px-1 py-0 border border-input rounded bg-background text-foreground outline-none';\n"
+      "    el.replaceWith(input);\n"
+      "    input.focus();\n"
+      "    function commit() {\n"
+      "      if (done) return;\n"
+      "      done = true;\n"
+      "      const val = kind === 'checkbox' ? String(input.checked) : input.value.trim();\n"
+      "      input.replaceWith(el);\n"
+      "      " store-name ".update(selectedContact, attr, val);\n"
+      "    }\n"
+      "    if (kind === 'select') {\n"
+      "      input.addEventListener('change', commit);\n"
+      "      input.addEventListener('blur', commit);\n"
+      "    } else {\n"
+      "      input.addEventListener('blur', commit);\n"
+      "      input.addEventListener('keydown', (e) => {\n"
+      "        if (e.key === 'Enter') { e.preventDefault(); commit(); }\n"
+      "        if (e.key === 'Escape') { done = true; input.replaceWith(el); }\n"
+      "      });\n"
+      "    }\n"
+      "  });\n"
+      "}\n\n"
+
+      ;; buildDetailPanel
+      "function buildDetailPanel() {\n"
+      "  const container = " container-ref ";\n\n"
+      "  detailNodes.emptyState = document.createElement('div');\n"
+      "  detailNodes.emptyState.className = 'flex items-center justify-center h-full text-muted-foreground text-sm';\n"
+      "  detailNodes.emptyState.textContent = 'Select a " en " to view details';\n\n"
+      "  detailNodes.wrapper = document.createElement('div');\n"
+      "  detailNodes.wrapper.className = 'flex flex-col h-full';\n"
+      "  detailNodes.wrapper.style.display = 'none';\n\n"
+      ;; Header
+      "  const header = document.createElement('div');\n"
+      "  header.className = 'flex items-center justify-between p-4 border-b border-border';\n"
+      "  const headerLeft = document.createElement('div');\n"
+      "  detailNodes.title = document.createElement('h2');\n"
+      "  detailNodes.title.className = 'text-lg font-semibold';\n"
+      "  detailNodes.subtitle = document.createElement('p');\n"
+      "  detailNodes.subtitle.className = 'text-sm text-muted-foreground';\n"
+      "  headerLeft.appendChild(detailNodes.title);\n"
+      "  headerLeft.appendChild(detailNodes.subtitle);\n"
+      "  const headerRight = document.createElement('div');\n"
+      "  headerRight.className = 'flex items-center gap-1';\n"
+      "  const deleteBtn = document.createElement('button');\n"
+      "  deleteBtn.className = 'p-1 rounded hover:bg-red-100 text-muted-foreground hover:text-red-600 transition-colors';\n"
+      "  deleteBtn.innerHTML = '" delete-svg "';\n"
+      "  deleteBtn.addEventListener('click', () => {\n"
+      "    if (!selectedContact) return;\n"
+      "    beginTransaction();\n"
+      delete-lines "\n"
+      "    " store-name ".remove(selectedContact);\n"
+      "    commitTransaction();\n"
+      "  });\n"
+      "  const closeBtn = document.createElement('button');\n"
+      "  closeBtn.className = 'p-1 rounded hover:bg-muted';\n"
+      "  closeBtn.innerHTML = '" close-svg "';\n"
+      "  closeBtn.addEventListener('click', () => selectContact(null));\n"
+      "  headerRight.appendChild(deleteBtn);\n"
+      "  headerRight.appendChild(closeBtn);\n"
+      "  header.appendChild(headerLeft);\n"
+      "  header.appendChild(headerRight);\n"
+      "  detailNodes.wrapper.appendChild(header);\n\n"
+      ;; Tab bar
+      "  const tabBar = document.createElement('div');\n"
+      "  tabBar.className = 'flex border-b border-border';\n"
+      tab-bar-lines "\n"
+      "  detailNodes.wrapper.appendChild(tabBar);\n\n"
+      ;; Overview content
+      "  detailNodes.overviewContent = document.createElement('div');\n"
+      "  detailNodes.overviewContent.className = 'p-4 flex-1 overflow-y-auto';\n"
+      "  const grid = document.createElement('div');\n"
+      "  grid.className = 'grid grid-cols-2 gap-3';\n"
+      field-grid-lines "\n"
+      derived-grid-lines "\n"
+      "  detailNodes.overviewContent.appendChild(grid);\n"
+      "  detailNodes.wrapper.appendChild(detailNodes.overviewContent);\n\n"
+      ;; Related tab content
+      related-content-lines "\n"
+      "\n  container.appendChild(detailNodes.emptyState);\n"
+      "  container.appendChild(detailNodes.wrapper);\n"
+      "}\n\n"
+      ;; Related render functions
+      render-related-fns "\n"
+      ;; renderDetail
+      "function renderDetail() {\n"
+      "  if (!selectedContact) {\n"
+      "    detailNodes.emptyState.style.display = '';\n"
+      "    detailNodes.wrapper.style.display = 'none';\n"
+      "    detailNodes.title.textContent = '';\n"
+      "    detailNodes.subtitle.textContent = '';\n"
+      clear-fields "\n"
+      clear-derived "\n"
+      "    return;\n"
+      "  }\n"
+      "  const entity = " store-name ".get(selectedContact);\n"
+      "  if (!entity) {\n"
+      "    detailNodes.emptyState.style.display = '';\n"
+      "    detailNodes.wrapper.style.display = 'none';\n"
+      "    return;\n"
+      "  }\n"
+      "  detailNodes.emptyState.style.display = 'none';\n"
+      "  detailNodes.wrapper.style.display = '';\n\n"
+      "  detailNodes.title.textContent = entity.name || '';\n"
+      (if (not (nil? subtitle-field))
+        (str "  detailNodes.subtitle.textContent = entity." subtitle-field " || '';\n")
+        "")
+      "\n"
+      set-fields "\n"
+      set-derived "\n"
+      "\n"
+      tab-active-update "\n"
+      "\n"
+      tab-visibility "\n"
+      tab-render "\n"
+      "}\n")))
+
+;; --- List view ---
+
+(defn gen-list-fns [(en :- String) (store-name :- String) (columns :- Any)
+                    (search-cols :- Any) (derived-attrs :- Any)] :- String
+  (let [list-ref (id->ref (str "ld-" en "-list"))
+        search-ref (id->ref (str "ld-" en "-search"))
+        ;; All cell names: regular columns + derived field refs
+        all-cells (into (vec columns) (mapv (fn [da] (id->ref (.-name da))) derived-attrs))
+        ;; Column cells in addRow
+        col-cells (.join
+          (mapv (fn [col]
+            (str "  const " col "Cell = document.createElement('span');\n"
+                 "  " col "Cell.className = 'text-sm truncate flex-1';\n"
+                 "  " col "Cell.textContent = entity." col " || '';\n"
+                 "  inner.appendChild(" col "Cell);"))
+            columns)
+          "\n")
+        ;; Derived cells in addRow
+        derived-cells (.join
+          (mapv (fn [da]
+            (let [dname (id->ref (.-name da))
+                  expr (.-expr da)]
+              (str "  const " dname "Cell = document.createElement('span');\n"
+                   "  " dname "Cell.className = 'text-sm truncate flex-1 text-muted-foreground italic';\n"
+                   "  " dname "Cell.textContent = " (compile-derived-expr expr nil) ";\n"
+                   "  inner.appendChild(" dname "Cell);")))
+            derived-attrs)
+          "\n")
+        ;; Search text expression
+        search-text-expr (str "[" (.join (mapv (fn [c] (str "entity." c " || ''")) search-cols) ", ") "].join(' ').toLowerCase()")
+        ;; Cells object entries
+        cells-entries (.join (mapv (fn [c] (str c ": " c "Cell")) all-cells) ", ")]
+
+    (str
+      "const rowEls = new Map();\n\n"
+
+      "function addRow(entity) {\n"
+      "  const row = document.createElement('div');\n"
+      "  row.className = 'ld-row flex items-center px-4 py-2.5 border-b border-border cursor-pointer transition-colors hover:bg-muted/50';\n"
+      "  const inner = document.createElement('div');\n"
+      "  inner.className = 'flex-1 flex gap-4';\n"
+      col-cells "\n"
+      derived-cells "\n"
+      "  row.appendChild(inner);\n"
+      "  row.addEventListener('click', () => selectContact(entity.eid));\n"
+      "  " list-ref ".appendChild(row);\n"
+      "  rowEls.set(entity.eid, {\n"
+      "    el: row,\n"
+      "    searchText: " search-text-expr ",\n"
+      "    cells: { " cells-entries " }\n"
+      "  });\n"
+      "}\n\n"
+
+      "function removeRow(eid) {\n"
+      "  const entry = rowEls.get(eid);\n"
+      "  if (entry) { entry.el.remove(); rowEls.delete(eid); }\n"
+      "}\n\n"
+
+      "function rebuildList() {\n"
+      "  " list-ref ".innerHTML = '';\n"
+      "  rowEls.clear();\n"
+      "  const sorted = " store-name ".all().slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));\n"
+      "  for (const entity of sorted) addRow(entity);\n"
+      "  filterRows();\n"
+      "}\n\n"
+
+      "function filterRows() {\n"
+      "  const term = " search-ref ".value.toLowerCase();\n"
+      "  for (const [, entry] of rowEls) {\n"
+      "    entry.el.hidden = (term !== '' && !entry.searchText.includes(term));\n"
+      "  }\n"
+      "}\n")))
+
+;; --- Stats ---
+
+(defn gen-stats [(en :- String) (store-name :- String)] :- String
+  (let [stats-ref (id->ref (str "ld-" en "-stats"))
+        count-var (str (id->ref en) "Count")]
+    (str "let " count-var " = 0;\n"
+         "function updateStats() {\n"
+         "  " count-var " = " store-name ".all().length;\n"
+         "  " stats-ref ".textContent = 'Total: ' + " count-var ";\n"
+         "}\n")))
+
+;; --- Form handler ---
+
+(defn gen-form-handler [(en :- String) (form :- Any)] :- String
+  (let [form-name (.-name form)
+        fields (.-fields form)
+        field-info (.-field-info form)
+        status-default (.-status-default form)
+        ;; Val declarations — type-aware
+        val-decls (.join
+          (mapv (fn [f]
+            (let [ref (id->ref (str "form-" form-name "-" f))
+                  fi (field-info-for field-info f)
+                  kind (if (nil? fi) "text" (.-kind fi))]
+              (cond
+                (= kind "checkbox")
+                  (str "  const " ref "_val = " ref ".checked;")
+                :else
+                  (str "  const " ref "_val = " ref ".value.trim();"))))
+            fields)
+          "\n")
+        ;; First field validation
+        first-ref (id->ref (str "form-" form-name "-" (nth fields 0)))
+        ;; Add fields
+        add-fields (.join
+          (mapv (fn [f]
+            (let [ref (id->ref (str "form-" form-name "-" f))]
+              (if (and (= f "status") (not (nil? status-default)))
+                (str f ": " ref "_val || " (q status-default))
+                (str f ": " ref "_val"))))
+            fields)
+          ", ")
+        ;; Clear fields — type-aware
+        clear-lines (.join
+          (mapv (fn [f]
+            (let [ref (id->ref (str "form-" form-name "-" f))
+                  fi (field-info-for field-info f)
+                  kind (if (nil? fi) "text" (.-kind fi))]
+              (cond
+                (= kind "checkbox")
+                  (str "  " ref ".checked = false;")
+                (= kind "select")
+                  (str "  " ref ".selectedIndex = 0;")
+                :else
+                  (str "  " ref ".value = '';"))))
+            fields)
+          "\n")
+        status-in-form (some (fn [f] (= f "status")) fields)]
+    (str "function handleSubmit(e) {\n"
+         "  e.preventDefault();\n"
+         val-decls "\n"
+         "  if (!" first-ref "_val) return;\n"
+         "  " (str en "s") ".add({ " add-fields
+         (if (and (not (nil? status-default)) (not status-in-form))
+           (str ", status: " (q status-default)) "")
+         " });\n"
+         clear-lines "\n"
+         "}\n")))
+
+;; --- Persistence ---
+
+(defn gen-persistence [(persist-key :- Any) (all-stores :- Any)] :- String
+  (let [snapshot-entries (.join
+          (mapv (fn [s] (str "      " s ": " s ".snapshot()")) all-stores)
+          ",\n")
+        restore-lines (.join
+          (mapv (fn [s] (str "      if (data." s ") " s ".load(data." s ");")) all-stores)
+          "\n")]
+    (str "function saveDb() {\n"
+         "  try {\n"
+         "    localStorage.setItem(" (q persist-key) ", JSON.stringify({\n"
+         snapshot-entries "\n"
+         "    }));\n"
+         "  } catch(_) {}\n"
+         "}\n"
+         "function restoreDb() {\n"
+         "  try {\n"
+         "    const raw = localStorage.getItem(" (q persist-key) ");\n"
+         "    if (!raw) return;\n"
+         "    const data = JSON.parse(raw);\n"
+         "    if (Array.isArray(data)) {\n"
+         "      " (nth all-stores 0) ".load(data);\n"
+         "    } else {\n"
+         restore-lines "\n"
+         "    }\n"
+         "  } catch(_) {}\n"
+         "}\n")))
+
+;; --- Live external feed (read-only mirror, real-time per-row push) ---
+;; Binds a store to an external HTTP endpoint returning a JSON array, kept live by the daemon
+;; /live commit-feed WebSocket. Rows are DIFFED into the store by the entity's identity field:
+;; each row that changed fires store.update(eid, attr, v) per field (change-gated — equal values
+;; are no-ops), new rows store.add(), vanished rows store.remove(). No whole-store load(), so the
+;; DOM is touched only where data actually moved and transient view state (selection) survives.
+;;
+;; The /live WS pushes raw {op,l,p,r} commits; we treat each as a "something changed" signal and
+;; coalesce a re-pull of the aggregated rows (the bridge owns claims->rows aggregation). A slow
+;; backstop poll covers a dropped commit. Identity index is feed-runtime-local: it does NOT
+;; re-key the store internals (that's the held stable-identity-keying work).
+(def feed-runtime-src #r#"const _feedIndex = new Map(); // identity value -> stable eid
+let _feedTimer = null;
+let _feedWS = null;
+let _feedPending = null;
+
+// Diff incoming rows into the store by identity field; per-row update/add/remove (change-gated).
+// Returns the identity values (uuids) that actually moved — handed to feed.onUpdate subscribers.
+function applyFeedRows(rows) {
+  const arr = Array.isArray(rows) ? rows : [];
+  if (!_feedIdField) {
+    // No identity field declared: fall back to whole-store replace.
+    _feedStore.load(arr.map((row, i) => ({ ...row, eid: i + 1 })));
+    return;
+  }
+  const seen = new Set();
+  const changed = [];
+  for (const row of arr) {
+    const key = String(row[_feedIdField]);
+    seen.add(key);
+    let eid = _feedIndex.get(key);
+    if (eid == null) {
+      const ent = _feedStore.add({ ...row });
+      _feedIndex.set(key, ent.eid);
+      changed.push(key);                                   // new agent
+    } else {
+      let moved = false;
+      for (const k in row) { if (k !== 'eid' && _feedStore.update(eid, k, row[k])) moved = true; }
+      if (moved) changed.push(key);                        // some field actually moved (not gated away)
+    }
+  }
+  for (const [key, eid] of Array.from(_feedIndex.entries())) {
+    if (!seen.has(key)) { _feedStore.remove(eid); _feedIndex.delete(key); changed.push(key); }  // vanished
+  }
+  if (changed.length) _emitFeedUpdate(changed);
+}
+
+async function loadFromFeed() {
+  try {
+    const r = await fetch(_feedUrl);
+    if (!r.ok) return;
+    applyFeedRows(await r.json());
+  } catch (err) { console.error('feed load failed:', err); }
+}
+
+// Derive the /live WS url from the feed http url: same host, ws(s) scheme, sibling /live path.
+function feedWsUrl() {
+  try {
+    const u = new URL(_feedUrl, location.href);
+    u.protocol = (u.protocol === 'https:') ? 'wss:' : 'ws:';
+    const p = u.pathname;
+    const slash = p.lastIndexOf('/');
+    u.pathname = (slash >= 0 ? p.slice(0, slash) : '') + '/live';
+    return u.toString();
+  } catch (_) { return null; }
+}
+
+function openFeedWS() {
+  const wsUrl = feedWsUrl();
+  if (!wsUrl) return;
+  try {
+    const ws = new WebSocket(wsUrl);
+    _feedWS = ws;
+    ws.onmessage = () => {
+      if (_feedPending) return; // coalesce a burst of commits into one refetch
+      _feedPending = setTimeout(() => { _feedPending = null; loadFromFeed(); }, 150);
+    };
+    ws.onclose = () => { _feedWS = null; setTimeout(openFeedWS, 2000); };
+    ws.onerror = () => { try { ws.close(); } catch (_) {} };
+  } catch (_) { setTimeout(openFeedWS, 2000); }
+}
+
+function startFeed() {
+  loadFromFeed();                                  // initial snapshot
+  openFeedWS();                                    // real-time push
+  _feedTimer = setInterval(loadFromFeed, 15000);   // slow backstop for any dropped commit
+}
+
+// --- window.eddy: the cross-surface bus (SEAM with the shell). The shell owns the outer
+// layout and reads our stores/selection/feed by contract. Selection speaks IDENTITY (uuid);
+// we map uuid->eid at our boundary so neither side leaks its internal id. ---
+const _feedSubs = new Set();
+let _selectedUuid = null;
+
+function _emitFeedUpdate(changed) {
+  const payload = { name: _feedStoreName, changed };     // { name, changed:[uuid,...] } — the delta we already diffed
+  for (const cb of _feedSubs) { try { cb(payload); } catch (err) { console.error('eddy feed subscriber threw:', err); } }
+}
+
+(function installEddyBus() {
+  const eddy = (window.eddy = window.eddy || {});
+  eddy.stores = eddy.stores || {};
+  eddy.stores[_feedStoreName] = _feedStore;
+  eddy.selection = eddy.selection || {
+    // uuid -> eid at our boundary. No-op (false) if the agent isn't indexed yet; never throws.
+    set(uuid) {
+      if (uuid == null) { _selectedUuid = null; return false; }
+      const key = String(uuid);
+      if (!_feedIndex.has(key)) return false;
+      _selectedUuid = key;
+      return true;
+    },
+    get() { return _selectedUuid; },                       // null cleanly when nothing is selected
+  };
+  eddy.feed = eddy.feed || {};
+  eddy.feed.name = _feedStoreName;
+  eddy.feed.onUpdate = (cb) => { if (typeof cb === 'function') _feedSubs.add(cb); return () => _feedSubs.delete(cb); };
+  // Ready signal: resolve a promise AND fire an event — a subscriber loading before OR after
+  // us both win, with no guarding for undefined.
+  window.eddyReady = Promise.resolve(eddy);
+  try { window.dispatchEvent(new CustomEvent('eddy:ready', { detail: eddy })); } catch (_) {}
+})();
+
+// Bridge the view's internal eid → bus identity. The view calls this on every selectItem;
+// we resolve the entity's identity field and push it to the shared selection (custom panes
+// read eddy.selection.get()). eid===null clears. No id field ⇒ no-op (bus stays uuid-clean).
+function _eddyPushSelection(eid) {
+  if (!window.eddy || !window.eddy.selection) return;
+  if (eid == null) { window.eddy.selection.set(null); return; }
+  const ent = _feedStore.get ? _feedStore.get(eid) : null;
+  const idv = (ent && _feedIdField) ? ent[_feedIdField] : null;
+  window.eddy.selection.set(idv == null ? null : idv);
+}
+"#)
+
+(defn gen-feed-persistence [(url :- Any) (store-name :- String) (id-field :- Any)] :- String
+  (str "const _feedUrl = " (q url) ";\n"
+       "const _feedStore = " store-name ";\n"
+       "const _feedStoreName = " (q store-name) ";\n"
+       "const _feedIdField = " (if (nil? id-field) "null" (q id-field)) ";\n"
+       feed-runtime-src))
+
+;; --- Theme: (theme :colors (background "oklch(...)" ...)) sets CSS custom properties on
+;; :root so the utility classes (text-foreground, bg-background, …) resolve. Emitted as an
+;; injected <style> in init so a no-build deploy (eddy app dropped into a static host) is
+;; self-contained — the var values ride in the JS, the utility→var mapping rides in dist.css.
+;; (Was parsed-and-threaded but never emitted — a silent no-op; this closes that.) ---
+(defn gen-theme-style [(theme :- Any)] :- String
+  (if (nil? theme) ""
+    (let [colors (.-colors theme)
+          decls (.join
+                  (mapv (fn [k] (str "    --" k ": " (get colors k) ";\\n")) (keys colors))
+                  "")]
+      (str "  { const _themeStyle = document.createElement('style');\n"
+           "    _themeStyle.textContent = ':root {\\n" decls "}';\n"
+           "    document.head.appendChild(_themeStyle); }\n"))))
+
+;; --- Escape-hatch panels: mount shell-owned custom panes (Cytoscape/stream) into named
+;; containers carved from the eddy view. The pane fn receives { el, eddy } so it shares the
+;; same feed (feed.onUpdate) + selection as the entity-view. mount-fn is a dotted path
+;; resolved off window at runtime; a missing fn warns and no-ops (never throws). ---
+(defn gen-panels-mount [(panels :- Any) (parent-var :- String)] :- String
+  (if (empty? panels) ""
+    (str
+      "\n  // ── Escape-hatch panels (shell-owned custom panes; share window.eddy) ──────\n"
+      "  const _eddyResolve = (path) => path.split('.').reduce((o, k) => (o == null ? null : o[k]), window);\n"
+      (.join
+        (mapv (fn [p]
+          (let [ref (id->ref (.-name p))
+                dom-id (str "panel-" (.-name p))
+                mfn (.-mount-fn p)]
+            (str "  const panel_" ref " = document.createElement('div');\n"
+                 "  panel_" ref ".id = " (q dom-id) ";\n"
+                 "  panel_" ref ".className = 'eddy-panel';\n"
+                 "  " parent-var ".appendChild(panel_" ref ");\n"
+                 "  { const _fn = " (q mfn) " ? _eddyResolve(" (q mfn) ") : null;\n"
+                 "    if (typeof _fn === 'function') { try { _fn({ el: panel_" ref ", eddy: window.eddy || null }); } catch (err) { console.error('eddy: panel mount threw:', err); } }\n"
+                 "    else if (" (q mfn) ") console.warn('eddy: panel mount fn not found:', " (q mfn) "); }\n")))
+          panels) ""))))
+
+;; --- Server persistence (sync to server) ---
+
+(defn gen-server-persistence [(all-stores :- Any)] :- String
+  (let [sync-fn #r#"
+        function syncToServer(storeName, evt) {
+          const url = window.location.origin + '/api/' + storeName;
+          if (evt.type === 'add') {
+            fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(evt.entity)
+            }).catch(err => console.error('sync failed:', err));
+          }
+          if (evt.type === 'update') {
+            fetch(url + '/' + evt.eid, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ [evt.attr]: evt['new'] })
+            }).catch(err => console.error('sync failed:', err));
+          }
+          if (evt.type === 'remove') {
+            fetch(url + '/' + evt.eid, {
+              method: 'DELETE'
+            }).catch(err => console.error('sync failed:', err));
+          }
+        }
+        "#
+        store-names-arr (str "[" (.join (mapv (fn [s] (str "'" s "'")) all-stores) ", ") "]")]
+    (str sync-fn "\n\n"
+         "const _pageSize = 50;\n"
+         "const _page = {};\n"
+         "const _totals = {};\n"
+         "const _sort = {};\n"
+         "const _sortDir = {};\n"
+         "const _search = {};\n"
+         "const _filters = {};\n"
+         "const _pageListeners = [];\n"
+         "function onPageChange(fn) { _pageListeners.push(fn); }\n"
+         "function _buildQuery(storeName) {\n"
+         "  let q = '?limit=' + _pageSize + '&offset=' + ((_page[storeName] || 0) * _pageSize);\n"
+         "  if (_sort[storeName]) q += '&sort=' + _sort[storeName] + '&dir=' + (_sortDir[storeName] || 'asc');\n"
+         "  if (_search[storeName]) q += '&search=' + encodeURIComponent(_search[storeName]);\n"
+         "  const sf = _filters[storeName];\n"
+         "  if (sf) for (const [k,v] of Object.entries(sf)) { if (v) q += '&f_' + k + '=' + encodeURIComponent(v); }\n"
+         "  return q;\n"
+         "}\n"
+         "function _filterQuery(storeName) {\n"
+         "  let q = '';\n"
+         "  if (_search[storeName]) q += (q ? '&' : '?') + 'search=' + encodeURIComponent(_search[storeName]);\n"
+         "  const sf = _filters[storeName];\n"
+         "  if (sf) for (const [k,v] of Object.entries(sf)) { if (v) q += (q ? '&' : '?') + 'f_' + k + '=' + encodeURIComponent(v); }\n"
+         "  return q;\n"
+         "}\n\n"
+         (str #r#"
+         async function loadFromServer() {
+           try {
+             const names = "# store-names-arr #r#";
+             const stores = { "# (.join (mapv (fn [s] (str "'" s "': " s)) all-stores) ", ") #r#" };
+             for (const sn of names) {
+               const r = await fetch(window.location.origin + '/api/' + sn + _buildQuery(sn));
+               if (r.ok) stores[sn].load(await r.json());
+               const c = await fetch(window.location.origin + '/api/' + sn + '/count' + _filterQuery(sn));
+               if (c.ok) { const d = await c.json(); _totals[sn] = d.total; }
+             }
+             _pageListeners.forEach(fn => fn());
+           } catch(err) { console.error('load failed:', err); }
+         }
+         async function loadStore(storeName) {
+           try {
+             const stores = { "# (.join (mapv (fn [s] (str "'" s "': " s)) all-stores) ", ") #r#" };
+             const r = await fetch(window.location.origin + '/api/' + storeName + _buildQuery(storeName));
+             if (r.ok) stores[storeName].load(await r.json());
+             const c = await fetch(window.location.origin + '/api/' + storeName + '/count' + _filterQuery(storeName));
+             if (c.ok) { const d = await c.json(); _totals[storeName] = d.total; }
+             _pageListeners.forEach(fn => fn());
+           } catch(err) { console.error('load failed:', err); }
+         }
+         "#)
+         )))
+
+;; --- Compiled per-attribute update paths ---
+
+(defn gen-update-fns [(columns :- Any) (search-cols :- Any) (overview-fields :- Any)
+                      (subtitle-field :- Any) (persist-key :- Any) (related-tab-keys :- Any)
+                      (derived-attrs :- Any) (store-name :- String) (is-server :- Bool)] :- String
+  (let [search-text-expr (str "[" (.join (mapv (fn [c] (str "entity." c " || ''")) search-cols) ", ") "].join(' ').toLowerCase()")
+        attr-fns (.join
+          (mapv (fn [col]
+            (let [is-search (.includes search-cols col)
+                  is-title (= col "name")
+                  is-subtitle (and (not (nil? subtitle-field)) (= col subtitle-field))
+                  is-overview (.includes overview-fields col)
+                  needs-detail (or is-overview is-title is-subtitle)
+                  ;; Derived fields that depend on this column
+                  affected-derived (filterv (fn [da]
+                    (.includes (.-deps da) col))
+                    derived-attrs)
+                  needs-entity (or is-search (> (count affected-derived) 0))
+                  ;; Row-level derived recomputation
+                  row-derived (.join
+                    (mapv (fn [da]
+                      (let [dname (id->ref (.-name da))
+                            expr (.-expr da)
+                            subst (assoc {} col "value")]
+                        (str "      rowEntry.cells." dname ".textContent = " (compile-derived-expr expr subst) ";")))
+                      affected-derived)
+                    "\n")
+                  ;; Detail-level derived recomputation
+                  detail-derived (.join
+                    (mapv (fn [da]
+                      (let [dname (id->ref (.-name da))
+                            expr (.-expr da)
+                            subst (assoc {} col "value")]
+                        (str "      if (detailNodes.field_" dname ") detailNodes.field_" dname ".textContent = " (compile-derived-expr expr subst) ";")))
+                      affected-derived)
+                    "\n")]
+
+              (str "  " col "(eid, value) {\n"
+                   "    const rowEntry = rowEls.get(eid);\n"
+                   (if needs-entity (str "    const entity = " store-name ".get(eid);\n") "")
+                   "    if (rowEntry) {\n"
+                   "      rowEntry.cells." col ".textContent = value;\n"
+                   (if is-search (str "      rowEntry.searchText = " search-text-expr ";\n") "")
+                   (if (> (count affected-derived) 0) (str row-derived "\n") "")
+                   "    }\n"
+                   (if needs-detail
+                     (str "    if (selectedContact === eid) {\n"
+                          (if is-overview (str "      detailNodes.field_" col ".textContent = value;\n") "")
+                          (if is-title "      detailNodes.title.textContent = value;\n" "")
+                          (if is-subtitle "      detailNodes.subtitle.textContent = value;\n" "")
+                          (if (and is-title (> (count related-tab-keys) 0))
+                            (.join
+                              (mapv (fn [key]
+                                (str "      detailNodes." key "Header.textContent = '" (titlecase key) " for ' + value;"))
+                                related-tab-keys)
+                              "\n")
+                            "")
+                          (if (> (count affected-derived) 0) (str "\n" detail-derived "\n") "")
+                          "    }\n")
+                     "")
+                   (if is-search "    filterRows();\n" "")
+                   (cond is-server (str "    syncToServer('" store-name "', { type: 'update', eid, attr: '" col "', 'new': value });\n")
+                         (not (nil? persist-key)) "    saveDb();\n"
+                         :else "")
+                   "  }")))
+            columns)
+          ",\n")]
+    (str "const updateAttr = {\n" attr-fns "\n};\n")))
+
+;; --- Undo/Redo ---
+
+(defn gen-undo-redo [] :- String
+  (.join
+    ["const undoStack = [];"
+     "const redoStack = [];"
+     "let undoing = false;"
+     "let txBuffer = null;"
+     ""
+     "function recordUndo(entry) {"
+     "  if (undoing) return;"
+     "  if (txBuffer) { txBuffer.push(entry); return; }"
+     "  undoStack.push(entry);"
+     "  redoStack.length = 0;"
+     "}"
+     ""
+     "function beginTransaction() { txBuffer = []; }"
+     "function commitTransaction() {"
+     "  if (txBuffer && txBuffer.length > 0) {"
+     "    undoStack.push({ type: 'batch', ops: txBuffer });"
+     "    redoStack.length = 0;"
+     "  }"
+     "  txBuffer = null;"
+     "}"
+     ""
+     "function applyUndo(op) {"
+     "  if (op.type === 'update') op.store.update(op.eid, op.attr, op.old);"
+     "  if (op.type === 'add') op.store.remove(op.eid);"
+     "  if (op.type === 'remove') op.store.addBack(op.entity);"
+     "}"
+     "function applyRedo(op) {"
+     "  if (op.type === 'update') op.store.update(op.eid, op.attr, op['new']);"
+     "  if (op.type === 'add') op.store.addBack(op.entity);"
+     "  if (op.type === 'remove') op.store.remove(op.eid);"
+     "}"
+     ""
+     "function undo() {"
+     "  const entry = undoStack.pop();"
+     "  if (!entry) return;"
+     "  redoStack.push(entry);"
+     "  undoing = true;"
+     "  if (entry.type === 'batch') {"
+     "    for (let i = entry.ops.length - 1; i >= 0; i--) applyUndo(entry.ops[i]);"
+     "  } else {"
+     "    applyUndo(entry);"
+     "  }"
+     "  undoing = false;"
+     "}"
+     ""
+     "function redo() {"
+     "  const entry = redoStack.pop();"
+     "  if (!entry) return;"
+     "  undoStack.push(entry);"
+     "  undoing = true;"
+     "  if (entry.type === 'batch') {"
+     "    for (const op of entry.ops) applyRedo(op);"
+     "  } else {"
+     "    applyRedo(entry);"
+     "  }"
+     "  undoing = false;"
+     "}"
+     ""]
+    "\n"))
+
+;; --- Layout (DOM construction for init) ---
+
+(defn field-info-for [(fi-list :- Any) (fname :- String)] :- Any
+  (first (filterv (fn [fi] (= (.-name fi) fname)) fi-list)))
+
+(defn gen-field-types-map [(fi-list :- Any)] :- String
+  (if (or (nil? fi-list) (= (count fi-list) 0)) "{}"
+    (let [entries (filterv (fn [fi] (not (= (.-kind fi) "text"))) fi-list)
+          parts (mapv (fn [fi]
+            (let [name (.-name fi)
+                  kind (.-kind fi)
+                  opts (.-options fi)
+                  opts-str (if (= (count opts) 0) "[]"
+                    (str "[" (.join (mapv (fn [o] (q o)) opts) ", ") "]"))]
+              (str (q name) ": { kind: " (q kind) ", options: " opts-str " }")))
+            entries)]
+      (str "{ " (.join parts ", ") " }"))))
+
+(defn gen-layout [(en :- String) (form :- Any) (title :- String)] :- Any
+  (let [form-name (.-name form)
+        fields (.-fields form)
+        required (.-required form)
+        submit-label (.-label form)
+        field-info (.-field-info form)]
+    ;; Build form fields, threading counter
+    (loop [i 0 c 2 code "" refs []]
+      (if (>= i (count fields))
+        ;; All fields done. Build submit button + split pane.
+        (let [btn (+ c 1)
+              split (+ c 2)
+              left (+ c 3)
+              hdr (+ c 4)
+              h1v (+ c 5)
+              srch (+ c 6)
+              stat (+ c 7)
+              lst (+ c 8)
+              dtl (+ c 9)
+
+              search-id (str "ld-" en "-search")
+              stats-id (str "ld-" en "-stats")
+              list-id (str "ld-" en "-list")
+              detail-id (str "ld-" en "-detail")
+              form-id (str "form-" form-name)
+
+              rest-code (str
+                ;; Submit button
+                "  const el_" btn " = document.createElement(\"button\");\n"
+                "  el_" btn ".className = \"px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90\";\n"
+                "  el_" btn ".type = \"submit\";\n"
+                "  el_" btn ".textContent = " (q submit-label) ";\n"
+                "  el_2.appendChild(el_" btn ");\n"
+                "  el_1.appendChild(el_2);\n"
+                ;; Split pane
+                "  const el_" split " = document.createElement(\"div\");\n"
+                "  el_" split ".className = \"flex flex-1 min-h-0\";\n"
+                ;; Left pane
+                "  const el_" left " = document.createElement(\"div\");\n"
+                "  el_" left ".className = \"flex flex-col w-1/2 border-r border-border\";\n"
+                ;; Search header
+                "  const el_" hdr " = document.createElement(\"div\");\n"
+                "  el_" hdr ".className = \"p-4 border-b border-border\";\n"
+                ;; Title
+                "  const el_" h1v " = document.createElement(\"h1\");\n"
+                "  el_" h1v ".className = \"text-lg font-semibold text-foreground mb-3\";\n"
+                "  el_" h1v ".textContent = " (q title) ";\n"
+                "  el_" hdr ".appendChild(el_" h1v ");\n"
+                ;; Search input
+                "  const el_" srch " = document.createElement(\"input\");\n"
+                "  el_" srch ".placeholder = \"Search...\";\n"
+                "  el_" srch ".id = " (q search-id) ";\n"
+                "  el_" srch ".className = \"w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring\";\n"
+                "  el_" srch ".type = \"text\";\n"
+                "  el_" hdr ".appendChild(el_" srch ");\n"
+                ;; Stats
+                "  const el_" stat " = document.createElement(\"div\");\n"
+                "  el_" stat ".id = " (q stats-id) ";\n"
+                "  el_" stat ".className = \"mt-2 text-xs text-muted-foreground\";\n"
+                "  el_" stat ".textContent = \"\";\n"
+                "  el_" hdr ".appendChild(el_" stat ");\n"
+                "  el_" left ".appendChild(el_" hdr ");\n"
+                ;; List
+                "  const el_" lst " = document.createElement(\"div\");\n"
+                "  el_" lst ".id = " (q list-id) ";\n"
+                "  el_" lst ".className = \"flex-1 overflow-y-auto\";\n"
+                "  el_" left ".appendChild(el_" lst ");\n"
+                "  el_" split ".appendChild(el_" left ");\n"
+                ;; Detail
+                "  const el_" dtl " = document.createElement(\"div\");\n"
+                "  el_" dtl ".id = " (q detail-id) ";\n"
+                "  el_" dtl ".className = \"w-1/2 overflow-y-auto\";\n"
+                "  el_" split ".appendChild(el_" dtl ");\n"
+                "  el_1.appendChild(el_" split ");\n"
+                "  root.appendChild(el_1);\n")
+
+              full-code (str
+                "  const el_1 = document.createElement(\"div\");\n"
+                "  el_1.className = \"flex flex-col h-screen\";\n"
+                "  const el_2 = document.createElement(\"form\");\n"
+                "  el_2.id = " (q form-id) ";\n"
+                "  el_2.className = \"flex flex-col gap-3 p-4\";\n"
+                code
+                rest-code)
+
+              ;; Refs in reverse order (matching Racket cons behavior)
+              all-refs (.reverse
+                (.concat
+                  [(->LayoutRef detail-id (str "el_" dtl))
+                   (->LayoutRef list-id (str "el_" lst))
+                   (->LayoutRef stats-id (str "el_" stat))
+                   (->LayoutRef search-id (str "el_" srch))]
+                  (.reverse refs)
+                  [(->LayoutRef form-id "el_2")]))]
+          (->LayoutResult full-code all-refs))
+
+        ;; Build one form field
+        (let [field (nth fields i)
+              is-req (.includes required field)
+              fid (str "form-" form-name "-" field)
+              fi (field-info-for field-info field)
+              kind (if (nil? fi) "text" (.-kind fi))
+              options (if (nil? fi) [] (.-options fi))
+              d (+ c 1)
+              l (+ c 2)
+              inp (+ c 3)
+              input-css "px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
+              input-code (cond
+                (= kind "select")
+                  (str
+                    "  const el_" inp " = document.createElement(\"select\");\n"
+                    (if is-req (str "  el_" inp ".required = true;\n") "")
+                    "  el_" inp ".id = " (q fid) ";\n"
+                    "  el_" inp ".className = " (q input-css) ";\n"
+                    "  el_" inp ".name = " (q fid) ";\n"
+                    "  { const _ph = document.createElement('option'); _ph.value = ''; _ph.textContent = " (q (str "Select " (titlecase field))) "; el_" inp ".appendChild(_ph); }\n"
+                    (.join (mapv (fn [opt]
+                      (str "  { const _o = document.createElement('option'); _o.value = " (q opt) "; _o.textContent = " (q (titlecase opt)) "; el_" inp ".appendChild(_o); }\n"))
+                      options) ""))
+                (= kind "checkbox")
+                  (str
+                    "  const el_" inp " = document.createElement(\"input\");\n"
+                    "  el_" inp ".type = \"checkbox\";\n"
+                    "  el_" inp ".id = " (q fid) ";\n"
+                    "  el_" inp ".className = \"h-4 w-4 rounded border-input\";\n"
+                    "  el_" inp ".name = " (q fid) ";\n")
+                :else
+                  (str
+                    "  const el_" inp " = document.createElement(\"input\");\n"
+                    (if (not (= kind "text")) (str "  el_" inp ".type = " (q kind) ";\n") "")
+                    (if is-req (str "  el_" inp ".required = true;\n") "")
+                    "  el_" inp ".placeholder = " (q (titlecase field)) ";\n"
+                    "  el_" inp ".id = " (q fid) ";\n"
+                    "  el_" inp ".className = " (q input-css) ";\n"
+                    "  el_" inp ".name = " (q fid) ";\n"))
+              field-code (str
+                "  const el_" d " = document.createElement(\"div\");\n"
+                "  el_" d ".className = " (q (if (= kind "checkbox") "flex items-center gap-2" "flex flex-col gap-1")) ";\n"
+                "  const el_" l " = document.createElement(\"label\");\n"
+                "  el_" l ".htmlFor = " (q fid) ";\n"
+                "  el_" l ".className = \"text-xs font-medium uppercase text-muted-foreground\";\n"
+                "  el_" l ".textContent = " (q (titlecase field)) ";\n"
+                (if (= kind "checkbox")
+                  (str input-code "  el_" d ".appendChild(el_" inp ");\n"
+                       "  el_" d ".appendChild(el_" l ");\n")
+                  (str "  el_" d ".appendChild(el_" l ");\n" input-code
+                       "  el_" d ".appendChild(el_" inp ");\n"))
+                "  el_2.appendChild(el_" d ");\n")]
+          (recur (+ i 1) (+ c 3)
+                 (str code field-code)
+                 (conj refs (->LayoutRef fid (str "el_" inp)))))))))
+
+;; --- Ref declarations ---
+
+(defn gen-ref-decls [(refs :- Any)] :- String
+  (.join (mapv (fn [r] (str "let " (id->ref (.-id r)) ";")) refs) "\n"))
+
+(defn gen-ref-assigns [(refs :- Any)] :- String
+  (.join (mapv (fn [r] (str "  " (id->ref (.-id r)) " = " (.-vname r) ";")) refs) "\n"))
+
+;; --- Init function ---
+
+(defn gen-init-fn [(en :- String) (form-name :- String) (store-name :- String)
+                   (related-info :- Any) (persist-key :- Any) (is-server :- Bool) (layout-result :- Any)] :- String
+  (let [form-ref (id->ref (str "form-" form-name))
+        search-ref (id->ref (str "ld-" en "-search"))
+        ref-assigns (gen-ref-assigns (.-refs layout-result))
+        related-watchers (.join
+          (mapv (fn [ri]
+            (let [rel-store (.-store ri)
+                  key (.-key ri)
+                  render-fn (str "render" (titlecase key))]
+              (str "  " rel-store ".watch((evt) => {\n"
+                   "    if (evt.type === 'add' || evt.type === 'load' || evt.type === 'remove') " render-fn "();\n"
+                   "    if (evt.type === 'add') {\n"
+                   "      recordUndo({ type: 'add', store: " rel-store ", eid: evt.eid, entity: evt.entity });\n"
+                   (cond is-server (str "      syncToServer('" rel-store "', evt);\n")
+                         (not (nil? persist-key)) "      saveDb();\n"
+                         :else "")
+                   "    }\n"
+                   "    if (evt.type === 'remove') {\n"
+                   "      recordUndo({ type: 'remove', store: " rel-store ", eid: evt.eid, entity: evt.entity });\n"
+                   (cond is-server (str "      syncToServer('" rel-store "', evt);\n")
+                         (not (nil? persist-key)) "      saveDb();\n"
+                         :else "")
+                   "    }\n"
+                   "  });\n")))
+            related-info)
+          "\n")]
+    (str
+      (if is-server "async function init() {\n" "function init() {\n")
+      "  const root = document.getElementById(window.EDDY_MOUNT_ID || 'app');\n"
+      "\n"
+      (.-code layout-result) "\n"
+      "\n"
+      ref-assigns "\n"
+      "\n"
+      "  buildDetailPanel();\n"
+      "\n"
+      "  " form-ref ".addEventListener('submit', handleSubmit);\n"
+      "  " search-ref ".addEventListener('input', filterRows);\n"
+      "\n"
+      "  " store-name ".watch((evt) => {\n"
+      "    if (evt.type === 'add') {\n"
+      "      addRow(evt.entity);\n"
+      "      filterRows();\n"
+      "      " (id->ref en) "Count++;\n"
+      "      updateStats();\n"
+      "      recordUndo({ type: 'add', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
+      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
+            (not (nil? persist-key)) "      saveDb();\n"
+            :else "")
+      "    }\n"
+      "    if (evt.type === 'load') {\n"
+      "      rebuildList();\n"
+      "      " (id->ref en) "Count = " store-name ".all().length;\n"
+      "      updateStats();\n"
+      "      renderDetail();\n"
+      "    }\n"
+      "    if (evt.type === 'update') {\n"
+      "      const fn = updateAttr[evt.attr];\n"
+      "      if (fn) fn(evt.eid, evt.new || '');\n"
+      "      recordUndo({ type: 'update', store: " store-name ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"
+      "    }\n"
+      "    if (evt.type === 'remove') {\n"
+      "      removeRow(evt.eid);\n"
+      "      " (id->ref en) "Count--;\n"
+      "      updateStats();\n"
+      "      recordUndo({ type: 'remove', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
+      "      if (selectedContact === evt.eid) selectContact(null);\n"
+      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
+            (not (nil? persist-key)) "      saveDb();\n"
+            :else "")
+      "    }\n"
+      "  });\n"
+      "\n"
+      related-watchers "\n"
+      "  document.addEventListener('keydown', (e) => {\n"
+      "    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }\n"
+      "    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }\n"
+      "  });\n"
+      "\n"
+      (cond is-server "  await loadFromServer();\n"
+            (not (nil? persist-key)) "  restoreDb();\n"
+            :else "")
+      "  updateStats();\n"
+      "  renderDetail();\n"
+      "}\n")))
+
+;; === Component-based codegen ===
+
+(defn gen-when-block! [(node :- Any) (counter :- Any) (parent-var :- String) (props :- Any)] :- Any
+  (let [prop (.-prop node)
+        wc (get counter "n")
+        when-var (str "when_" wc)
+        anchor-var (str "whenAnchor_" wc)]
+    (set! (.-n counter) (+ wc 1))
+    (let [child-results (mapv (fn [el] (gen-element! el counter props)) (.-children node))
+          child-code (.join (mapv (fn [cr] (.-code cr)) child-results) "")
+          child-appends (.join
+            (mapv (fn [cr] (str "      " parent-var ".insertBefore(" (.-vname cr) ", " anchor-var ");\n"))
+              child-results) "")
+          child-vars (mapv (fn [cr] (.-vname cr)) child-results)]
+      (->RenderResult
+        (str "  const " anchor-var " = document.createComment('when:" prop "');\n"
+             "  " parent-var ".appendChild(" anchor-var ");\n"
+             "  let " when-var " = [];\n"
+             "  function " when-var "_update(condition) {\n"
+             "    if (condition && " when-var ".length === 0) {\n"
+             child-code
+             child-appends
+             "      " when-var " = [" (.join child-vars ", ") "];\n"
+             "    } else if (!condition && " when-var ".length > 0) {\n"
+             "      for (const el of " when-var ") el.remove();\n"
+             "      " when-var " = [];\n"
+             "    }\n"
+             "  }\n"
+             "  " when-var "_update(props." prop ");\n")
+        ""
+        [(->Binding prop (str when-var "_update") "_when")]))))
+
+(defn gen-element! [(el :- Any) (counter :- Any) (props :- Any)] :- Any
+  (if (not (nil? (.-prop el)))
+    nil
+    (let [c (get counter "n")
+          var-name (str "el_" c)
+          tag (.-tag el)
+          attrs (.-attrs el)
+          children (.-children el)]
+      (set! (.-n counter) (+ c 1))
+      (let [cls-attr (get attrs "class")
+            text-attr (get attrs "text")
+            placeholder-attr (get attrs "placeholder")
+            type-attr (get attrs "type")
+            cls-line (if (nil? cls-attr) ""
+                      (str "  " var-name ".className = " (q (get cls-attr "value")) ";\n"))
+            text-line (if (nil? text-attr) ""
+                       (if (= (get text-attr "type") "bind")
+                         (str "  " var-name ".textContent = props." (get text-attr "prop") " || '';\n")
+                         (str "  " var-name ".textContent = " (q (get text-attr "value")) ";\n")))
+            placeholder-line (if (nil? placeholder-attr) ""
+                              (str "  " var-name ".placeholder = " (q (get placeholder-attr "value")) ";\n"))
+            type-line (if (nil? type-attr) ""
+                       (str "  " var-name ".type = " (q (get type-attr "value")) ";\n"))
+            bindings (if (and (not (nil? text-attr)) (= (get text-attr "type") "bind"))
+                      [(->Binding (get text-attr "prop") var-name "textContent")]
+                      [])
+            when-children (filterv (fn [child] (not (nil? (.-prop child)))) children)
+            element-children (filterv (fn [child] (nil? (.-prop child))) children)
+            child-results (mapv (fn [child] (gen-element! child counter props)) element-children)
+            child-code (.join (mapv (fn [cr] (.-code cr)) child-results) "")
+            child-appends (.join
+              (mapv (fn [cr] (str "  " var-name ".appendChild(" (.-vname cr) ");\n"))
+                child-results) "")
+            when-results (mapv (fn [wc] (gen-when-block! wc counter var-name props)) when-children)
+            when-code (.join (mapv (fn [wr] (.-code wr)) when-results) "")
+            child-bindings (reduce (fn [acc cr] (into acc (.-bindings cr))) bindings child-results)
+            all-bindings (reduce (fn [acc wr] (into acc (.-bindings wr))) child-bindings when-results)]
+        (->RenderResult
+          (str "  const " var-name " = document.createElement(" (q tag) ");\n"
+               cls-line text-line placeholder-line type-line
+               child-code child-appends when-code)
+          var-name
+          all-bindings)))))
+
+(defn gen-component-fn! [(comp :- Any)] :- String
+  (let [name (.-name comp)
+        props (.-props comp)
+        body (.-body comp)
+        fn-name (str (id->ref name) "_create")
+        counter {"n" 0}
+        root-results (mapv (fn [el] (gen-element! el counter props)) body)
+        root-code (.join (mapv (fn [r] (.-code r)) root-results) "")
+        all-bindings (reduce (fn [acc r] (into acc (.-bindings r))) [] root-results)
+        root-var (if (= (count root-results) 1)
+                   (.-vname (nth root-results 0))
+                   (let [wrapper-var (str "el_" (.-n counter))]
+                     (set! (.-n counter) (+ (.-n counter) 1))
+                     wrapper-var))
+        needs-wrapper (> (count root-results) 1)
+        wrapper-code (if needs-wrapper
+                       (str "  const " root-var " = document.createElement('div');\n"
+                            (.join (mapv (fn [r] (str "  " root-var ".appendChild(" (.-vname r) ");\n")) root-results) ""))
+                       "")
+        update-fns (.join
+          (mapv (fn [b]
+            (if (= (.-dom-prop b) "_when")
+              (str "    " (.-prop b) "(v) { " (.-vname b) "(v); }")
+              (str "    " (.-prop b) "(v) { " (.-vname b) "." (.-dom-prop b) " = v; }")))
+            all-bindings)
+          ",\n")
+        text-bindings (filterv (fn [b] (not (= (.-dom-prop b) "_when"))) all-bindings)
+        nodes-entries (.join
+          (mapv (fn [b] (str "    " (.-prop b) ": " (.-vname b))) text-bindings)
+          ",\n")]
+    (str "function " fn-name "(props) {\n"
+         root-code
+         wrapper-code
+         "  return {\n"
+         "    el: " root-var ",\n"
+         "    update: {\n" update-fns "\n    },\n"
+         "    nodes: {\n" nodes-entries "\n    },\n"
+         "    destroy() { " root-var ".remove(); }\n"
+         "  };\n"
+         "}\n")))
+
+(defn gen-view-program! [(prog :- Any)] :- String
+  (let [g (graph/check-program prog)
+        components (or (.-components prog) [])
+        view (first (or (.-views prog) []))
+        en (.-entity-name view)
+        ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities g)))
+        store-name (.-store-name ge)
+        comp-name (.-component view)
+        comp (first (filterv (fn [c] (= (.-name c) comp-name)) components))
+        add-fields (.-add-fields view)
+        title (.-title view)
+        panels (or (.-panels prog) [])
+        persist (.-persist g)
+        raw-persist-key (if (nil? persist) nil (.-key persist))
+        persist-mode (if (nil? persist) nil (.-storage persist))
+        is-server (= persist-mode "server")
+        is-feed (= persist-mode "feed")
+        feed-url (if is-feed raw-persist-key nil)
+        ;; identity field for per-row feed diffing: prefer a field marked :unique identity,
+        ;; else the first unique field, else nil (runtime falls back to whole-store replace).
+        feed-uniques (if is-feed (.-unique-fields ge) [])
+        feed-id-field (let [ids (filterv (fn [f] (= (.-unique f) "identity")) feed-uniques)]
+                        (cond
+                          (not (empty? ids)) (.-name (first ids))
+                          (not (empty? feed-uniques)) (.-name (first feed-uniques))
+                          :else nil))
+        ;; nil out persist-key under feed so the localStorage saveDb/restoreDb branches go dark.
+        persist-key (if is-feed nil raw-persist-key)
+        src-name (.-ns g)
+        fn-name (str (id->ref comp-name) "_create")
+        has-select (not (nil? (.-select-component view)))
+        select-comp (if has-select
+                      (first (filterv (fn [c] (= (.-name c) (.-select-component view))) components))
+                      nil)
+        select-fn-name (if has-select (str (id->ref (.-name select-comp)) "_create") nil)
+        form-fields-code (.join
+          (mapv (fn [f]
+            (let [fid (str "form_" (id->ref f))]
+              (str "  const " fid "_label = document.createElement('label');\n"
+                   "  " fid "_label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
+                   "  " fid "_label.textContent = " (q (titlecase f)) ";\n"
+                   "  formEl.appendChild(" fid "_label);\n"
+                   "  const " fid " = document.createElement('input');\n"
+                   "  " fid ".className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm';\n"
+                   "  " fid ".placeholder = " (q (titlecase f)) ";\n"
+                   "  formEl.appendChild(" fid ");\n")))
+            add-fields) "")
+        add-obj (.join (mapv (fn [f] (str (id->ref f) ": form_" (id->ref f) ".value.trim()")) add-fields) ", ")
+        clear-lines (.join (mapv (fn [f] (str "    form_" (id->ref f) ".value = '';")) add-fields) "\n")
+
+        init-open #r#"
+          function init() {
+            const root = document.getElementById(window.EDDY_MOUNT_ID || 'app');
+            const container = document.createElement('div');
+            container.className = 'flex flex-col h-screen';
+
+            const formEl = document.createElement('form');
+            formEl.className = 'flex flex-col gap-3 p-4';
+          "#
+
+        submit-btn #r#"
+            const submitBtn = document.createElement('button');
+            submitBtn.type = 'submit';
+            submitBtn.className = 'px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90';
+            submitBtn.textContent = 'Add';
+            formEl.appendChild(submitBtn);
+          "#
+
+        header-and-list #r#"
+            const headerEl = document.createElement('div');
+            headerEl.className = 'p-4 border-b border-border';
+            const titleEl = document.createElement('h1');
+            titleEl.className = 'text-lg font-semibold text-foreground';
+          "#
+
+        select-setup-top #r#"
+            const statsEl = document.createElement('div');
+            statsEl.className = 'mt-2 text-xs text-muted-foreground';
+            headerEl.appendChild(statsEl);
+            const listEl = document.createElement('div');
+            listEl.className = 'flex-1 overflow-y-auto';
+            const splitPane = document.createElement('div');
+            splitPane.className = 'flex flex-1 min-h-0';
+            const leftPane = document.createElement('div');
+            leftPane.className = 'flex flex-col w-1/2 min-h-0 border-r border-border';
+            leftPane.appendChild(headerEl);
+            leftPane.appendChild(listEl);
+            splitPane.appendChild(leftPane);
+            const rightPane = document.createElement('div');
+            rightPane.className = 'w-1/2 min-h-0 overflow-y-auto';
+            const detailEmpty = document.createElement('div');
+            detailEmpty.className = 'flex items-center justify-center h-full text-muted-foreground text-sm';
+            detailEmpty.textContent = 'Select an item to view details';
+            rightPane.appendChild(detailEmpty);
+            splitPane.appendChild(rightPane);
+            container.appendChild(splitPane);
+            root.appendChild(container);
+            let selectedEid = null;
+            let detailInst = null;
+            function selectItem(eid) {
+              selectedEid = eid;
+              // Push selection onto the shared bus (IDENTITY, not eid) so custom panes
+              // (Cytoscape/stream) highlight in lockstep. Guarded: no-op when no feed bus.
+              if (typeof _eddyPushSelection === 'function') _eddyPushSelection(eid);
+              if (detailInst) { detailInst.destroy(); detailInst = null; }
+              if (eid === null) { detailEmpty.style.display = ''; return; }
+              detailEmpty.style.display = 'none';
+          "#
+        select-setup-bottom #r#"
+              rightPane.appendChild(detailInst.el);
+            }
+            const instances = new Map();
+          "#
+        list-setup-no-select #r#"
+            const statsEl = document.createElement('div');
+            statsEl.className = 'mt-2 text-xs text-muted-foreground';
+            headerEl.appendChild(statsEl);
+            container.appendChild(headerEl);
+
+            const listEl = document.createElement('div');
+            listEl.className = 'flex-1 overflow-y-auto';
+            container.appendChild(listEl);
+            root.appendChild(container);
+
+            const instances = new Map();
+          "#
+        list-setup (if has-select
+                     (str select-setup-top "\n"
+                          "      const entity = " store-name ".get(eid);\n"
+                          "      if (!entity) return;\n"
+                          "      detailInst = " select-fn-name "(entity);\n"
+                          select-setup-bottom)
+                     list-setup-no-select)
+
+        watcher-update #r#"
+              if (evt.type === 'update') {
+                const inst = instances.get(evt.eid);
+                if (inst && inst.update[evt.attr]) inst.update[evt.attr](evt.new || '');
+          "#
+
+        keyboard-handler #r#"
+            document.addEventListener('keydown', (e) => {
+              if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+              if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
+            });
+          "#
+        ]
+
+    (str
+      "// Generated by eddy — semantic UI compiler\n"
+      "// Source: " src-name "\n"
+      "// This file is a build artifact. Edit the .eddy source, not this file.\n\n"
+      "(function() {\n"
+      "'use strict';\n\n"
+
+      ;; Inlined value-equality runtime (backs the store change-gate).
+      (gen-equiv-runtime) "\n"
+
+      "// ── Store ──────────────────────────────────────────\n"
+      (if (= persist-mode "claims") (gen-store-claims store-name []) (gen-store store-name [])) "\n\n"
+
+      "// ── Component ────────────────────────────────────────\n"
+      (gen-component-fn! comp) "\n"
+
+      (if has-select
+        (str "// ── Detail Component ─────────────────────────────────\n"
+             (gen-component-fn! select-comp) "\n")
+        "")
+
+      "// ── Undo / Redo ─────────────────────────────────────\n"
+      (gen-undo-redo) "\n"
+
+      (cond
+        is-server
+          (str "// ── Persistence (server) ─────────────────────────────\n"
+               (gen-server-persistence [store-name]) "\n")
+        (not (nil? persist-key))
+          (str "// ── Persistence ──────────────────────────────────────\n"
+               (gen-persistence persist-key [store-name]) "\n")
+        is-feed
+          (str "// ── Live external feed ───────────────────────────────\n"
+               (gen-feed-persistence feed-url store-name feed-id-field) "\n")
+        :else "")
+
+      "// ── Init ─────────────────────────────────────────────\n"
+      (if is-server (.replace init-open "function init()" "async function init()") init-open) "\n"
+      (gen-theme-style (.-theme prog))
+      form-fields-code
+      submit-btn "\n"
+      "  formEl.addEventListener('submit', (e) => {\n"
+      "    e.preventDefault();\n"
+      "    const first = form_" (id->ref (nth add-fields 0)) ".value.trim();\n"
+      "    if (!first) return;\n"
+      "    " store-name ".add({ " add-obj " });\n"
+      clear-lines "\n"
+      "  });\n"
+      "  container.appendChild(formEl);\n\n"
+
+      header-and-list "\n"
+      "  titleEl.textContent = " (q title) ";\n"
+      "  headerEl.appendChild(titleEl);\n"
+      list-setup "\n\n"
+
+      (gen-panels-mount panels "container")
+
+      "  " store-name ".watch((evt) => {\n"
+      "    if (evt.type === 'add') {\n"
+      "      const inst = " fn-name "(evt.entity);\n"
+      "      inst.el.className = (inst.el.className || '') + ' cursor-pointer hover:bg-muted/50';\n"
+      "      listEl.appendChild(inst.el);\n"
+      "      instances.set(evt.eid, inst);\n"
+      (if has-select "      inst.el.addEventListener('click', () => selectItem(evt.eid));\n" "")
+      "      statsEl.textContent = 'Total: ' + instances.size;\n"
+      "      recordUndo({ type: 'add', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
+      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
+            (not (nil? persist-key)) "      saveDb();\n"
+            :else "")
+      "    }\n"
+      watcher-update "\n"
+      (if has-select "      if (selectedEid === evt.eid && detailInst && detailInst.update[evt.attr]) detailInst.update[evt.attr](evt.new || '');\n" "")
+      "      recordUndo({ type: 'update', store: " store-name ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"
+      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
+            (not (nil? persist-key)) "      saveDb();\n"
+            :else "")
+      "    }\n"
+      "    if (evt.type === 'remove') {\n"
+      "      const inst = instances.get(evt.eid);\n"
+      "      if (inst) { inst.destroy(); instances.delete(evt.eid); }\n"
+      "      statsEl.textContent = 'Total: ' + instances.size;\n"
+      (if has-select "      if (selectedEid === evt.eid) selectItem(null);\n" "")
+      "      recordUndo({ type: 'remove', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
+      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
+            (not (nil? persist-key)) "      saveDb();\n"
+            :else "")
+      "    }\n"
+      "    if (evt.type === 'load') {\n"
+      "      listEl.innerHTML = '';\n"
+      "      instances.clear();\n"
+      (if has-select "      if (selectedEid) selectItem(null);\n" "")
+      "      for (const entity of " store-name ".all()) {\n"
+      "        const inst = " fn-name "(entity);\n"
+      "        inst.el.className = (inst.el.className || '') + ' cursor-pointer hover:bg-muted/50';\n"
+      (if has-select "        inst.el.addEventListener('click', () => selectItem(entity.eid));\n" "")
+      "        listEl.appendChild(inst.el);\n"
+      "        instances.set(entity.eid, inst);\n"
+      "      }\n"
+      "      statsEl.textContent = 'Total: ' + instances.size;\n"
+      "    }\n"
+      "  });\n\n"
+
+      keyboard-handler "\n\n"
+      (cond is-server "  await loadFromServer();\n"
+            (not (nil? persist-key)) "  restoreDb();\n"
+            is-feed "  startFeed();\n"
+            :else "")
+      "}\n\n"
+      "init();\n"
+      "})();\n")))
+
+;; === Multi-view routing codegen ===
+
+(defn gen-view-section [(view :- Any) (components :- Any) (ge :- Any) (store-name :- String) (is-server :- Bool) (all-entities :- Any) (all-views :- Any)] :- String
+  (let [comp-name (.-component view)
+        fn-name (str (id->ref comp-name) "_create")
+        add-fields (or (.-add-fields view) [])
+        title (.-title view)
+        view-name (.-name view)
+        has-select (not (nil? (.-select-component view)))
+        select-fn-name (if has-select (str (id->ref (.-select-component view)) "_create") nil)
+        has-form (> (count add-fields) 0)
+        tabs (or (.-tabs view) [])
+        has-tabs (and has-select is-server (> (count tabs) 0))
+
+        lookup-fields-meta (if (and is-server has-select)
+          (let [stored (.-stored-fields ge)
+                lf (filterv (fn [f] (not (nil? (.-lookup-table f)))) stored)]
+            (if (= (count lf) 0) nil lf))
+          nil)
+
+        view-filters (or (.-filters view) [])
+        view-date-filters (or (.-date-filters view) [])
+        all-stored (if is-server (.-stored-fields ge) [])
+        filter-fields-meta (if (and is-server (> (count view-filters) 0))
+          (filterv some? (mapv (fn [n]
+            (first (filterv (fn [f] (= (.-name f) n)) all-stored)))
+            view-filters))
+          [])
+        has-filters (> (count filter-fields-meta) 0)
+        date-filter-fields-meta (if (and is-server (> (count view-date-filters) 0))
+          (filterv some? (mapv (fn [n]
+            (first (filterv (fn [f] (= (.-name f) n)) all-stored)))
+            view-date-filters))
+          [])
+        has-date-filters (> (count date-filter-fields-meta) 0)
+
+        lookup-map-js (if (some? lookup-fields-meta)
+          (str "      const _lookups = {"
+            (.join (mapv (fn [f]
+              (str "'" (.-name f) "': '" (.-lookup-table f) "'"))
+              lookup-fields-meta) ", ")
+            "};\n")
+          "")
+
+        nav-map-js (if (and (some? lookup-fields-meta) (some? all-views))
+          (let [nav-fields (filterv (fn [f]
+                  (some? (first (filterv (fn [e] (= (.-table-name e) (.-lookup-table f))) all-entities))))
+                  lookup-fields-meta)]
+            (if (= (count nav-fields) 0) ""
+              (str "      const _navFields = {"
+                (.join (mapv (fn [f]
+                  (let [target-entity (first (filterv (fn [e] (= (.-table-name e) (.-lookup-table f))) all-entities))
+                        target-view (first (filterv (fn [v] (= (.-entity-name v) (.-name target-entity))) all-views))]
+                    (str "'" (.-name f) "': '" (if (some? target-view) (.-name target-view) (.-store-name target-entity)) "'")))
+                  nav-fields) ", ")
+                "};\n")))
+          "")
+        form-fields (.join
+          (mapv (fn [f]
+            (let [fid (str "form_" (id->ref f))]
+              (str "    const " fid "_label = document.createElement('label');\n"
+                   "    " fid "_label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
+                   "    " fid "_label.textContent = " (q (titlecase f)) ";\n"
+                   "    formEl.appendChild(" fid "_label);\n"
+                   "    const " fid " = document.createElement('input');\n"
+                   "    " fid ".className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm';\n"
+                   "    " fid ".placeholder = " (q (titlecase f)) ";\n"
+                   "    formEl.appendChild(" fid ");\n")))
+            add-fields) "")
+        add-obj (.join (mapv (fn [f] (str (id->ref f) ": form_" (id->ref f) ".value.trim()")) add-fields) ", ")
+        clear-lines (.join (mapv (fn [f] (str "      form_" (id->ref f) ".value = '';")) add-fields) "\n")
+
+        ;; Column header from row component's children
+        comp (first (filterv (fn [c] (= (.-name c) comp-name)) components))
+        root-el (first (.-body comp))
+        col-children (filterv
+          (fn [ch]
+            (let [attrs (.-attrs ch)]
+              (if (nil? attrs) false
+                (let [ta (get attrs "text")]
+                  (and (not (nil? ta)) (= (get ta "type") "bind"))))))
+          (.-children root-el))
+        grid-tpl (.join (mapv (fn [ch]
+            (let [cls (or (get (get (.-attrs ch) "class") "value") "")
+                  width-cls (first (filterv
+                    (fn [c] (or (= (.indexOf c "flex-") 0) (= (.indexOf c "w-") 0)))
+                    (.split cls " ")))]
+              (cond
+                (nil? width-cls) "2fr"
+                (= width-cls "flex-1") "3fr"
+                (= width-cls "w-16") "1fr"
+                (= width-cls "w-20") "1.5fr"
+                (= width-cls "w-24") "2fr"
+                (= width-cls "w-32") "2.5fr"
+                (= width-cls "w-40") "3fr"
+                (= width-cls "w-48") "4fr"
+                :else "2fr")))
+            col-children) " ")
+        col-props (mapv (fn [ch] (get (get (.-attrs ch) "text") "prop")) col-children)
+        grid-tpl-sel (if is-server (str "30px " grid-tpl) grid-tpl)
+
+        tab-stores (if has-tabs
+          (mapv (fn [tab]
+            (let [tab-entity-name (.-entity-name tab)
+                  tab-ge (first (filterv (fn [e] (= (.-name e) tab-entity-name)) all-entities))]
+              (if (nil? tab-ge) (str tab-entity-name "s") (.-store-name tab-ge))))
+            tabs)
+          [])
+
+        tab-btn-code (if has-tabs
+          (loop [i 0 acc ""]
+            (if (>= i (count tabs))
+              acc
+              (let [tab (nth tabs i)
+                    label (.-label tab)
+                    ref (str "_tb" i)]
+                (recur (+ i 1)
+                  (str acc
+                    "      const " ref " = document.createElement('button');\n"
+                    "      " ref ".textContent = " (q label) ";\n"
+                    "      " ref ".className = 'px-4 py-2 text-sm font-medium text-muted-foreground border-b-2 border-transparent hover:text-foreground';\n"
+                    "      " ref ".addEventListener('click', () => _switchTab(" i "));\n"
+                    "      _tabBar.appendChild(" ref ");\n"
+                    "      _tabBtns.push(" ref ");\n")))))
+          "")
+
+        tab-endpoints-js (if has-tabs
+          (str "[" (.join
+            (loop [i 0 acc []]
+              (if (>= i (count tabs))
+                acc
+                (recur (+ i 1)
+                  (conj acc (str "'/api/" store-name "/' + eid + '/" (nth tab-stores i) "'")))))
+            ", ") "]")
+          "[]")
+
+        tab-fields-js (if has-tabs
+          (str "[" (.join
+            (mapv (fn [tab]
+              (str "[" (.join (mapv (fn [f] (str "'" f "'")) (.-display-fields tab)) ", ") "]"))
+              tabs)
+            ", ") "]")
+          "[]")
+
+        tab-labels-js (if has-tabs
+          (str "[" (.join
+            (mapv (fn [tab]
+              (str "[" (.join (mapv (fn [f] (str "'" (titlecase f) "'")) (.-display-fields tab)) ", ") "]"))
+              tabs)
+            ", ") "]")
+          "[]")
+
+        tab-meta-js (if has-tabs
+          (str "[" (.join
+            (mapv (fn [tab]
+              (let [fk (.-fk-column tab)
+                    ent (.-entity-name tab)
+                    filt (or (.-filter tab) "")
+                    filt-pairs (if (= filt "") "{}"
+                      (let [clean (.replace (.replace filt " " "") "  " "")
+                            parts (.split clean "AND")
+                            entries (mapv (fn [p]
+                              (let [kv (.split (.trim p) "=")]
+                                (str "'" (.trim (nth kv 0)) "': '" (.trim (nth kv 1)) "'")))
+                              parts)]
+                        (str "{" (.join entries ", ") "}")))]
+                (str "{store:'" ent "s', fk:'" fk "', filter:" filt-pairs "}")))
+              tabs)
+            ", ") "]")
+          "[]")
+
+        tab-code (if has-tabs
+          (str
+            "      const _tabBar = document.createElement('div');\n"
+            "      _tabBar.className = 'flex border-b border-border mt-4';\n"
+            "      const _tabBtns = [];\n"
+            "      const _tabContent = document.createElement('div');\n"
+            "      _tabContent.className = 'p-4';\n"
+            tab-btn-code
+            "      let _activeTabIdx = -1;\n"
+            "      const _tabEndpoints = " tab-endpoints-js ";\n"
+            "      const _tabFields = " tab-fields-js ";\n"
+            "      const _tabLabels = " tab-labels-js ";\n"
+            "      const _tabMeta = " tab-meta-js ";\n"
+            "      function _switchTab(idx) {\n"
+            "        if (_activeTabIdx === idx) return;\n"
+            "        _activeTabIdx = idx;\n"
+            "        _tabBtns.forEach((b, i) => {\n"
+            "          b.className = i === idx ? 'px-4 py-2 text-sm font-medium text-foreground border-b-2 border-primary' : 'px-4 py-2 text-sm font-medium text-muted-foreground border-b-2 border-transparent hover:text-foreground';\n"
+            "        });\n"
+            "        _tabContent.innerHTML = '<div class=\"text-sm text-muted-foreground\">Loading...</div>';\n"
+            "        fetch(window.location.origin + _tabEndpoints[idx])\n"
+            "          .then(r => r.json())\n"
+            "          .then(rows => {\n"
+            "            _tabContent.innerHTML = '';\n"
+            "            const meta = _tabMeta[idx];\n"
+            "            const addBtn = document.createElement('button');\n"
+            "            addBtn.textContent = '+ Add';\n"
+            "            addBtn.className = 'mb-2 px-3 py-1 text-xs font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90';\n"
+            "            const addForm = document.createElement('div');\n"
+            "            addForm.className = 'mb-3 p-3 border border-border rounded-md bg-muted/30';\n"
+            "            addForm.style.display = 'none';\n"
+            "            const fields = _tabFields[idx], labels = _tabLabels[idx];\n"
+            "            const inputs = {};\n"
+            "            fields.forEach(f => {\n"
+            "              const lbl = document.createElement('label'); lbl.className = 'text-xs font-medium uppercase text-muted-foreground block mt-1'; lbl.textContent = f;\n"
+            "              const inp = document.createElement('input'); inp.className = 'w-full px-2 py-1 border border-input rounded-md bg-background text-foreground text-sm mt-0.5';\n"
+            "              inputs[f] = inp; addForm.appendChild(lbl); addForm.appendChild(inp);\n"
+            "            });\n"
+            "            const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';\n"
+            "            saveBtn.className = 'mt-2 mr-2 px-3 py-1 text-xs font-medium bg-primary text-primary-foreground rounded-md';\n"
+            "            const cancelBtn = document.createElement('button'); cancelBtn.textContent = 'Cancel';\n"
+            "            cancelBtn.className = 'mt-2 px-3 py-1 text-xs font-medium border border-border text-foreground rounded-md';\n"
+            "            saveBtn.addEventListener('click', async () => {\n"
+            "              const body = {...meta.filter}; body[meta.fk] = selectedEid;\n"
+            "              for (const [k,v] of Object.entries(inputs)) body[k] = v.value;\n"
+            "              await fetch(window.location.origin + '/api/' + meta.store, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });\n"
+            "              addForm.style.display = 'none'; _activeTabIdx = -1; _switchTab(idx);\n"
+            "            });\n"
+            "            cancelBtn.addEventListener('click', () => { addForm.style.display = 'none'; });\n"
+            "            addForm.appendChild(saveBtn); addForm.appendChild(cancelBtn);\n"
+            "            addBtn.addEventListener('click', () => { addForm.style.display = addForm.style.display === 'none' ? '' : 'none'; });\n"
+            "            _tabContent.appendChild(addBtn); _tabContent.appendChild(addForm);\n"
+            "            if (rows.length === 0) { const noRec = document.createElement('div'); noRec.className = 'text-sm text-muted-foreground py-2'; noRec.textContent = 'No records'; _tabContent.appendChild(noRec); return; }\n"
+            "            const tbl = document.createElement('table');\n"
+            "            tbl.className = 'w-full text-sm';\n"
+            "            const thead = document.createElement('thead'), hr = document.createElement('tr');\n"
+            "            labels.forEach(l => { const th = document.createElement('th'); th.className = 'text-left text-xs font-medium uppercase text-muted-foreground py-1 px-2'; th.textContent = l; hr.appendChild(th); });\n"
+            "            thead.appendChild(hr); tbl.appendChild(thead);\n"
+            "            const tbody = document.createElement('tbody');\n"
+            "            for (const row of rows) { const tr = document.createElement('tr'); tr.className = 'border-t border-border'; fields.forEach(f => { const td = document.createElement('td'); td.className = 'py-1.5 px-2'; td.textContent = row[f] || ''; tr.appendChild(td); }); tbody.appendChild(tr); }\n"
+            "            tbl.appendChild(tbody); _tabContent.appendChild(tbl);\n"
+            "          });\n"
+            "      }\n"
+            "      _tabBarEl = _tabBar;\n"
+            "      _tabContentEl = _tabContent;\n"
+            "      rightPane.appendChild(_tabBar);\n"
+            "      rightPane.appendChild(_tabContent);\n"
+            "      _switchTab(0);\n")
+          "")
+
+        export-btn-js (if is-server
+          (str
+            "    const exportBtn = document.createElement('button');\n"
+            "    exportBtn.textContent = 'Export CSV';\n"
+            "    exportBtn.className = 'px-3 py-1 text-sm font-medium border border-border text-foreground rounded-md hover:bg-muted';\n"
+            "    exportBtn.addEventListener('click', () => {\n"
+            "      let url = window.location.origin + '/api/" store-name "?limit=100000&offset=0';\n"
+            "      if (_sort['" store-name "']) url += '&sort=' + _sort['" store-name "'] + '&dir=' + (_sortDir['" store-name "'] || 'asc');\n"
+            "      if (_search['" store-name "']) url += '&search=' + encodeURIComponent(_search['" store-name "']);\n"
+            "      fetch(url).then(r => r.json()).then(rows => {\n"
+            "        if (rows.length === 0) return;\n"
+            "        const headers = Object.keys(rows[0]);\n"
+            "        const _csvQ = v => '\"' + String(v).replace(/\"/g, '\"\"') + '\"';\n"
+            "        const csv = headers.join(',') + '\\n' + rows.map(r => headers.map(h => _csvQ(r[h] || '')).join(',')).join('\\n');\n"
+            "        const blob = new Blob([csv], { type: 'text/csv' });\n"
+            "        const a = document.createElement('a');\n"
+            "        a.href = URL.createObjectURL(blob);\n"
+            "        a.download = '" store-name ".csv';\n"
+            "        a.click();\n"
+            "      });\n"
+            "    });\n"
+            "    toolbar.appendChild(exportBtn);\n")
+          "")
+
+        selection-setup (if is-server
+          (str
+            "    const _selected = new Set();\n"
+            "    const _selectBar = document.createElement('div');\n"
+            "    _selectBar.className = 'flex items-center justify-between px-4 py-2 border-t border-border bg-muted/50';\n"
+            "    _selectBar.style.display = 'none';\n"
+            "    const _selectCount = document.createElement('span');\n"
+            "    _selectCount.className = 'text-sm text-muted-foreground';\n"
+            "    const _exportSelBtn = document.createElement('button');\n"
+            "    _exportSelBtn.textContent = 'Export Selected';\n"
+            "    _exportSelBtn.className = 'px-3 py-1 text-sm font-medium border border-border text-foreground rounded-md hover:bg-muted';\n"
+            "    _exportSelBtn.addEventListener('click', () => {\n"
+            "      if (_selected.size === 0) return;\n"
+            "      const rows = Array.from(_selected).map(eid => " store-name ".get(eid)).filter(Boolean);\n"
+            "      if (rows.length === 0) return;\n"
+            "      const headers = Object.keys(rows[0]);\n"
+            "      const _csvQ = v => '\"' + String(v).replace(/\"/g, '\"\"') + '\"';\n"
+            "      const csv = headers.join(',') + '\\n' + rows.map(r => headers.map(h => _csvQ(r[h] || '')).join(',')).join('\\n');\n"
+            "      const blob = new Blob([csv], { type: 'text/csv' });\n"
+            "      const a = document.createElement('a');\n"
+            "      a.href = URL.createObjectURL(blob);\n"
+            "      a.download = '" store-name "_selected.csv';\n"
+            "      a.click();\n"
+            "    });\n"
+            "    _selectBar.appendChild(_selectCount);\n"
+            "    _selectBar.appendChild(_exportSelBtn);\n"
+            "    function _updateSelectBar() {\n"
+            "      _selectBar.style.display = _selected.size > 0 ? '' : 'none';\n"
+            "      _selectCount.textContent = _selected.size + ' selected';\n"
+            "    }\n")
+          "")
+
+        select-all-cb (if is-server
+          (str
+            "    const _selectAll = document.createElement('input');\n"
+            "    _selectAll.type = 'checkbox';\n"
+            "    _selectAll.className = 'w-4 h-4 cursor-pointer self-center';\n"
+            "    _selectAll.addEventListener('change', () => {\n"
+            "      for (const [eid, inst] of instances) {\n"
+            "        const cb = inst.el.querySelector('input[type=\"checkbox\"]');\n"
+            "        if (cb) cb.checked = _selectAll.checked;\n"
+            "        if (_selectAll.checked) _selected.add(eid);\n"
+            "        else _selected.delete(eid);\n"
+            "      }\n"
+            "      _updateSelectBar();\n"
+            "    });\n"
+            "    colHeader.insertBefore(_selectAll, colHeader.firstChild);\n")
+          "")
+
+        row-cb-add (if is-server
+          (str
+            "        const _cb = document.createElement('input');\n"
+            "        _cb.type = 'checkbox';\n"
+            "        _cb.className = 'w-4 h-4 cursor-pointer self-center';\n"
+            "        _cb.addEventListener('click', (e) => e.stopPropagation());\n"
+            "        _cb.addEventListener('change', () => {\n"
+            "          if (_cb.checked) _selected.add(evt.eid);\n"
+            "          else _selected.delete(evt.eid);\n"
+            "          _updateSelectBar();\n"
+            "        });\n"
+            "        inst.el.insertBefore(_cb, inst.el.firstChild);\n")
+          "")
+
+        row-cb-load (if is-server
+          (str
+            "          const _cb = document.createElement('input');\n"
+            "          _cb.type = 'checkbox';\n"
+            "          _cb.className = 'w-4 h-4 cursor-pointer self-center';\n"
+            "          _cb.addEventListener('click', (e) => e.stopPropagation());\n"
+            "          _cb.addEventListener('change', () => {\n"
+            "            if (_cb.checked) _selected.add(entity.eid);\n"
+            "            else _selected.delete(entity.eid);\n"
+            "            _updateSelectBar();\n"
+            "          });\n"
+            "          inst.el.insertBefore(_cb, inst.el.firstChild);\n")
+          "")
+
+        col-header-js (str
+          "    const colHeader = document.createElement('div');\n"
+          "    colHeader.className = 'items-center gap-4 px-4 py-2 border-b border-border bg-muted/30';\n"
+          "    colHeader.style.display = 'grid';\n"
+          "    colHeader.style.gridTemplateColumns = '" grid-tpl-sel "';\n"
+          (if is-server
+            (str "    const _sortHeaders = {};\n"
+              "    function _updateSortIndicators() {\n"
+              "      for (const [p, el] of Object.entries(_sortHeaders)) {\n"
+              "        const arrow = _sort['" store-name "'] === p ? (_sortDir['" store-name "'] === 'desc' ? ' ↓' : ' ↑') : '';\n"
+              "        el.textContent = el.dataset.label + arrow;\n"
+              "      }\n"
+              "    }\n")
+            "")
+          (.join (mapv (fn [ch]
+            (let [prop (get (get (.-attrs ch) "text") "prop")
+                  ref (id->ref prop)]
+              (str "    const hdr_" ref " = document.createElement('span');\n"
+                   "    hdr_" ref ".className = 'text-xs font-medium uppercase text-muted-foreground truncate" (if is-server " cursor-pointer" "") "';\n"
+                   "    hdr_" ref ".textContent = " (q (titlecase prop)) ";\n"
+                   "    hdr_" ref ".dataset.label = " (q (titlecase prop)) ";\n"
+                   (if is-server
+                     (str "    _sortHeaders['" prop "'] = hdr_" ref ";\n"
+                          "    hdr_" ref ".addEventListener('click', () => {\n"
+                          "      if (_sort['" store-name "'] === '" prop "') { _sortDir['" store-name "'] = _sortDir['" store-name "'] === 'desc' ? 'asc' : 'desc'; }\n"
+                          "      else { _sort['" store-name "'] = '" prop "'; _sortDir['" store-name "'] = 'asc'; }\n"
+                          "      _page['" store-name "'] = 0;\n"
+                          "      _updateSortIndicators();\n"
+                          "      loadStore('" store-name "');\n"
+                          "    });\n")
+                     "")
+                   "    colHeader.appendChild(hdr_" ref ");\n")))
+            col-children) ""))
+
+        view-open #r#"
+  (function() {
+    const viewEl = document.createElement('div');
+    viewEl.className = 'view-card';
+
+    const toolbar = document.createElement('div');
+    toolbar.className = 'flex items-center justify-between px-4 py-3 border-b border-border';
+    const titleEl = document.createElement('h1');
+    titleEl.className = 'text-lg font-semibold text-foreground';
+"#
+
+        add-toggle-js #r#"
+    const addToggle = document.createElement('button');
+    addToggle.textContent = '+ Add';
+    addToggle.className = 'px-3 py-1 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:opacity-90';
+    toolbar.appendChild(addToggle);
+"#
+
+        form-chrome #r#"
+    const formEl = document.createElement('form');
+    formEl.className = 'flex flex-col gap-3 p-4 border-b border-border';
+    formEl.style.display = 'none';
+"#
+
+        form-actions #r#"
+    const formActions = document.createElement('div');
+    formActions.className = 'flex gap-2';
+    const submitBtn = document.createElement('button');
+    submitBtn.type = 'submit';
+    submitBtn.className = 'px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90';
+    submitBtn.textContent = 'Add';
+    formActions.appendChild(submitBtn);
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'px-4 py-2 border border-border rounded-md text-sm font-medium text-muted-foreground hover:bg-muted';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => { formEl.style.display = 'none'; addToggle.style.display = ''; });
+    formActions.appendChild(cancelBtn);
+    formEl.appendChild(formActions);
+    addToggle.addEventListener('click', () => { formEl.style.display = ''; addToggle.style.display = 'none'; });
+    formEl.addEventListener('submit', (e) => {
+      e.preventDefault();
+"#
+
+        form-submit-tail #r#"
+      formEl.style.display = 'none';
+      addToggle.style.display = '';
+    });
+    viewEl.appendChild(formEl);
+
+"#
+
+        filter-dropdowns-js (if has-filters
+          (.join (mapv (fn [f]
+            (let [fname (.-name f)
+                  fltable (.-filter-lookup-table f)
+                  ltable (or fltable (.-lookup-table f))
+                  is-lookup (not (nil? ltable))
+                  label (titlecase fname)
+                  fetch-url (if is-lookup
+                    (str "/api/_lookup/" ltable)
+                    (str "/api/_distinct/" store-name "/" fname))
+                  option-builder (if is-lookup
+                    (str "      rows.forEach(r => { const o = document.createElement('option'); o.value = r.id; o.textContent = r.name; _fsel_" fname ".appendChild(o); });\n")
+                    (str "      rows.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; _fsel_" fname ".appendChild(o); });\n"))]
+              (str "    const _fsel_" fname " = document.createElement('select');\n"
+                   "    _fsel_" fname ".className = 'px-2 py-1.5 border border-border rounded-md bg-background text-foreground text-xs';\n"
+                   "    _fsel_" fname ".innerHTML = '<option value=\"\">All " label "</option>';\n"
+                   "    fetch(window.location.origin + '" fetch-url "').then(r => r.json()).then(rows => {\n"
+                   option-builder
+                   "    });\n"
+                   "    _fsel_" fname ".addEventListener('change', () => {\n"
+                   "      if (!_filters['" store-name "']) _filters['" store-name "'] = {};\n"
+                   "      _filters['" store-name "']['" fname "'] = _fsel_" fname ".value;\n"
+                   "      _page['" store-name "'] = 0;\n"
+                   "      loadStore('" store-name "');\n"
+                   "    });\n")))
+            filter-fields-meta) "")
+          "")
+
+        date-filter-inputs-js (if has-date-filters
+          (.join (mapv (fn [f]
+            (let [fname (.-name f)
+                  label (titlecase fname)]
+              (str "    const _dflabel_" fname " = document.createElement('span');\n"
+                   "    _dflabel_" fname ".textContent = '" label ":';\n"
+                   "    _dflabel_" fname ".className = 'text-xs text-muted-foreground self-center';\n"
+                   "    const _dfrom_" fname " = document.createElement('input');\n"
+                   "    _dfrom_" fname ".type = 'date';\n"
+                   "    _dfrom_" fname ".className = 'px-2 py-1 border border-border rounded-md bg-background text-foreground text-xs';\n"
+                   "    _dfrom_" fname ".title = '" label " from';\n"
+                   "    const _dto_" fname " = document.createElement('input');\n"
+                   "    _dto_" fname ".type = 'date';\n"
+                   "    _dto_" fname ".className = 'px-2 py-1 border border-border rounded-md bg-background text-foreground text-xs';\n"
+                   "    _dto_" fname ".title = '" label " to';\n"
+                   "    _dfrom_" fname ".addEventListener('change', () => {\n"
+                   "      if (!_filters['" store-name "']) _filters['" store-name "'] = {};\n"
+                   "      _filters['" store-name "']['" fname "_from'] = _dfrom_" fname ".value;\n"
+                   "      _page['" store-name "'] = 0;\n"
+                   "      loadStore('" store-name "');\n"
+                   "    });\n"
+                   "    _dto_" fname ".addEventListener('change', () => {\n"
+                   "      if (!_filters['" store-name "']) _filters['" store-name "'] = {};\n"
+                   "      _filters['" store-name "']['" fname "_to'] = _dto_" fname ".value;\n"
+                   "      _page['" store-name "'] = 0;\n"
+                   "      loadStore('" store-name "');\n"
+                   "    });\n")))
+            date-filter-fields-meta) "")
+          "")
+
+        saved-search-js (if is-server
+          (str "    const _ssKey = 'eddy_searches_" store-name "';\n"
+               "    const _ssLoad = document.createElement('select');\n"
+               "    _ssLoad.className = 'px-2 py-1.5 border border-border rounded-md bg-background text-foreground text-xs';\n"
+               "    _ssLoad.innerHTML = '<option value=\"\">Saved Searches</option>';\n"
+               "    function _ssRefresh() {\n"
+               "      const saved = JSON.parse(localStorage.getItem(_ssKey) || '[]');\n"
+               "      _ssLoad.innerHTML = '<option value=\"\">Saved Searches</option>';\n"
+               "      saved.forEach((s,i) => { const o = document.createElement('option'); o.value = i; o.textContent = s.name; _ssLoad.appendChild(o); });\n"
+               "    }\n"
+               "    _ssRefresh();\n"
+               "    _ssLoad.addEventListener('change', () => {\n"
+               "      const saved = JSON.parse(localStorage.getItem(_ssKey) || '[]');\n"
+               "      const idx = parseInt(_ssLoad.value);\n"
+               "      if (isNaN(idx)) return;\n"
+               "      const s = saved[idx];\n"
+               "      if (!s) return;\n"
+               "      searchEl.value = s.search || '';\n"
+               "      _search['" store-name "'] = s.search || '';\n"
+               "      _filters['" store-name "'] = Object.assign({}, s.filters || {});\n"
+               "      const sf = s.filters || {};\n"
+               (if has-filters
+                 (.join (mapv (fn [f] (str "      if (_fsel_" (.-name f) ") _fsel_" (.-name f) ".value = sf['" (.-name f) "'] || '';\n")) filter-fields-meta) "")
+                 "")
+               (if has-date-filters
+                 (.join (mapv (fn [f]
+                   (let [fname (.-name f)]
+                     (str "      if (_dfrom_" fname ") _dfrom_" fname ".value = sf['" fname "_from'] || '';\n"
+                          "      if (_dto_" fname ") _dto_" fname ".value = sf['" fname "_to'] || '';\n")))
+                   date-filter-fields-meta) "")
+                 "")
+               "      _page['" store-name "'] = 0;\n"
+               "      loadStore('" store-name "');\n"
+               "    });\n"
+               "    const _ssSave = document.createElement('button');\n"
+               "    _ssSave.textContent = 'Save';\n"
+               "    _ssSave.className = 'px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground hover:bg-muted';\n"
+               "    _ssSave.addEventListener('click', () => {\n"
+               "      const name = prompt('Search name:');\n"
+               "      if (!name) return;\n"
+               "      const saved = JSON.parse(localStorage.getItem(_ssKey) || '[]');\n"
+               "      saved.push({ name, search: searchEl.value, filters: Object.assign({}, _filters['" store-name "'] || {}) });\n"
+               "      localStorage.setItem(_ssKey, JSON.stringify(saved));\n"
+               "      _ssRefresh();\n"
+               "    });\n"
+               "    const _ssDel = document.createElement('button');\n"
+               "    _ssDel.textContent = '✕';\n"
+               "    _ssDel.className = 'px-2 py-1 text-xs border border-border rounded-md bg-background text-destructive hover:bg-muted';\n"
+               "    _ssDel.addEventListener('click', () => {\n"
+               "      const idx = parseInt(_ssLoad.value);\n"
+               "      if (isNaN(idx)) return;\n"
+               "      const saved = JSON.parse(localStorage.getItem(_ssKey) || '[]');\n"
+               "      saved.splice(idx, 1);\n"
+               "      localStorage.setItem(_ssKey, JSON.stringify(saved));\n"
+               "      _ssRefresh();\n"
+               "    });\n")
+          "")
+
+        filter-bar-append-js (if (or has-filters has-date-filters is-server)
+          (let [filter-appends (if has-filters
+                  (.join (mapv (fn [f] (str "    filterBar.appendChild(_fsel_" (.-name f) ");\n")) filter-fields-meta) "")
+                  "")
+                date-appends (if has-date-filters
+                  (.join (mapv (fn [f]
+                    (let [fname (.-name f)]
+                      (str "    filterBar.appendChild(_dflabel_" fname ");\n"
+                           "    filterBar.appendChild(_dfrom_" fname ");\n"
+                           "    filterBar.appendChild(_dto_" fname ");\n")))
+                    date-filter-fields-meta) "")
+                  "")
+                search-appends (if is-server
+                  (str "    filterBar.appendChild(_ssLoad);\n"
+                       "    filterBar.appendChild(_ssSave);\n"
+                       "    filterBar.appendChild(_ssDel);\n")
+                  "")]
+            (str "    const filterBar = document.createElement('div');\n"
+                 "    filterBar.className = 'flex flex-wrap gap-2 mt-2 items-center';\n"
+                 filter-appends
+                 date-appends
+                 search-appends
+                 "    searchBar.appendChild(filterBar);\n"))
+          "")
+
+        search-setup (str #r#"
+    const searchEl = document.createElement('input');
+    searchEl.type = 'text';
+    searchEl.placeholder = 'Search...';
+    searchEl.className = 'w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+    const statsEl = document.createElement('div');
+    statsEl.className = 'mt-2 text-xs text-muted-foreground';
+    const searchBar = document.createElement('div');
+    searchBar.className = 'p-4 border-b border-border';
+    searchBar.appendChild(searchEl);
+
+"#
+          filter-dropdowns-js
+          date-filter-inputs-js
+          saved-search-js
+          filter-bar-append-js
+          #r#"
+    searchBar.appendChild(statsEl);
+    const listEl = document.createElement('div');
+    listEl.className = 'flex-1 overflow-y-auto';
+
+"#
+          (if is-server
+            (str "    function filterRows() {}\n"
+                 "    let _searchTimer = null;\n"
+                 "    searchEl.addEventListener('input', () => {\n"
+                 "      clearTimeout(_searchTimer);\n"
+                 "      _searchTimer = setTimeout(() => {\n"
+                 "        _search['" store-name "'] = searchEl.value.trim();\n"
+                 "        _page['" store-name "'] = 0;\n"
+                 "        loadStore('" store-name "');\n"
+                 "      }, 300);\n"
+                 "    });\n")
+            (str "    function filterRows() {\n"
+                 "      const q = searchEl.value.toLowerCase();\n"
+                 "      let visible = 0;\n"
+                 "      for (const [eid, inst] of instances) {\n")))
+
+        filter-fn-bottom (if is-server ""
+          #r#"
+        if (!entity) continue;
+        const text = Object.values(entity).join(' ').toLowerCase();
+        const show = !q || text.includes(q);
+        inst.el.hidden = !show;
+        if (show) visible++;
+      }
+      statsEl.textContent = q ? visible + ' of ' + instances.size : 'Total: ' + instances.size;
+    }
+    searchEl.addEventListener('input', filterRows);
+
+"#
+        )
+
+        split-pane-setup (str
+          "    viewEl.appendChild(searchBar);\n"
+          "    const splitPane = document.createElement('div');\n"
+          "    splitPane.className = 'flex flex-1 min-h-0';\n"
+          "    const leftPane = document.createElement('div');\n"
+          "    leftPane.className = 'flex flex-col w-1/2 min-h-0 border-r border-border';\n"
+          "    leftPane.appendChild(colHeader);\n"
+          "    leftPane.appendChild(listEl);\n"
+          "    splitPane.appendChild(leftPane);\n"
+          "    const rightPane = document.createElement('div');\n"
+          "    rightPane.className = 'w-1/2 min-h-0 overflow-y-auto';\n"
+          "    const detailEmpty = document.createElement('div');\n"
+          "    detailEmpty.className = 'flex items-center justify-center h-full text-muted-foreground text-sm';\n"
+          "    detailEmpty.textContent = 'Select an item to view details';\n"
+          "    rightPane.appendChild(detailEmpty);\n"
+          "    splitPane.appendChild(rightPane);\n"
+          "    viewEl.appendChild(splitPane);\n\n"
+          "    let selectedEid = null;\n"
+          "    let detailInst = null;\n"
+          "    let selectedRowEl = null;\n"
+          "    let _tabBarEl = null;\n"
+          "    let _tabContentEl = null;\n"
+          "    function selectItem(eid) {\n"
+          "      if (selectedRowEl) selectedRowEl.classList.remove('bg-muted');\n"
+          "      selectedEid = eid;\n"
+          "      if (detailInst) { detailInst.destroy(); detailInst = null; }\n"
+          "      if (_tabBarEl) { _tabBarEl.remove(); _tabBarEl = null; }\n"
+          "      if (_tabContentEl) { _tabContentEl.remove(); _tabContentEl = null; }\n"
+          "      if (eid === null) { detailEmpty.style.display = ''; selectedRowEl = null; return; }\n"
+          "      detailEmpty.style.display = 'none';\n")
+
+        inline-edit-all (str
+          "      rightPane.appendChild(detailInst.el);\n"
+          lookup-map-js
+          nav-map-js
+          "      for (const [attr, node] of Object.entries(detailInst.nodes)) {\n"
+          (if (not (= nav-map-js ""))
+            (str
+              "        if (_navFields && _navFields[attr]) {\n"
+              "          const _ni = document.createElement('span');\n"
+              "          _ni.textContent = ' \\u2192';\n"
+              "          _ni.className = 'text-primary cursor-pointer text-xs inline-block';\n"
+              "          _ni.title = 'Go to ' + attr;\n"
+              "          _ni.addEventListener('click', (e) => {\n"
+              "            e.stopPropagation();\n"
+              "            navigate(_navFields[attr]);\n"
+              "          });\n"
+              "          if (node.parentNode) node.parentNode.insertBefore(_ni, node.nextSibling);\n"
+              "        }\n")
+            "")
+          "        node.style.cursor = 'pointer';\n"
+          "        node.addEventListener('click', () => {\n"
+          (if (some? lookup-fields-meta)
+            (str
+              "          if (_lookups && _lookups[attr]) {\n"
+              "            const _sel = document.createElement('select');\n"
+              "            _sel.className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm w-full';\n"
+              "            node.replaceWith(_sel);\n"
+              "            const _eo = document.createElement('option');\n"
+              "            _eo.value = '';\n"
+              "            _eo.textContent = '\\u2014 select \\u2014';\n"
+              "            _sel.appendChild(_eo);\n"
+              "            fetch(window.location.origin + '/api/_lookup/' + _lookups[attr])\n"
+              "              .then(r => r.json())\n"
+              "              .then(opts => {\n"
+              "                const _cur = node.textContent;\n"
+              "                opts.forEach(o => {\n"
+              "                  const _o = document.createElement('option');\n"
+              "                  _o.value = o.id;\n"
+              "                  _o.textContent = o.name;\n"
+              "                  if (o.name === _cur) _o.selected = true;\n"
+              "                  _sel.appendChild(_o);\n"
+              "                });\n"
+              "                _sel.focus();\n"
+              "              });\n"
+              "            let _ld = false;\n"
+              "            const _lc = () => {\n"
+              "              if (_ld) return;\n"
+              "              _ld = true;\n"
+              "              const _so = _sel.options[_sel.selectedIndex];\n"
+              "              if (_so && _so.value) {\n"
+              "                node.textContent = _so.textContent;\n"
+              "                fetch(window.location.origin + '/api/" store-name "/' + selectedEid, {\n"
+              "                  method: 'PUT',\n"
+              "                  headers: { 'Content-Type': 'application/json' },\n"
+              "                  body: JSON.stringify({ [attr]: _so.value })\n"
+              "                });\n"
+              "                const _ent = " store-name ".get(selectedEid);\n"
+              "                if (_ent) _ent[attr] = _so.textContent;\n"
+              "              }\n"
+              "              _sel.replaceWith(node);\n"
+              "            };\n"
+              "            _sel.addEventListener('blur', () => setTimeout(_lc, 150));\n"
+              "            _sel.addEventListener('change', _lc);\n"
+              "            _sel.addEventListener('keydown', (e) => {\n"
+              "              if (e.key === 'Escape') { _ld = true; _sel.replaceWith(node); }\n"
+              "            });\n"
+              "          } else {\n")
+            "")
+          "          const input = document.createElement('input');\n"
+          "          input.value = " store-name ".get(selectedEid)?.[attr] || '';\n"
+          "          input.className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm w-full';\n"
+          "          node.replaceWith(input);\n"
+          "          input.focus();\n"
+          "          input.select();\n"
+          "          let done = false;\n"
+          "          const commit = () => {\n"
+          "            if (done) return;\n"
+          "            done = true;\n"
+          "            input.replaceWith(node);\n"
+          "            " store-name ".update(selectedEid, attr, input.value.trim());\n"
+          "          };\n"
+          "          input.addEventListener('blur', commit);\n"
+          "          input.addEventListener('keydown', (e) => {\n"
+          "            if (e.key === 'Enter') { e.preventDefault(); commit(); }\n"
+          "            if (e.key === 'Escape') { done = true; input.replaceWith(node); }\n"
+          "          });\n"
+          (if (some? lookup-fields-meta) "          }\n" "")
+          "        });\n"
+          "      }\n")
+
+        select-item-close #r#"
+      const inst = instances.get(eid);
+      if (inst) { inst.el.classList.add('bg-muted'); selectedRowEl = inst.el; }
+    }
+
+"#
+
+        no-select-layout #r#"
+    viewEl.appendChild(searchBar);
+    viewEl.appendChild(colHeader);
+    viewEl.appendChild(listEl);
+
+"#
+
+        watcher-add #r#"
+    const instances = new Map();
+"#
+
+        watcher-add-tail (str
+          "        inst.el.className = (inst.el.className || '') + ' cursor-pointer hover:bg-muted/50 transition-colors';\n"
+          "        inst.el.style.display = 'grid';\n"
+          "        inst.el.style.gridTemplateColumns = '" grid-tpl-sel "';\n"
+          "        for (const ch of inst.el.children) { ch.style.width = 'auto'; ch.style.minWidth = '0'; }\n")
+
+        watcher-update #r#"
+        listEl.appendChild(inst.el);
+        instances.set(evt.eid, inst);
+        filterRows();
+      }
+      if (evt.type === 'update') {
+        const inst = instances.get(evt.eid);
+        if (inst && inst.update[evt.attr]) inst.update[evt.attr](evt.new || '');
+"#
+
+        watcher-remove #r#"
+      }
+      if (evt.type === 'remove') {
+        const inst = instances.get(evt.eid);
+        if (inst) { inst.destroy(); instances.delete(evt.eid); }
+        filterRows();
+"#
+
+        watcher-load #r#"
+      }
+      if (evt.type === 'load') {
+        listEl.innerHTML = '';
+        instances.clear();
+"#
+
+        watcher-load-body (str
+          "          inst.el.className = (inst.el.className || '') + ' cursor-pointer hover:bg-muted/50 transition-colors';\n"
+          "          inst.el.style.display = 'grid';\n"
+          "          inst.el.style.gridTemplateColumns = '" grid-tpl-sel "';\n"
+          "          for (const ch of inst.el.children) { ch.style.width = 'auto'; ch.style.minWidth = '0'; }\n")
+
+        watcher-load-tail #r#"
+          listEl.appendChild(inst.el);
+          instances.set(entity.eid, inst);
+        }
+        filterRows();
+      }
+    });
+
+"#
+
+        pagination-bar (str #r#"
+    const pageBar = document.createElement('div');
+    pageBar.className = 'flex items-center justify-between px-4 py-2 border-t border-border text-xs text-muted-foreground';
+    const pageInfo = document.createElement('span');
+    const pageNav = document.createElement('div');
+    pageNav.className = 'flex gap-2';
+    const prevBtn = document.createElement('button');
+    prevBtn.textContent = '← Prev';
+    prevBtn.className = 'px-2 py-1 border border-border rounded-md hover:bg-muted';
+    const nextBtn = document.createElement('button');
+    nextBtn.textContent = 'Next →';
+    nextBtn.className = 'px-2 py-1 border border-border rounded-md hover:bg-muted';
+    pageNav.appendChild(prevBtn);
+    pageNav.appendChild(nextBtn);
+    pageBar.appendChild(pageInfo);
+    pageBar.appendChild(pageNav);
+"#
+          "\n    function updatePageInfo() {\n"
+          "      const p = _page['" store-name "'] || 0;\n"
+          "      const total = _totals['" store-name "'] || 0;\n"
+          "      const pages = Math.ceil(total / _pageSize);\n"
+          "      pageInfo.textContent = 'Page ' + (p + 1) + ' of ' + (pages || 1) + ' (' + total + ' total)';\n"
+          "      prevBtn.disabled = p <= 0;\n"
+          "      nextBtn.disabled = p >= pages - 1;\n"
+          "    }\n"
+          "    prevBtn.addEventListener('click', () => { _page['" store-name "'] = Math.max(0, (_page['" store-name "'] || 0) - 1); loadStore('" store-name "'); });\n"
+          "    nextBtn.addEventListener('click', () => { _page['" store-name "'] = (_page['" store-name "'] || 0) + 1; loadStore('" store-name "'); });\n"
+          "    onPageChange(updatePageInfo);\n")
+
+        view-close #r#"
+  })();
+"#
+      ]
+    (str
+      "  // ── View: " view-name " ──\n"
+      view-open
+      "    titleEl.textContent = " (q title) ";\n"
+      "    toolbar.appendChild(titleEl);\n"
+      (if has-form (str add-toggle-js) "")
+      export-btn-js
+      "    viewEl.appendChild(toolbar);\n"
+
+      ;; Collapsible form
+      (if has-form
+        (str form-chrome form-fields form-actions
+          "      const first = form_" (id->ref (nth add-fields 0)) ".value.trim();\n"
+          "      if (!first) return;\n"
+          "      " store-name ".add({ " add-obj " });\n"
+          clear-lines "\n"
+          form-submit-tail)
+        "")
+
+      ;; Search + filter
+      search-setup
+      (if (not is-server) (str "        const entity = " store-name ".get(eid);\n") "")
+      filter-fn-bottom
+
+      ;; Column header
+      col-header-js
+      select-all-cb
+
+      ;; Layout: split pane or stacked
+      (if has-select
+        (str split-pane-setup
+          "      const entity = " store-name ".get(eid);\n"
+          "      if (!entity) return;\n"
+          "      detailInst = " select-fn-name "(entity);\n"
+          inline-edit-all
+          tab-code
+          select-item-close)
+        no-select-layout)
+
+      ;; Store watcher
+      selection-setup
+      watcher-add
+      "    " store-name ".watch((evt) => {\n"
+      "      if (evt.type === 'add') {\n"
+      "        const inst = " fn-name "(evt.entity);\n"
+      watcher-add-tail
+      row-cb-add
+      (if has-select "        inst.el.addEventListener('click', () => selectItem(evt.eid));\n" "")
+      watcher-update
+      (if has-select "        if (selectedEid === evt.eid && detailInst && detailInst.update[evt.attr]) detailInst.update[evt.attr](evt.new || '');\n" "")
+      watcher-remove
+      (if has-select "        if (selectedEid === evt.eid) selectItem(null);\n" "")
+      (if is-server "        _selected.delete(evt.eid); _updateSelectBar();\n" "")
+      watcher-load
+      (if has-select "        if (selectedEid) selectItem(null);\n" "")
+      (if is-server "        _selected.clear(); _updateSelectBar();\n        if (_selectAll) _selectAll.checked = false;\n" "")
+      "        for (const entity of " store-name ".all()) {\n"
+      "          const inst = " fn-name "(entity);\n"
+      watcher-load-body
+      row-cb-load
+      (if has-select "          inst.el.addEventListener('click', () => selectItem(entity.eid));\n" "")
+      watcher-load-tail
+
+      (if is-server
+        (str pagination-bar
+          (if has-select
+            (str "    leftPane.appendChild(pageBar);\n"
+                 "    leftPane.appendChild(_selectBar);\n")
+            (str "    viewEl.appendChild(pageBar);\n"
+                 "    viewEl.appendChild(_selectBar);\n")))
+        "")
+
+      "    viewContainers[" (q view-name) "] = viewEl;\n"
+      "    main.appendChild(viewEl);\n"
+      view-close)))
+
+(defn gen-routed-program [(prog :- Any)] :- String
+  (let [g (graph/check-program prog)
+        components (or (.-components prog) [])
+        views (or (.-views prog) [])
+        router (.-router prog)
+        panels (or (.-panels prog) [])
+        routes (.-routes router)
+        default-route (.-default-route router)
+        persist (.-persist g)
+        persist-key (if (nil? persist) nil (.-key persist))
+        persist-mode (if (nil? persist) nil (.-storage persist))
+        is-server (= persist-mode "server")
+        src-name (.-ns g)
+        layout (.-layout g)
+        layout-title (if (and (some? layout) (some? (.-title layout)))
+                       (.-title layout)
+                       (titlecase src-name))
+        nav-groups (if (and (some? layout) (> (count (.-groups layout)) 0))
+                     (.-groups layout)
+                     nil)
+
+        unique-entities (reduce
+          (fn [acc v]
+            (let [en (.-entity-name v)]
+              (if (some? (first (filterv (fn [e] (= (.-name e) en)) acc)))
+                acc
+                (let [ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities g)))]
+                  (conj acc ge)))))
+          [] views)
+        all-stores (mapv (fn [e] (.-store-name e)) unique-entities)
+
+        unique-comp-names (reduce
+          (fn [acc v]
+            (let [names (filterv some? [(.-component v) (.-select-component v)])]
+              (reduce (fn [a n] (if (.includes a n) a (conj a n))) acc names)))
+          [] views)
+
+        gen-nav-btn (fn [vname]
+          (let [v (first (filterv (fn [vi] (= (.-name vi) vname)) views))
+                label (if (some? v) (or (.-title v) (titlecase vname)) (titlecase vname))]
+            (str "    const nav_" (id->ref vname) " = document.createElement('button');\n"
+                 "    nav_" (id->ref vname) ".className = 'sidebar-item';\n"
+                 "    nav_" (id->ref vname) ".textContent = " (q label) ";\n"
+                 "    nav_" (id->ref vname) ".addEventListener('click', () => navigate(" (q vname) "));\n"
+                 "    sidebarContent.appendChild(nav_" (id->ref vname) ");\n"
+                 "    navButtons[" (q vname) "] = nav_" (id->ref vname) ";\n")))
+
+        nav-buttons (if (some? nav-groups)
+          (.join
+            (mapv (fn [grp]
+              (str "    const grpLabel_" (id->ref (.-label grp)) " = document.createElement('div');\n"
+                   "    grpLabel_" (id->ref (.-label grp)) ".className = 'sidebar-group-label';\n"
+                   "    grpLabel_" (id->ref (.-label grp)) ".textContent = " (q (.-label grp)) ";\n"
+                   "    sidebarContent.appendChild(grpLabel_" (id->ref (.-label grp)) ");\n"
+                   (.join (mapv gen-nav-btn (.-items grp)) "\n")))
+              nav-groups) "\n")
+          (.join
+            (mapv (fn [r] (gen-nav-btn (.-view-name r))) routes) "\n"))
+
+        view-sections (.join
+          (mapv (fn [v]
+            (let [en (.-entity-name v)
+                  ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities g)))
+                  store-name (.-store-name ge)]
+              (gen-view-section v components ge store-name is-server (.-entities g) views)))
+            views) "\n")
+
+        undo-watchers (.join
+          (mapv (fn [sn]
+            (let [save (cond is-server (str "    syncToServer('" sn "', evt);\n")
+                             (not (nil? persist-key)) "    saveDb();\n"
+                             :else "")]
+              (str sn ".watch((evt) => {\n"
+                   "  if (evt.type === 'add') {\n"
+                   "    recordUndo({ type: 'add', store: " sn ", eid: evt.eid, entity: evt.entity });\n"
+                   save
+                   "  }\n"
+                   "  if (evt.type === 'update') {\n"
+                   "    recordUndo({ type: 'update', store: " sn ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"
+                   save
+                   "  }\n"
+                   "  if (evt.type === 'remove') {\n"
+                   "    recordUndo({ type: 'remove', store: " sn ", eid: evt.eid, entity: evt.entity });\n"
+                   save
+                   "  }\n"
+                   "});\n")))
+            all-stores) "\n")
+
+        navigate-fn #r#"
+  let currentView = '';
+  function navigate(name) {
+    for (const [n, el] of Object.entries(viewContainers)) {
+      el.style.display = n !== name ? 'none' : '';
+    }
+    currentView = name;
+    location.hash = '#' + name;
+    for (const [n, btn] of Object.entries(navButtons)) {
+      btn.classList.toggle('active', n === name);
+    }
+  }
+"#
+]
+
+    (str
+      "// Generated by eddy — semantic UI compiler\n"
+      "// Source: " src-name "\n"
+      "// This file is a build artifact. Edit the .eddy source, not this file.\n\n"
+      "(function() {\n"
+      "'use strict';\n\n"
+
+      ;; Inlined value-equality runtime (backs the store change-gate).
+      (gen-equiv-runtime) "\n"
+
+      "// ── Stores ────────────────────────────────────────\n"
+      (.join (mapv (fn [e] (gen-store (.-store-name e) [])) unique-entities) "\n\n")
+      "\n\n"
+
+      "// ── Components ──────────────────────────────────────\n"
+      (.join
+        (mapv (fn [cn]
+          (gen-component-fn! (first (filterv (fn [c] (= (.-name c) cn)) components))))
+          unique-comp-names) "\n")
+      "\n"
+
+      "// ── Undo / Redo ─────────────────────────────────────\n"
+      (gen-undo-redo) "\n"
+
+      (cond
+        is-server
+          (str "// ── Persistence (server) ─────────────────────────────\n"
+               (gen-server-persistence all-stores) "\n")
+        (not (nil? persist-key))
+          (str "// ── Persistence ──────────────────────────────────────\n"
+               (gen-persistence persist-key all-stores) "\n")
+        :else "")
+
+      "// ── Undo watchers ───────────────────────────────────\n"
+      undo-watchers "\n"
+
+      "// ── Init ─────────────────────────────────────────────\n"
+      (if is-server "async function init() {\n" "function init() {\n")
+      #r#"
+  const root = document.getElementById(window.EDDY_MOUNT_ID || 'app');
+  const app = document.createElement('div');
+  app.className = 'sidebar-layout';
+
+  const sidebar = document.createElement('aside');
+  sidebar.className = 'sidebar';
+  const sidebarHeader = document.createElement('div');
+  sidebarHeader.className = 'sidebar-header';
+  sidebarHeader.textContent =
+"#
+      " " (q layout-title) ";\n"
+      #r#"
+  sidebar.appendChild(sidebarHeader);
+  const sidebarContent = document.createElement('div');
+  sidebarContent.className = 'sidebar-content';
+  const navButtons = {};
+"#
+      "\n" nav-buttons "\n"
+      #r#"
+  sidebar.appendChild(sidebarContent);
+
+  const sidebarFooter = document.createElement('div');
+  sidebarFooter.className = 'sidebar-footer';
+  const darkToggle = document.createElement('button');
+  darkToggle.className = 'sidebar-item';
+  darkToggle.textContent = document.documentElement.classList.contains('dark') ? '☀ Light' : '☾ Dark';
+  darkToggle.addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+    const isDark = document.documentElement.classList.contains('dark');
+    darkToggle.textContent = isDark ? '☀ Light' : '☾ Dark';
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  });
+  if (localStorage.getItem('theme') === 'dark') document.documentElement.classList.add('dark');
+  darkToggle.textContent = document.documentElement.classList.contains('dark') ? '☀ Light' : '☾ Dark';
+
+  const collapseToggle = document.createElement('button');
+  collapseToggle.className = 'sidebar-item';
+  collapseToggle.textContent = '« Collapse';
+  collapseToggle.addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+    collapseToggle.textContent = sidebar.classList.contains('collapsed') ? '»' : '« Collapse';
+  });
+  sidebarFooter.appendChild(darkToggle);
+  sidebarFooter.appendChild(collapseToggle);
+  sidebar.appendChild(sidebarFooter);
+
+  app.appendChild(sidebar);
+
+  const main = document.createElement('main');
+  main.className = 'sidebar-main';
+  const viewContainers = {};
+"#
+      "\n" view-sections "\n\n"
+      #r#"
+  app.appendChild(main);
+  root.appendChild(app);
+"#
+      (gen-panels-mount panels "main")
+      "\n" navigate-fn "\n"
+      "  const hash = location.hash.slice(1) || " (q default-route) ";\n"
+      #r#"
+  navigate(hash);
+  window.addEventListener('hashchange', () => {
+    const h = location.hash.slice(1);
+    if (h && viewContainers[h]) navigate(h);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
+  });
+
+"#
+      (cond is-server "  await loadFromServer();\n"
+            (not (nil? persist-key)) "  restoreDb();\n"
+            :else "")
+      "}\n\n"
+      "init();\n"
+      "})();\n")))
+
+;; --- Main entry point ---
+
+(defn gen-program! [(prog :- Any)] :- String
+  (if (and (not (nil? (.-views prog))) (> (count (.-views prog)) 0))
+    (if (not (nil? (.-router prog)))
+      (gen-routed-program prog)
+      (gen-view-program! prog))
+  (let [;; Build checked entity graph
+        g (graph/check-program prog)
+
+        ;; Expand list-detail into UI graph
+        ld (first (.-list-details g))
+        sf (first (.-forms g))
+        ug (ui/expand-list-detail g ld sf)
+
+        ;; Read from UI graph — no CRM-specific derivation here
+        en (.-entity ug)
+        store-name (.-store-name ug)
+        columns (.-columns ug)
+        search-cols (.-search-cols ug)
+        overview-fields (.-overview-fields ug)
+        title (.-title ug)
+        related-info (.-related ug)
+        related-tab-keys (mapv (fn [ri] (.-key ri)) related-info)
+
+        derived-attrs (.-derived ug)
+
+        ;; Persist
+        persist (.-persist ug)
+        persist-key (if (nil? persist) nil (.-key persist))
+        persist-mode (if (nil? persist) nil (.-storage persist))
+        is-server (= persist-mode "server")
+        all-stores (into [store-name] (mapv (fn [ri] (.-store ri)) related-info))
+
+        subtitle-field (if (> (count overview-fields) 1) (nth overview-fields 1) nil)
+
+        layout-result (gen-layout en (.-form ug) title)
+
+        src-name (.-ns g)]
+
+    (str
+      "// Generated by eddy — semantic UI compiler\n"
+      "// Source: " src-name "\n"
+      "// This file is a build artifact. Edit the .eddy source, not this file.\n\n"
+      "(function() {\n"
+      "'use strict';\n\n"
+
+      ;; Inlined value-equality runtime (backs the store change-gate).
+      (gen-equiv-runtime) "\n"
+
+      ;; Stores
+      "// ── Stores ─────────────────────────────────────────\n"
+      (gen-store store-name []) "\n"
+      "\n"
+      (.join
+        (mapv (fn [ri]
+          (gen-store (.-store ri) [(.-fk-field ri)]))
+          related-info)
+        "\n")
+
+      ;; Ref declarations
+      "\n// ── DOM refs ──────────────────────────────────────\n"
+      (gen-ref-decls (.-refs layout-result)) "\n\n"
+
+      ;; Detail panel
+      "// ── Detail panel ────────────────────────────────────\n"
+      (gen-detail en store-name overview-fields derived-attrs related-info (.-all-field-info ug)) "\n"
+
+      ;; List view
+      "\n// ── List view ──────────────────────────────────────\n"
+      (gen-list-fns en store-name columns search-cols derived-attrs) "\n"
+
+      ;; Stats
+      "\n// ── Stats ────────────────────────────────────────────\n"
+      (gen-stats en store-name) "\n"
+
+      ;; Form
+      "\n// ── Form ─────────────────────────────────────────────\n"
+      (gen-form-handler en (.-form ug)) "\n"
+
+      ;; Persistence
+      (cond
+        is-server
+          (str "\n// ── Persistence (server) ─────────────────────────────\n"
+               (gen-server-persistence all-stores) "\n")
+        (not (nil? persist-key))
+          (str "\n// ── Persistence ──────────────────────────────────────\n"
+               (gen-persistence persist-key all-stores) "\n")
+        :else "")
+
+      ;; Compiled update paths
+      "\n// ── Compiled update paths ────────────────────────────\n"
+      (gen-update-fns columns search-cols overview-fields subtitle-field
+                      persist-key related-tab-keys derived-attrs store-name is-server) "\n"
+
+      ;; Undo/redo
+      "\n// ── Undo / Redo ─────────────────────────────────────\n"
+      (gen-undo-redo) "\n"
+
+      ;; Init
+      "// ── Init ─────────────────────────────────────────────\n"
+      (gen-init-fn en (.-name (.-form ug)) store-name related-info persist-key is-server layout-result) "\n"
+
+      "init();\n"
+      "})();\n"))))
+

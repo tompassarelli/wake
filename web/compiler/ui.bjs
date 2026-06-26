@@ -1,0 +1,125 @@
+#lang beagle/js
+(ns eddy.ui)
+
+;; UI Graph — general primitives for data-bound views.
+;;
+;; No CRM-specific concepts here. A list-detail view is just a
+;; composition of these primitives, not a privileged shape.
+;;
+;; Graph the meaning (bindings, queries, conditions).
+;; Compile the motion (DOM ops, update paths).
+
+;; --- UI node types ---
+
+(defrecord UiComponent [(name :- String) (children :- Any)])
+
+(defrecord UiBind [(target :- String) (field :- String) (prop :- String)])
+
+(defrecord UiQuery [(store :- String) (sort-by :- Any) (filter-by :- Any)])
+
+(defrecord UiEach [(query :- Any) (item-component :- Any)])
+
+(defrecord UiWhen [(condition :- Any) (then :- Any) (otherwise :- Any)])
+
+(defrecord UiAction [(event :- String) (handler-type :- String) (config :- Any)])
+
+(defrecord UiElement [(tag :- String) (css-class :- String) (attrs :- Any) (children :- Any)])
+
+(defrecord UiText [(content :- String)])
+
+(defrecord UiStore [(name :- String) (entity :- String) (fk-methods :- (Vec String))])
+
+(defrecord UiState [(name :- String) (initial :- Any)])
+
+;; --- Expanded UI graph types ---
+
+(defrecord UiRelated [(entity :- String) (store :- String) (fk-field :- String)
+                      (key :- String) (label :- String) (display :- (Vec String))])
+
+(defrecord UiFieldInfo [(name :- String) (kind :- String) (options :- (Vec String))])
+
+(defrecord UiForm [(name :- String) (fields :- (Vec String)) (required :- (Vec String))
+                   (label :- String) (status-default :- String?) (field-info :- (Vec UiFieldInfo))])
+
+(defrecord UiGraph [(entity :- String) (store-name :- String) (title :- String)
+                    (columns :- (Vec String)) (search-cols :- (Vec String))
+                    (overview-fields :- Any) (derived :- Any)
+                    (related :- (Vec UiRelated)) (stores :- (Vec UiStore))
+                    (states :- (Vec UiState)) (form :- UiForm) (persist :- Any)
+                    (all-field-info :- (Vec UiFieldInfo))])
+
+;; --- Expansion: list-detail → UI graph ---
+
+(defn expand-list-detail [(graph :- Any) (ld :- Any) (sf :- Any)] :- UiGraph
+  (let [en (.-entity-name ld)
+        ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities graph)))
+        store-name (.-store-name ge)
+        columns (.-columns ld)
+        search-cols (or (.-search-cols ld) columns)
+        detail-tabs (or (.-detail-tabs ld) [])
+        overview-tab (first (filterv (fn [t] (= (.-content-type t) "fields")) detail-tabs))
+        related-tabs (filterv (fn [t] (= (.-content-type t) "related")) detail-tabs)
+        overview-fields (if (nil? overview-tab) columns (.-content-spec overview-tab))
+        title (or (.-title ld) en)
+
+        related (mapv (fn [rt]
+          (let [spec (.-content-spec rt)
+                rel-en (nth spec 0)
+                rel-display (nth spec 2)
+                rel-ge (first (filterv (fn [e] (= (.-name e) rel-en)) (.-entities graph)))
+                refs (.-ref-fields rel-ge)
+                fk-field (if (> (count refs) 0) (.-name (first refs)) en)]
+            (->UiRelated rel-en (.-store-name rel-ge) fk-field
+                         (.toLowerCase (.-label rt)) (.-label rt)
+                         (or rel-display []))))
+          related-tabs)
+
+        derived (.-derived-fields ge)
+
+        form-fields (if (nil? sf) [] (or (.-fields sf) []))
+        form-required (if (nil? sf) [] (or (.-required sf) []))
+        form-label (if (nil? sf) "Submit" (or (.-submit-label sf) "Submit"))
+        form-name (if (nil? sf) "form" (.-name sf))
+
+        stores (into
+          [(->UiStore store-name en [])]
+          (mapv (fn [r] (->UiStore (.-store r) (.-entity r) [(.-fk-field r)])) related))
+
+        states [(->UiState "selectedEid" nil)
+                (->UiState "activeTab" "overview")
+                (->UiState "searchTerm" "")]
+
+        status-default (let [sm (first (filterv
+                          (fn [m] (= (.-entity m) en))
+                          (.-state-machines graph)))]
+                        (if (nil? sm) nil
+                          (let [s (.-initial sm)]
+                            (if (.startsWith s ":") (subs s 1) s))))
+
+        all-fields (.-fields ge)
+        sms (.-state-machines graph)
+
+        build-fi (fn [fname]
+          (let [gf (first (filterv (fn [f] (= (.-name f) fname)) all-fields))
+                typ (if (nil? gf) "String" (.-type gf))
+                sm (first (filterv (fn [m] (= (.-state-type m) typ)) sms))
+                strip (fn [s] (if (.startsWith s ":") (subs s 1) s))]
+            (cond
+              (not (nil? sm))
+                (->UiFieldInfo fname "select" (mapv strip (keys (.-transitions sm))))
+              (= typ "Bool")
+                (->UiFieldInfo fname "checkbox" [])
+              (= typ "Date")
+                (->UiFieldInfo fname "date" [])
+              (= typ "Int")
+                (->UiFieldInfo fname "number" [])
+              :else
+                (->UiFieldInfo fname "text" []))))
+
+        field-info (mapv build-fi form-fields)
+        all-fi (mapv (fn [f] (build-fi (.-name f))) all-fields)]
+
+    (->UiGraph en store-name title columns search-cols overview-fields
+               derived related stores states
+               (->UiForm form-name form-fields form-required form-label status-default field-info)
+               (.-persist graph) all-fi)))

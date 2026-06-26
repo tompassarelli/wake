@@ -1,0 +1,43 @@
+(ns eddy.tracker)
+(persist :localStorage "eddy-tracker")
+
+(entity task
+  (title : String)
+  (done : String))
+
+(component task-row
+  :props [title done]
+  (div :class "flex items-center gap-4 px-4 py-2.5 border-b border-border"
+    (span :class "flex-1 text-sm" :text title)
+    (when done
+      (span :class "ml-1 text-xs text-green-600 font-medium" :text "Done"))))
+
+(component task-detail
+  :props [title done]
+  (div :class "p-6"
+    (h2 :class "text-lg font-semibold mb-2" :text title)
+    (when done
+      (div :class "mt-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded text-sm text-green-700"
+        (span :text "Completed")))))
+
+(component task-simple
+  :props [title]
+  (div :class "px-4 py-2.5 border-b border-border"
+    (span :class "text-sm" :text title)))
+
+(view tasks
+  :entity task
+  :each task-row
+  :add-form [title done]
+  :title "Tasks"
+  :select task-detail)
+
+(view board
+  :entity task
+  :each task-simple
+  :add-form [title]
+  :title "Board")
+
+(routes :default tasks
+  [tasks tasks]
+  [board board])

@@ -1,0 +1,977 @@
+#lang beagle/js
+(ns eddy.emit-server)
+(require eddy.graph :as graph)
+(require eddy.graph :refer [strip-colon])
+(require eddy.js-ast :as ast)
+
+;; Server emitter — entity graph → self-contained Node.js server
+;; SQLite (default), PostgreSQL, or MSSQL backends
+;; Routes use $N placeholders; the DB adapter translates per backend.
+
+(defn sql-col [(name :- String) (db-type :- String)] :- String
+  (if (.includes name "-")
+    (if (= db-type "mssql") (str "[" name "]") (str "\"" name "\""))
+    name))
+
+(defn sql-type [(field :- GField) (db-type :- String)] :- String
+  (if (.-ref field)
+    (if (= db-type "mssql") "INT" "INTEGER")
+    (if (= db-type "mssql") "NVARCHAR(MAX)" "TEXT")))
+
+(defn pk-col [(db-type :- String)] :- String
+  (cond
+    (= db-type "postgres") "eid SERIAL PRIMARY KEY"
+    (= db-type "mssql") "eid INT IDENTITY(1,1) PRIMARY KEY"
+    :else "eid INTEGER PRIMARY KEY AUTOINCREMENT"))
+
+(defn dollar-placeholders [(n :- Int) (start :- Int)] :- String
+  (loop [i 0 acc []]
+    (if (>= i n)
+      (.join acc ", ")
+      (recur (+ i 1) (conj acc (str "$" (+ i start)))))))
+
+;; --- DDL ---
+
+(defn gen-create-table [(entity :- GEntity) (state-machines :- Any) (fk-edges :- Any) (db-type :- String)] :- String
+  (let [name (.-name entity)
+        stored (.-stored-fields entity)
+        col-lines (mapv (fn [f]
+          (let [fname (.-name f)
+                col (sql-col fname db-type)
+                typ (sql-type f db-type)
+                is-ref (.-ref f)
+                is-unique (not (nil? (.-unique f)))
+                sm (first (filterv (fn [m] (= (.-state-type m) (.-type f))) state-machines))
+                initial (if (nil? sm) nil (strip-colon (.-initial sm)))
+                fk-edge (if is-ref
+                          (first (filterv (fn [e]
+                            (and (= (.-from-entity e) name) (= (.-from-field e) fname)))
+                            fk-edges))
+                          nil)]
+            (str "    " col " " typ " NOT NULL"
+              (if is-unique " UNIQUE" "")
+              (if (not (nil? initial)) (str " DEFAULT '" initial "'") "")
+              (if (not (nil? fk-edge))
+                (str " REFERENCES " (.-to-entity fk-edge) "(eid) ON DELETE CASCADE")
+                "")
+              (if (not (nil? sm))
+                (let [vals (mapv strip-colon (keys (.-transitions sm)))]
+                  (str " CHECK (" col " IN (" (.join (mapv (fn [v] (str "'" v "'")) vals) ", ") "))"))
+                ""))))
+          stored)
+        all-lines (into [(str "    " (pk-col db-type))] col-lines)]
+    (if (= db-type "mssql")
+      (str "IF OBJECT_ID('" name "', 'U') IS NULL\n  CREATE TABLE " name " (\n" (.join all-lines ",\n") "\n  );")
+      (str "CREATE TABLE IF NOT EXISTS " name " (\n" (.join all-lines ",\n") "\n  );"))))
+
+(defn gen-index [(entity-name :- String) (field-name :- String) (db-type :- String)] :- String
+  (let [idx-name (str "idx_" entity-name "_" field-name)]
+    (if (= db-type "mssql")
+      (str "IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = '" idx-name "')\n  "
+           "CREATE INDEX " idx-name " ON " entity-name "(" field-name ");")
+      (str "CREATE INDEX IF NOT EXISTS " idx-name " ON " entity-name "(" field-name ");"))))
+
+;; --- CRUD route handlers (DB-agnostic, uses $N placeholders) ---
+
+(defn gen-entity-routes [(entity :- GEntity) (state-machines :- Any) (fk-edges :- Any) (db-type :- String)] :- String
+  (let [name (.-name entity)
+        table (.-table-name entity)
+        pk (.-pk-column entity)
+        bf (not (= table name))
+        store-name (.-store-name entity)
+        stored (.-stored-fields entity)
+        lookup-fields (filterv (fn [f] (not (nil? (.-lookup-table f)))) stored)
+        sql-fields (filterv (fn [f] (not (nil? (.-sql-expr f)))) stored)
+        writable (filterv (fn [f] (and (nil? (.-lookup-table f)) (nil? (.-sql-expr f)))) stored)
+        field-names (mapv (fn [f] (.-name f)) writable)
+        insert-cols (mapv (fn [f] (sql-col (.-column f) db-type)) writable)
+        n (count field-names)
+        ph (dollar-placeholders n 1)
+        body-fields (.join (mapv (fn [f] (str "body['" f "']")) field-names) ", ")
+        has-lookups (or (> (count lookup-fields) 0) (> (count sql-fields) 0))
+
+        join-clauses (if (not has-lookups) ""
+          (.join (mapv (fn [f]
+            (let [idx (.indexOf lookup-fields f)
+                  alias (str "_l" idx)
+                  ltable (.-lookup-table f)
+                  fk-col (.-column f)]
+              (str " LEFT JOIN " ltable " " alias " ON " alias "." fk-col " = t." fk-col)))
+            lookup-fields) ""))
+
+        select-list (if (not bf) "*"
+          (let [t-prefix (if has-lookups "t." "")
+                pk-alias (str t-prefix (sql-col pk db-type) " AS eid")
+                regular-aliases (mapv (fn [f]
+                  (let [col (.-column f) fname (.-name f)]
+                    (if (= col fname) (str t-prefix (sql-col col db-type))
+                      (str t-prefix (sql-col col db-type) " AS " (sql-col fname db-type)))))
+                  writable)
+                lookup-aliases (mapv (fn [f]
+                  (let [idx (.indexOf lookup-fields f)
+                        alias (str "_l" idx)
+                        display-col (.-lookup-display f)
+                        fname (.-name f)]
+                    (str alias "." display-col " AS " (sql-col fname db-type))))
+                  lookup-fields)
+                sql-aliases (mapv (fn [f]
+                  (str (.replaceAll (.-sql-expr f) "'" "\\'") " AS " (sql-col (.-name f) db-type)))
+                  sql-fields)]
+            (.join (into (into (into [pk-alias] regular-aliases) lookup-aliases) sql-aliases) ", ")))
+
+        from-clause (if has-lookups (str table " t" join-clauses) table)
+        pk-ref (if has-lookups (str "t." (sql-col pk db-type))
+                 (if bf (sql-col pk db-type) "eid"))
+
+        col-map-line (if (not bf) ""
+          (let [all-updatable (into writable lookup-fields)
+                entries (mapv (fn [f]
+                  (str "'" (.-name f) "': '" (.-column f) "'"))
+                  all-updatable)]
+            (str "    const _cm = {" (.join entries ", ") "};\n")))
+        set-expr (if bf
+          "keys.map((k, i) => `${DB.q(_cm[k]||k)} = $${i+1}`).join(', ')"
+          "keys.map((k, i) => `${DB.q(k)} = $${i+1}`).join(', ')")
+
+        sm (first (filterv (fn [m] (= (.-entity m) name)) state-machines))
+        incoming-fks (filterv (fn [e] (= (.-to-entity e) name)) fk-edges)
+
+        all-field-names (mapv (fn [f] (.-name f)) stored)
+        sort-map-entries (.join (mapv (fn [f]
+            (let [col (.-column f) fname (.-name f)]
+              (if (.-lookup-table f)
+                (let [idx (.indexOf lookup-fields f)
+                      alias (str "_l" idx)]
+                  (str "'" fname "': '" alias "." (.-lookup-display f) "'"))
+                (if (.-sql-expr f)
+                  (str "'" fname "': '" pk-ref "'")
+                  (if has-lookups
+                    (str "'" fname "': 't." (sql-col col db-type) "'")
+                    (str "'" fname "': '" (sql-col col db-type) "'"))))))
+          stored) ", ")
+
+        search-col-refs (mapv (fn [f]
+            (let [col (.-column f) fname (.-name f)]
+              (if (.-lookup-table f)
+                (let [idx (.indexOf lookup-fields f) alias (str "_l" idx)]
+                  (str alias "." (.-lookup-display f)))
+                (if (.-sql-expr f) nil
+                  (if has-lookups
+                    (str "t." (sql-col col db-type))
+                    (sql-col col db-type))))))
+          stored)
+        searchable-cols (filterv some? search-col-refs)
+
+        sort-map-js (str "    const _sortMap = {" sort-map-entries ", 'eid': '" pk-ref "'};\n")
+
+        filter-where-lookup (mapv (fn [f]
+          (let [fname (.-name f)
+                col (.-column f)
+                col-ref (if has-lookups (str "t." (sql-col col db-type)) (sql-col col db-type))]
+            (str "    const _f_" fname " = _qs.get('f_" fname "');\n"
+                 "    if (_f_" fname ") _where += (_where ? ' AND ' : ' WHERE ') + '" col-ref " = ' + parseInt(_f_" fname ");\n")))
+          lookup-fields)
+
+        filter-where-plain (mapv (fn [f]
+          (let [fname (.-name f)
+                col (.-column f)
+                col-ref (if has-lookups (str "t." (sql-col col db-type)) (sql-col col db-type))]
+            (str "    const _f_" fname " = _qs.get('f_" fname "');\n"
+                 "    if (_f_" fname ") _where += (_where ? ' AND ' : ' WHERE ') + '" col-ref " = \\'' + _f_" fname ".replace(/'/g, \"''\") + '\\'';\n")))
+          writable)
+
+        filter-where-sql (filterv some? (mapv (fn [f]
+          (let [fname (.-name f)
+                fsql (.-filter-sql f)]
+            (if (nil? fsql) nil
+              (let [parts (.split fsql "$VALUE")]
+                (if (< (count parts) 2) nil
+                  (str "    const _f_" fname " = _qs.get('f_" fname "');\n"
+                       "    if (_f_" fname ") _where += (_where ? ' AND ' : ' WHERE ') + '"
+                       (.replaceAll (nth parts 0) "'" "\\'")
+                       "' + parseInt(_f_" fname ") + '"
+                       (.replaceAll (nth parts 1) "'" "\\'")
+                       "';\n"))))))
+          stored))
+
+        filter-where-parts (into (into filter-where-lookup filter-where-plain) filter-where-sql)
+
+        date-range-where-js (str
+          "    for (const [_dk, _dv] of _qs.entries()) {\n"
+          "      if (_dk.startsWith('f_') && _dk.endsWith('_from')) {\n"
+          "        const _dc = _sortMap[_dk.slice(2, -5)];\n"
+          "        if (_dc) _where += (_where ? ' AND ' : ' WHERE ') + _dc + \" >= '\" + _dv.replace(/'/g, \"''\") + \"'\";\n"
+          "      }\n"
+          "      if (_dk.startsWith('f_') && _dk.endsWith('_to')) {\n"
+          "        const _dc = _sortMap[_dk.slice(2, -3)];\n"
+          "        if (_dc) _where += (_where ? ' AND ' : ' WHERE ') + _dc + \" <= '\" + _dv.replace(/'/g, \"''\") + \"'\";\n"
+          "      }\n"
+          "    }\n")
+
+        base-where (.-where-clause entity)
+        base-where-js (if (nil? base-where) ""
+          (let [prefix (if has-lookups "t." "")]
+            (str " WHERE " (.replaceAll base-where "{t}" prefix))))
+
+        search-where-js (str
+          "    let _where = '" base-where-js "';\n"
+          "    const _search = _qs.get('search');\n"
+          "    if (_search) {\n"
+          "      const _term = _search.replace(/'/g, \"''\");\n"
+          "      _where += (_where ? ' AND (' : ' WHERE (') + [" (.join (mapv (fn [c] (str "'" c "'")) searchable-cols) ", ") "].map(c => `CAST(${c} AS " (if (= db-type "mssql") "NVARCHAR(MAX)" "TEXT") ") LIKE '%${_term}%'`).join(' OR ') + ')';\n"
+          "    }\n"
+          (.join filter-where-parts "")
+          date-range-where-js)
+
+        sort-js (str
+          "    const _sortCol = _sortMap[_qs.get('sort')] || '" pk-ref "';\n"
+          "    const _sortDir = _qs.get('dir') === 'desc' ? 'DESC' : 'ASC';\n")
+
+        order-clause-dynamic (if (= db-type "mssql")
+          "' + _where + ' ORDER BY ' + _sortCol + ' ' + _sortDir + ' OFFSET $1 ROWS FETCH NEXT $2 ROWS ONLY"
+          "' + _where + ' ORDER BY ' + _sortCol + ' ' + _sortDir + ' LIMIT $2 OFFSET $1")
+
+        count-route (str
+          "  if (method === 'GET' && path === '/api/" store-name "/count') {\n"
+          sort-map-js
+          search-where-js
+          "    const r = await DB.get('SELECT COUNT(*) AS total FROM " from-clause "' + _where);\n"
+          "    return json(res, r);\n"
+          "  }\n")
+
+        list-route (str
+          "  if (method === 'GET' && path === '/api/" store-name "') {\n"
+          "    const limit = Math.min(parseInt(_qs.get('limit') || '100'), 1000);\n"
+          "    const offset = parseInt(_qs.get('offset') || '0');\n"
+          sort-map-js
+          sort-js
+          search-where-js
+          "    const rows = await DB.all('SELECT " select-list " FROM " from-clause order-clause-dynamic "', [offset, limit]);\n"
+          "    return json(res, rows);\n"
+          "  }\n")
+
+        get-route (str
+          "  if (method === 'GET' && path.startsWith('/api/" store-name "/')) {\n"
+          "    const eid = parseInt(path.split('/')[3]);\n"
+          "    const row = await DB.get('SELECT " select-list " FROM " from-clause " WHERE " pk-ref " = $1', [eid]);\n"
+          "    if (!row) return notFound(res);\n"
+          "    return json(res, row);\n"
+          "  }\n")
+
+        create-route (str
+          "  if (method === 'POST' && path === '/api/" store-name "') {\n"
+          "    const body = await parseBody(req);\n"
+          "    delete body.eid;\n"
+          (if (not (nil? sm))
+            (str "    if (!body.status) body.status = '" (strip-colon (.-initial sm)) "';\n")
+            "")
+          "    const eid = await DB.insert('INSERT INTO " table
+              " (" (.join insert-cols ", ") ") VALUES (" ph ")', [" body-fields "]);\n"
+          "    return json(res, { eid, ...body }, 201);\n"
+          "  }\n")
+
+        update-route (str
+          "  if (method === 'PUT' && path.startsWith('/api/" store-name "/')) {\n"
+          "    const eid = parseInt(path.split('/')[3]);\n"
+          "    const body = await parseBody(req);\n"
+          "    const existing = await DB.get('SELECT " select-list " FROM " from-clause " WHERE " pk-ref " = $1', [eid]);\n"
+          "    if (!existing) return notFound(res);\n"
+          (if (not (nil? sm))
+            (let [field (.-field sm)]
+              (str "    if (body." field " && body." field " !== existing." field ") {\n"
+                   "      const allowed = TRANSITIONS['" name "'][existing." field "];\n"
+                   "      if (!allowed || !allowed.includes(body." field ")) {\n"
+                   "        return json(res, { error: 'Invalid transition: ' + existing." field " + ' → ' + body." field " }, 400);\n"
+                   "      }\n"
+                   "    }\n"))
+            "")
+          "    const allowed = FIELDS['" name "'];\n"
+          "    const keys = Object.keys(body).filter(k => allowed.includes(k));\n"
+          "    if (keys.length === 0) return json(res, { error: 'no valid fields' }, 400);\n"
+          col-map-line
+          "    const sets = " set-expr ";\n"
+          "    const vals = keys.map(k => body[k]);\n"
+          "    await DB.run(`UPDATE " table " SET ${sets} WHERE " pk-ref " = $${keys.length + 1}`, [...vals, eid]);\n"
+          "    const _updated = await DB.get('SELECT " select-list " FROM " from-clause " WHERE " pk-ref " = $1', [eid]);\n"
+          "    return json(res, _updated);\n"
+          "  }\n")
+
+        delete-cascade-lines (.join
+          (mapv (fn [fk]
+            (str "    await DB.run('DELETE FROM " (.-from-entity fk)
+                 " WHERE " (sql-col (.-from-field fk) db-type) " = $1', [eid]);"))
+            incoming-fks)
+          "\n")
+
+        delete-route (str
+          "  if (method === 'DELETE' && path.startsWith('/api/" store-name "/')) {\n"
+          "    const eid = parseInt(path.split('/')[3]);\n"
+          (if (> (count incoming-fks) 0) (str delete-cascade-lines "\n") "")
+          "    await DB.run('DELETE FROM " table " WHERE " pk-ref " = $1', [eid]);\n"
+          "    return json(res, { ok: true });\n"
+          "  }\n")]
+
+    (str count-route list-route get-route create-route update-route delete-route)))
+
+;; --- Sub-resource routes for related tabs ---
+
+(defn gen-tab-route [(parent-store :- String) (tab :- Any) (tab-entity :- Any) (db-type :- String)] :- String
+  (let [tab-store (.-store-name tab-entity)
+        name (.-name tab-entity)
+        table (.-table-name tab-entity)
+        pk (.-pk-column tab-entity)
+        bf (not (= table name))
+        stored (.-stored-fields tab-entity)
+        lookup-fields (filterv (fn [f] (not (nil? (.-lookup-table f)))) stored)
+        sql-fields (filterv (fn [f] (not (nil? (.-sql-expr f)))) stored)
+        writable (filterv (fn [f] (and (nil? (.-lookup-table f)) (nil? (.-sql-expr f)))) stored)
+        has-lookups (or (> (count lookup-fields) 0) (> (count sql-fields) 0))
+        join-clauses (if (not has-lookups) ""
+          (.join (mapv (fn [f]
+            (let [idx (.indexOf lookup-fields f)
+                  alias (str "_l" idx)
+                  ltable (.-lookup-table f)
+                  fk-col (.-column f)]
+              (str " LEFT JOIN " ltable " " alias " ON " alias "." fk-col " = t." fk-col)))
+            lookup-fields) ""))
+        select-list (if (not bf) "*"
+          (let [t-prefix (if has-lookups "t." "")
+                pk-alias (str t-prefix (sql-col pk db-type) " AS eid")
+                regular-aliases (mapv (fn [f]
+                  (let [col (.-column f) fname (.-name f)]
+                    (if (= col fname) (str t-prefix (sql-col col db-type))
+                      (str t-prefix (sql-col col db-type) " AS " (sql-col fname db-type)))))
+                  writable)
+                lookup-aliases (mapv (fn [f]
+                  (let [idx (.indexOf lookup-fields f)
+                        alias (str "_l" idx)
+                        display-col (.-lookup-display f)
+                        fname (.-name f)]
+                    (str alias "." display-col " AS " (sql-col fname db-type))))
+                  lookup-fields)
+                sql-aliases (mapv (fn [f]
+                  (str (.replaceAll (.-sql-expr f) "'" "\\'") " AS " (sql-col (.-name f) db-type)))
+                  sql-fields)]
+            (.join (into (into (into [pk-alias] regular-aliases) lookup-aliases) sql-aliases) ", ")))
+        from-clause (if has-lookups (str table " t" join-clauses) table)
+        pk-ref (if has-lookups (str "t." (sql-col pk db-type))
+                 (if bf (sql-col pk db-type) "eid"))
+        fk-column (.-fk-column tab)
+        fk-ref (if has-lookups (str "t." fk-column) fk-column)
+        filter-expr (.-filter tab)
+        filter-where (if (some? filter-expr)
+                       (if has-lookups (str " AND t." filter-expr) (str " AND " filter-expr))
+                       "")]
+    (str
+      "  if (method === 'GET' && path.startsWith('/api/" parent-store "/') && path.endsWith('/" tab-store "')) {\n"
+      "    const _parentId = parseInt(path.split('/')[3]);\n"
+      "    const rows = await DB.all('SELECT " select-list " FROM " from-clause " WHERE " fk-ref " = $1" filter-where " ORDER BY " pk-ref " DESC', [_parentId]);\n"
+      "    return json(res, rows);\n"
+      "  }\n")))
+
+;; --- State machine transitions map ---
+
+(defn gen-transitions-map [(state-machines :- Any)] :- String
+  (if (= (count state-machines) 0) "const TRANSITIONS = {};\n"
+    (let [entries (mapv (fn [sm]
+            (let [entity (.-entity sm)
+                  trans (.-transitions sm)
+                  ks (keys trans)
+                  pairs (mapv (fn [k]
+                    (let [targets (get trans k)
+                          stripped-targets (mapv strip-colon targets)]
+                      (str "    '" (strip-colon k) "': [" (.join (mapv (fn [t] (str "'" t "'")) stripped-targets) ", ") "]")))
+                    ks)]
+              (str "  '" entity "': {\n" (.join pairs ",\n") "\n  }")))
+          state-machines)]
+      (str "const TRANSITIONS = {\n" (.join entries ",\n") "\n};\n"))))
+
+;; --- Field whitelist (prevents SQL injection in UPDATE) ---
+
+(defn gen-fields-map [(entities :- Any)] :- String
+  (let [entries (mapv (fn [e]
+    (let [name (.-name e)
+          stored (.-stored-fields e)
+          writable (filterv (fn [f] (and (nil? (.-lookup-table f)) (nil? (.-sql-expr f)))) stored)
+          lookup (filterv (fn [f] (not (nil? (.-lookup-table f)))) stored)
+          updatable (into writable lookup)
+          field-names (mapv (fn [f] (str "'" (.-name f) "'")) updatable)]
+      (str "  '" name "': [" (.join field-names ", ") "]")))
+    entities)]
+    (str "const FIELDS = {\n" (.join entries ",\n") "\n};\n")))
+
+;; --- Lookup reference table whitelist ---
+
+(defn gen-lookup-map [(entities :- Any)] :- String
+  (let [seen (reduce
+          (fn [acc e]
+            (let [stored (.-stored-fields e)
+                  lf (filterv (fn [f] (not (nil? (.-lookup-table f)))) stored)
+                  flf (filterv (fn [f] (not (nil? (.-filter-lookup-table f)))) stored)
+                  acc2 (reduce
+                    (fn [a f]
+                      (let [table (.-lookup-table f)]
+                        (if (some? (get a table)) a
+                          (assoc a table {"id" (.-column f) "name" (.-lookup-display f)}))))
+                    acc lf)]
+              (reduce
+                (fn [a f]
+                  (let [table (.-filter-lookup-table f)]
+                    (if (some? (get a table)) a
+                      (assoc a table {"id" (.-filter-lookup-id f) "name" (.-filter-lookup-display f)}))))
+                acc2 flf)))
+          {} entities)
+        ks (keys seen)
+        entries (mapv (fn [k]
+          (let [info (get seen k)]
+            (str "  '" k "': { id: '" (get info "id") "', name: '" (get info "name") "' }")))
+          ks)]
+    (if (= (count ks) 0) ""
+      (str "const LOOKUPS = {\n" (.join entries ",\n") "\n};\n"))))
+
+(defn gen-columns-map [(entities :- Any)] :- String
+  (let [entries (mapv (fn [e]
+          (let [sn (.-store-name e)
+                table (.-table-name e)
+                stored (.-stored-fields e)
+                writable (filterv (fn [f] (and (nil? (.-lookup-table f)) (nil? (.-sql-expr f)))) stored)
+                field-entries (mapv (fn [f] (str "'" (.-name f) "': '" (.-column f) "'")) writable)]
+            (str "  '" sn "': { table: '" table "', cols: {" (.join field-entries ", ") "} }")))
+        entities)]
+    (str "const COLUMNS = {\n" (.join entries ",\n") "\n};\n")))
+
+;; --- Named query routes ---
+
+(defn gen-query-route [(q :- Any)] :- String
+  (let [qname (.-name q)
+        sql (.-sql q)
+        params (.-params q)
+
+        ;; path test: exact match (no params) or prefix match (with params)
+        path-test (if (= (count params) 0)
+                    (ast/js-binary "&&"
+                      (ast/js-binary "===" (ast/js-ident "method") (ast/js-literal "GET"))
+                      (ast/js-binary "===" (ast/js-ident "path")
+                        (ast/js-literal (str "/api/queries/" qname))))
+                    (ast/js-binary "&&"
+                      (ast/js-binary "===" (ast/js-ident "method") (ast/js-literal "GET"))
+                      (ast/js-call (ast/js-member (ast/js-ident "path") "startsWith")
+                        [(ast/js-literal (str "/api/queries/" qname))])))
+
+        ;; DB.all call: with or without param array
+        db-all-args (if (= (count params) 0)
+                      [(ast/js-template [sql])]
+                      [(ast/js-template [sql])
+                       (ast/js-array
+                         (mapv (fn [p]
+                           (ast/js-call (ast/js-member (ast/js-ident "params") "get")
+                             [(ast/js-literal p)]))
+                           params))])
+
+        db-call (ast/js-await
+                  (ast/js-call (ast/js-member (ast/js-ident "DB") "all") db-all-args))
+
+        ;; Body statements
+        body-stmts (if (= (count params) 0)
+                     [(ast/js-const "rows" db-call)
+                      (ast/js-return (ast/js-call (ast/js-ident "json")
+                        [(ast/js-ident "res") (ast/js-ident "rows")]))]
+                     [(ast/js-const "params"
+                        (ast/js-member
+                          (ast/js-new (ast/js-ident "URL")
+                            [(ast/js-member (ast/js-ident "req") "url")
+                             (ast/js-literal "http://localhost")])
+                          "searchParams"))
+                      (ast/js-const "rows" db-call)
+                      (ast/js-return (ast/js-call (ast/js-ident "json")
+                        [(ast/js-ident "res") (ast/js-ident "rows")]))])
+
+        if-node (ast/js-if path-test (ast/js-block body-stmts) nil)]
+    (str (ast/emit-stmt if-node 1) "\n")))
+
+;; --- Per-backend: imports, connection, adapter, shutdown ---
+
+(defn gen-db-imports [(db-type :- String)] :- String
+  (cond
+    (= db-type "postgres") "import pg from 'pg';\n"
+    (= db-type "mssql") "import mssql from 'mssql';\n"
+    :else "import Database from 'better-sqlite3';\n"))
+
+(defn gen-db-connect [(db-type :- String)] :- String
+  (cond
+    (= db-type "postgres")
+      #r#"
+const pool = new pg.Pool({
+  connectionString: process.env.DATABASE_URL || 'postgres://localhost/eddy',
+});
+"#
+
+    (= db-type "mssql")
+      #r#"
+const pool = await mssql.connect(process.env.DATABASE_URL || {
+  server: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '1433'),
+  database: process.env.DB_NAME || 'eddy',
+  user: process.env.DB_USER || 'sa',
+  password: process.env.DB_PASSWORD || '',
+  options: { encrypt: false, trustServerCertificate: true },
+});
+"#
+
+    :else
+      #r#"
+const db = new Database(join(__dirname, 'app.db'));
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+"#
+  ))
+
+(defn gen-schema-exec [(schema :- String) (db-type :- String)] :- String
+  (cond
+    (= db-type "postgres")
+      (str "await pool.query(`\n  " schema "\n`);\n")
+    (= db-type "mssql")
+      (str "await pool.request().batch(`\n  " schema "\n`);\n")
+    :else
+      (str "db.exec(`\n  " schema "\n`);\n")))
+
+(defn gen-db-adapter [(db-type :- String)] :- String
+  (cond
+    (= db-type "postgres")
+      #r#"
+const DB = {
+  all: async (sql, params = []) => (await pool.query(sql, params)).rows,
+  get: async (sql, params = []) => (await pool.query(sql, params)).rows[0],
+  run: async (sql, params = []) => await pool.query(sql, params),
+  insert: async (sql, params = []) => (await pool.query(sql + ' RETURNING eid', params)).rows[0].eid,
+  insertWithEid: async (table, sql, params) => await pool.query(sql, params),
+  q: (k) => k.includes('-') ? `"${k}"` : k,
+};
+"#
+
+    (= db-type "mssql")
+      #r#"
+function _mssqlReq(params) {
+  const req = pool.request();
+  params.forEach((v, i) => req.input(`p${i+1}`, v));
+  return req;
+}
+function _mssqlSql(sql) { return sql.replace(/\$(\d+)/g, '@p$1'); }
+const DB = {
+  all: async (sql, params = []) => (await _mssqlReq(params).query(_mssqlSql(sql))).recordset,
+  get: async (sql, params = []) => (await _mssqlReq(params).query(_mssqlSql(sql))).recordset[0],
+  run: async (sql, params = []) => await _mssqlReq(params).query(_mssqlSql(sql)),
+  insert: async (sql, params = []) => {
+    const r = await _mssqlReq(params).query(_mssqlSql(sql) + '; SELECT SCOPE_IDENTITY() AS eid');
+    return r.recordset[0].eid;
+  },
+  insertWithEid: async (table, sql, params) => {
+    await _mssqlReq(params).query(`SET IDENTITY_INSERT [${table}] ON; ${_mssqlSql(sql)}; SET IDENTITY_INSERT [${table}] OFF`);
+  },
+  q: (k) => k.includes('-') ? `[${k}]` : k,
+};
+"#
+
+    :else
+      #r#"
+function _sqliteSql(sql) { return sql.replace(/\$\d+/g, '?'); }
+const DB = {
+  all: (sql, params = []) => db.prepare(_sqliteSql(sql)).all(...params),
+  get: (sql, params = []) => db.prepare(_sqliteSql(sql)).get(...params),
+  run: (sql, params = []) => db.prepare(_sqliteSql(sql)).run(...params),
+  insert: (sql, params = []) => {
+    const r = db.prepare(_sqliteSql(sql)).run(...params);
+    return Number(r.lastInsertRowid);
+  },
+  insertWithEid: (table, sql, params) => db.prepare(_sqliteSql(sql)).run(...params),
+  q: (k) => k.includes('-') ? `[${k}]` : k,
+};
+"#
+  ))
+
+(defn gen-shutdown [(db-type :- String)] :- String
+  (cond
+    (= db-type "postgres")
+      #r#"
+function shutdown() {
+  console.log('shutting down...');
+  server.close(async () => { await pool.end(); process.exit(0); });
+  setTimeout(() => process.exit(1), 5000);
+}
+"#
+
+    (= db-type "mssql")
+      #r#"
+function shutdown() {
+  console.log('shutting down...');
+  server.close(async () => { await pool.close(); process.exit(0); });
+  setTimeout(() => process.exit(1), 5000);
+}
+"#
+
+    :else
+      #r#"
+function shutdown() {
+  console.log('shutting down...');
+  server.close(() => { db.close(); process.exit(0); });
+  setTimeout(() => process.exit(1), 5000);
+}
+"#
+  ))
+
+;; --- Auth ---
+
+(defn gen-auth-schema [(auth :- Any) (db-type :- String)] :- String
+  (let [entity (.-entity auth)
+        login-field (.-login-field auth)]
+    (cond
+      (= db-type "mssql")
+        (str
+          "IF OBJECT_ID('_sessions', 'U') IS NULL\n  "
+          "CREATE TABLE _sessions (\n"
+          "    token NVARCHAR(64) PRIMARY KEY,\n"
+          "    user_eid INT NOT NULL REFERENCES " entity "(eid) ON DELETE CASCADE,\n"
+          "    created_at NVARCHAR(MAX) NOT NULL DEFAULT GETDATE()\n  );")
+      (= db-type "postgres")
+        (str
+          "CREATE TABLE IF NOT EXISTS _sessions (\n"
+          "    token TEXT PRIMARY KEY,\n"
+          "    user_eid INTEGER NOT NULL REFERENCES " entity "(eid) ON DELETE CASCADE,\n"
+          "    created_at TEXT NOT NULL DEFAULT NOW()\n  );")
+      :else
+        (str
+          "CREATE TABLE IF NOT EXISTS _sessions (\n"
+          "    token TEXT PRIMARY KEY,\n"
+          "    user_eid INTEGER NOT NULL REFERENCES " entity "(eid) ON DELETE CASCADE,\n"
+          "    created_at TEXT NOT NULL DEFAULT (datetime('now'))\n  );"))))
+
+(defn gen-auth-routes [(auth :- Any)] :- String
+  (let [entity (.-entity auth)
+        login-field (.-login-field auth)
+        password-field (.-password-field auth)
+        lq (str "'" login-field "'")
+        pq (str "'" password-field "'")
+        template #r#"
+  // ── Auth routes ──────────────────────────────────
+  if (method === 'POST' && path === '/api/auth/register') {
+    const body = await parseBody(req);
+    if (!body[LOGIN] || !body[PASSWORD]) return json(res, { error: 'missing credentials' }, 400);
+    const existing = await DB.get(`SELECT eid FROM ENTITY WHERE ${DB.q(LOGIN)} = $1`, [body[LOGIN]]);
+    if (existing) return json(res, { error: 'already exists' }, 409);
+    body[PASSWORD] = await hashPassword(body[PASSWORD]);
+    const _fields = Object.keys(body).filter(k => FIELDS['ENTITY'].includes(k));
+    const _cols = _fields.map(k => DB.q(k)).join(', ');
+    const _phs = _fields.map((_, i) => `$${i+1}`).join(', ');
+    const _vals = _fields.map(k => body[k]);
+    const eid = await DB.insert(`INSERT INTO ENTITY (${_cols}) VALUES (${_phs})`, _vals);
+    const token = generateToken();
+    await DB.run(`INSERT INTO _sessions (token, user_eid) VALUES ($1, $2)`, [token, eid]);
+    res.setHeader('Set-Cookie', `session=${token}; HttpOnly; Path=/; SameSite=Lax`);
+    const { [PASSWORD]: _, ...safe } = { eid, ...body };
+    return json(res, safe, 201);
+  }
+
+  if (method === 'POST' && path === '/api/auth/login') {
+    const body = await parseBody(req);
+    if (!body[LOGIN] || !body[PASSWORD]) return json(res, { error: 'missing credentials' }, 400);
+    const user = await DB.get(`SELECT * FROM ENTITY WHERE ${DB.q(LOGIN)} = $1`, [body[LOGIN]]);
+    if (!user || !(await verifyPassword(body[PASSWORD], user[PASSWORD]))) return json(res, { error: 'invalid credentials' }, 401);
+    const token = generateToken();
+    await DB.run(`INSERT INTO _sessions (token, user_eid) VALUES ($1, $2)`, [token, user.eid]);
+    res.setHeader('Set-Cookie', `session=${token}; HttpOnly; Path=/; SameSite=Lax`);
+    const { [PASSWORD]: _, ...safe } = user;
+    return json(res, safe);
+  }
+
+  if (method === 'POST' && path === '/api/auth/logout') {
+    const token = parseCookie(req, 'session');
+    if (token) await DB.run(`DELETE FROM _sessions WHERE token = $1`, [token]);
+    res.setHeader('Set-Cookie', 'session=; HttpOnly; Path=/; Max-Age=0');
+    return json(res, { ok: true });
+  }
+
+  if (method === 'GET' && path === '/api/auth/me') {
+    const token = parseCookie(req, 'session');
+    if (!token) return json(res, { error: 'not authenticated' }, 401);
+    const session = await DB.get(`SELECT user_eid FROM _sessions WHERE token = $1`, [token]);
+    if (!session) return json(res, { error: 'invalid session' }, 401);
+    const user = await DB.get(`SELECT * FROM ENTITY WHERE eid = $1`, [session.user_eid]);
+    if (!user) return json(res, { error: 'user not found' }, 401);
+    const { [PASSWORD]: _, ...safe } = user;
+    return json(res, safe);
+  }
+
+"#
+        ]
+    (.replaceAll (.replaceAll (.replaceAll template "ENTITY" entity) "PASSWORD" pq) "LOGIN" lq)))
+
+(defn gen-auth-helpers [] :- String
+  #r#"
+// ── Auth helpers ──────────────────────────────────
+const { randomBytes, scryptSync, timingSafeEqual } = await import('node:crypto');
+function generateToken() { return randomBytes(32).toString('hex'); }
+async function hashPassword(pw) {
+  const salt = randomBytes(16).toString('hex');
+  const hash = scryptSync(pw, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+async function verifyPassword(pw, stored) {
+  const [salt, hash] = stored.split(':');
+  const test = scryptSync(pw, salt, 64).toString('hex');
+  return timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(test, 'hex'));
+}
+function parseCookie(req, name) {
+  const cookies = req.headers.cookie || '';
+  const match = cookies.split(';').map(c => c.trim()).find(c => c.startsWith(name + '='));
+  return match ? match.split('=')[1] : null;
+}
+"#
+  )
+
+(defn gen-auth-middleware [(auth :- Any)] :- String
+  (let [protect (.-protect auth)
+        checks (.join (mapv (fn [p] (str "path.startsWith('/api/" p "')")) protect) " || ")]
+    (if (= (count protect) 0) ""
+      (str
+        "  // Auth guard\n"
+        "  if (" checks ") {\n"
+        "    const _token = parseCookie(req, 'session');\n"
+        "    if (!_token) return json(res, { error: 'not authenticated' }, 401);\n"
+        "    const _session = await DB.get('SELECT user_eid FROM _sessions WHERE token = $1', [_token]);\n"
+        "    if (!_session) return json(res, { error: 'invalid session' }, 401);\n"
+        "  }\n\n"))))
+
+;; --- Main ---
+
+(defn gen-server [(prog :- Any)] :- String
+  (let [g (graph/check-program prog)
+        entities (.-entities g)
+        fk-edges (.-fk-edges g)
+        state-machines (.-state-machines g)
+        raw-sqls (.-raw-sqls g)
+        queries (.-queries g)
+        src-name (.-ns g)
+        persist (.-persist g)
+        db-type (if (nil? persist) "sqlite" (.-key persist))
+        auth (.-auth g)
+
+        gf-entities (filterv (fn [e] (= (.-table-name e) (.-name e))) entities)
+
+        schema-stmts (.join
+          (mapv (fn [e] (gen-create-table e state-machines fk-edges db-type)) gf-entities)
+          "\n  ")
+
+        raw-sql-stmts (.join
+          (mapv (fn [r] (let [s (.-sql r)] (if (.endsWith s ";") s (str s ";")))) raw-sqls)
+          "\n  ")
+
+        index-stmts (.join
+          (filterv (fn [s] (> (count s) 0))
+            (mapv (fn [e]
+              (let [ename (.-name e)
+                    refs (.-ref-fields e)]
+                (.join (mapv (fn [f]
+                  (gen-index ename (.-name f) db-type))
+                  refs) "\n  ")))
+              gf-entities))
+          "\n  ")
+
+        auth-entity-name (if (not (nil? auth)) (.-entity auth) nil)
+        api-entities (filterv (fn [e] (not (= (.-name e) auth-entity-name))) entities)
+
+        route-blocks (.join
+          (mapv (fn [e] (gen-entity-routes e state-machines fk-edges db-type)) api-entities)
+          "\n")
+
+        query-routes (.join
+          (mapv gen-query-route queries)
+          "\n")
+
+        entity-names (mapv (fn [e] (.-store-name e)) api-entities)
+
+        has-any-lookups (> (count (reduce (fn [acc e] (into acc (filterv (fn [f] (or (not (nil? (.-lookup-table f))) (not (nil? (.-filter-lookup-table f))))) (.-stored-fields e)))) [] entities)) 0)
+
+        views (or (.-views g) [])
+        tab-routes (reduce
+          (fn [acc v]
+            (let [tabs (or (.-tabs v) [])]
+              (if (= (count tabs) 0) acc
+                (let [parent-entity-name (.-entity-name v)
+                      parent-ge (first (filterv (fn [e] (= (.-name e) parent-entity-name)) entities))
+                      parent-store (.-store-name parent-ge)]
+                  (reduce
+                    (fn [a tab]
+                      (let [tab-entity-name (.-entity-name tab)
+                            tab-ge (first (filterv (fn [e] (= (.-name e) tab-entity-name)) entities))]
+                        (if (nil? tab-ge) a
+                          (conj a (gen-tab-route parent-store tab tab-ge db-type)))))
+                    acc tabs)))))
+          [] views)
+        tab-route-blocks (if (> (count tab-routes) 0) (.join tab-routes "\n") "")
+
+        schema-all (str schema-stmts
+          (if (> (count index-stmts) 0) (str "\n  " index-stmts) "")
+          (if (> (count raw-sql-stmts) 0) (str "\n  " raw-sql-stmts) "")
+          (if (not (nil? auth)) (str "\n  " (gen-auth-schema auth db-type)) ""))]
+
+    (str
+      "// Generated by eddy — semantic application compiler\n"
+      "// Source: " src-name "  |  Database: " db-type "\n"
+      "// This file is a build artifact. Edit the .eddy source, not this file.\n\n"
+
+      (gen-db-imports db-type)
+      #r#"
+import { createServer } from 'node:http';
+import { readFileSync, existsSync } from 'node:fs';
+import { join, extname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+"#
+      "\n\n"
+
+      "const __dirname = fileURLToPath(new URL('.', import.meta.url));\n"
+      "const PORT = process.env.PORT || 3000;\n\n"
+
+      "// ── Database ──────────────────────────────────────\n"
+      (gen-db-connect db-type) "\n\n"
+
+      (gen-schema-exec schema-all db-type) "\n"
+
+      "// ── DB adapter ───────────────────────────────────\n"
+      (gen-db-adapter db-type) "\n\n"
+
+      (if (not (nil? auth)) (str (gen-auth-helpers) "\n\n") "")
+
+      "// ── State machines ────────────────────────────────\n"
+      (gen-transitions-map state-machines) "\n"
+
+      "// ── Field whitelist ───────────────────────────────\n"
+      (gen-fields-map entities) "\n"
+
+      "// ── Lookup tables ────────────────────────────────\n"
+      (gen-lookup-map entities) "\n"
+      "// ── Column maps for distinct values ──────────────\n"
+      (gen-columns-map entities) "\n"
+
+      #r#"
+// ── Helpers ───────────────────────────────────────
+function json(res, data, status = 200) {
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+  res.end(JSON.stringify(data));
+}
+function notFound(res) { json(res, { error: 'not found' }, 404); }
+function parseBody(req) {
+  return new Promise((resolve) => {
+    let body = '';
+    let size = 0;
+    req.on('data', c => { size += c.length; if (size > 1e6) { req.destroy(); return resolve({}); } body += c; });
+    req.on('end', () => { try { resolve(JSON.parse(body)); } catch { resolve({}); } });
+  });
+}
+
+const MIME = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json' };
+
+// ── Rate limiter ──────────────────────────────────
+const _rates = {};
+function rateOk(ip) {
+  const now = Date.now();
+  if (!_rates[ip]) _rates[ip] = [];
+  _rates[ip] = _rates[ip].filter(t => now - t < 60000);
+  if (_rates[ip].length >= 1000) return false;
+  _rates[ip].push(now);
+  return true;
+}
+setInterval(() => { const now = Date.now(); for (const ip in _rates) { _rates[ip] = _rates[ip].filter(t => now - t < 60000); if (_rates[ip].length === 0) delete _rates[ip]; } }, 60000).unref();
+
+// ── Server ─────────────────────────────────────────
+const server = createServer(async (req, res) => {
+  try {
+  const ip = req.socket.remoteAddress;
+  if (!rateOk(ip)) return json(res, { error: 'rate limit exceeded' }, 429);
+  const method = req.method;
+  const _url = new URL(req.url, 'http://localhost');
+  const path = _url.pathname;
+  const _qs = _url.searchParams;
+  const start = Date.now();
+  res.on('finish', () => console.log(`${method} ${path} ${res.statusCode} ${Date.now() - start}ms`));
+
+  if (method === 'OPTIONS') {
+    res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE', 'Access-Control-Allow-Headers': 'Content-Type' });
+    return res.end();
+  }
+
+  if (method === 'GET' && path === '/health') {
+    return json(res, { status: 'ok', uptime: process.uptime() });
+  }
+
+"#
+      "\n"
+
+      (if (not (nil? auth)) (str (gen-auth-routes auth) "\n") "")
+      (if (not (nil? auth)) (str (gen-auth-middleware auth) "\n") "")
+
+      (if has-any-lookups
+        (str "  // Lookup reference routes\n"
+             "  if (method === 'GET' && path.startsWith('/api/_lookup/')) {\n"
+             "    const _lkey = decodeURIComponent(path.split('/')[3]);\n"
+             "    const _linfo = LOOKUPS[_lkey];\n"
+             "    if (!_linfo) return notFound(res);\n"
+             "    const rows = await DB.all(`SELECT ${_linfo.id} AS id, ${_linfo.name} AS name FROM ${_lkey} ORDER BY ${_linfo.name}`);\n"
+             "    return json(res, rows);\n"
+             "  }\n\n")
+        "")
+
+      "  // Distinct values route\n"
+      "  if (method === 'GET' && path.startsWith('/api/_distinct/')) {\n"
+      "    const _dparts = path.split('/');\n"
+      "    const _dstore = _dparts[3];\n"
+      "    const _dfield = _dparts[4];\n"
+      "    const _ci = COLUMNS[_dstore];\n"
+      "    if (!_ci || !_ci.cols[_dfield]) return notFound(res);\n"
+      "    const _dcol = _ci.cols[_dfield];\n"
+      "    const rows = await DB.all(`SELECT DISTINCT ${DB.q(_dcol)} AS value FROM ${DB.q(_ci.table)} WHERE ${DB.q(_dcol)} IS NOT NULL ORDER BY ${DB.q(_dcol)}`);\n"
+      "    return json(res, rows.map(r => r.value));\n"
+      "  }\n\n"
+
+      (if (> (count tab-routes) 0)
+        (str "  // Sub-resource routes (related tabs)\n" tab-route-blocks "\n")
+        "")
+      "  // API routes\n"
+      route-blocks "\n"
+
+      (if (> (count query-routes) 0)
+        (str "  // Named queries\n" query-routes "\n")
+        "")
+
+      "  // API index\n"
+      "  if (method === 'GET' && path === '/api') {\n"
+      "    return json(res, { entities: [" (.join (mapv (fn [n] (str "'" n "'")) entity-names) ", ") "] });\n"
+      "  }\n\n"
+
+      #r#"
+  // Static files
+  const file = path === '/' ? '/index.html' : path;
+  const filePath = join(__dirname, file);
+  if (!filePath.startsWith(__dirname)) return notFound(res);
+  if (existsSync(filePath)) {
+    const ext = extname(filePath);
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'text/plain' });
+    return res.end(readFileSync(filePath));
+  }
+
+  notFound(res);
+  } catch (err) {
+    console.error(`ERROR ${req.method} ${req.url}:`, err.message);
+    if (!res.headersSent) json(res, { error: 'internal server error' }, 500);
+  }
+});
+"#
+      "\n\n"
+
+      "server.listen(PORT, () => {\n"
+      "  console.log(`eddy server (${'" src-name "'}) → http://localhost:${PORT}`);\n"
+      "  console.log(`  API: /api  |  entities: " (.join entity-names ", ") "  |  db: " db-type "`);\n"
+      "});\n\n"
+
+      (gen-shutdown db-type) "\n"
+      "process.on('SIGTERM', shutdown);\n"
+      "process.on('SIGINT', shutdown);\n")))

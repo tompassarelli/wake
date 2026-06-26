@@ -1,0 +1,27 @@
+node_modules/
+test-results/
+.direnv/
+.devenv/
+*.wasm
+*.wasm.map.sexp
+*.wat
+bun.lock
+package-lock.json
+web/compiler/dist/
+web/compiler/*.js
+
+# Claude Code harness state
+.claude/
+# shadow-cljs build cache
+.shadow-cljs/
+# eddy-compile build outputs (generated from .eddy sources)
+web/out/
+web/app.js
+web/server.js
+web/schema.sql
+web/tests.js
+web/dist.css
+web/*.claims
+web/mcp.json
+web/public-auth/
+web/public-server/

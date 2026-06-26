@@ -1,0 +1,32 @@
+#lang beagle/js
+(ns eddy.ir)
+
+;; IR data structures for the Eddy compiler.
+;; Produced by the reader, consumed by codegen.
+
+(defrecord IrAttr [(name :- String) (type :- String) (opts :- Any)])
+(defrecord IrEntity [(name :- String) (attrs :- (Vec IrAttr)) (opts :- Any)])
+(defrecord IrPersist [(storage :- String) (key :- String)])
+(defrecord IrDefstate [(name :- String) (transitions :- (Map String (Vec String))) (initial :- String)])
+(defrecord IrDetailTab [(label :- String) (content-type :- String) (content-spec :- Any)])
+(defrecord IrListDetail [(entity-name :- String) (title :- String) (columns :- (Vec String)) (search-cols :- (Vec String)) (detail-tabs :- (Vec IrDetailTab))])
+(defrecord IrSmartForm [(name :- String) (entity-name :- String) (fields :- (Vec String)) (required :- (Vec String)) (submit-label :- String) (on-success :- String)])
+(defrecord IrTheme [(colors :- (Map String String))])
+(defrecord IrRawSql [(sql :- String)])
+(defrecord IrQuery [(name :- String) (sql :- String) (params :- (Vec String))])
+(defrecord IrComponent [(name :- String) (props :- (Vec String)) (body :- (Vec IrElement))])
+(defrecord IrElement [(tag :- String) (attrs :- Any) (children :- Any)])
+(defrecord IrWhen [(prop :- String) (children :- Any)])
+(defunion IrNode IrElement IrWhen)
+(defrecord IrRelatedTab [(label :- String) (entity-name :- String) (fk-column :- String) (filter :- String?) (display-fields :- (Vec String))])
+(defrecord IrView [(name :- String) (entity-name :- String) (component :- String) (add-fields :- (Vec String)) (title :- String) (select-component :- String?) (tabs :- (Vec IrRelatedTab)) (filters :- (Vec String)) (date-filters :- (Vec String))])
+(defrecord IrRoute [(path :- String) (view-name :- String)])
+(defrecord IrRouter [(default-route :- String) (routes :- (Vec IrRoute))])
+(defrecord IrAuth [(entity :- String) (login-field :- String) (password-field :- String) (session :- String) (protect :- (Vec String))])
+(defrecord IrNavGroup [(label :- String) (items :- (Vec String))])
+(defrecord IrLayout [(style :- String) (title :- String?) (groups :- (Vec IrNavGroup))])
+;; A custom-pane escape hatch: the shell mounts its own JS (Cytoscape/stream) into a named
+;; container carved from the eddy view, sharing feed+selection via window.eddy. mount-fn is a
+;; dotted path resolved off window at runtime (e.g. "framescope.mountGraph").
+(defrecord IrPanel [(name :- String) (mount-fn :- String)])
+(defrecord IrProgram [(ns :- String) (entities :- (Vec IrEntity)) (persist :- IrPersist?) (defstates :- (Vec IrDefstate)) (list-details :- (Vec IrListDetail)) (forms :- (Vec IrSmartForm)) (theme :- IrTheme?) (raw-sqls :- (Vec IrRawSql)) (queries :- (Vec IrQuery)) (components :- (Vec IrComponent)) (views :- (Vec IrView)) (router :- IrRouter?) (auth :- IrAuth?) (layout :- IrLayout?) (panels :- (Vec IrPanel))])

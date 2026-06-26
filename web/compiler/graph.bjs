@@ -1,0 +1,168 @@
+#lang beagle/js
+(ns eddy.graph)
+(require eddy.ir :as ir)
+
+;; Checked Entity Graph
+;;
+;; Takes raw IrProgram from the reader and produces an analyzed graph.
+;; Every emitter reads this graph instead of re-deriving relationships.
+
+;; --- Graph records ---
+
+(defrecord GField [(name :- String) (type :- String)
+                   (unique :- String?) (dflt :- Any)
+                   (derived :- Bool) (ref :- Bool)
+                   (deps :- (Vec String)) (expr :- Any)
+                   (column :- String)
+                   (lookup-table :- String?) (lookup-display :- String?)
+                   (sql-expr :- String?)
+                   (filter-sql :- String?) (filter-lookup-table :- String?)
+                   (filter-lookup-id :- String?) (filter-lookup-display :- String?)])
+
+(defrecord GEntity [(name :- String) (fields :- (Vec GField))
+                    (stored-fields :- (Vec GField))
+                    (derived-fields :- (Vec GField))
+                    (ref-fields :- (Vec GField))
+                    (unique-fields :- (Vec GField))
+                    (store-name :- String)
+                    (table-name :- String)
+                    (pk-column :- String)
+                    (where-clause :- String?)])
+
+(defrecord FkEdge [(from-entity :- String) (from-field :- String)
+                   (to-entity :- String) (cascade-delete :- Bool)])
+
+(defrecord StateMachine [(entity :- String) (field :- String)
+                         (state-type :- String)
+                         (transitions :- (Map String (Vec String)))
+                         (initial :- String)])
+
+(defrecord CheckedGraph [(ns :- String)
+                         (entities :- (Vec GEntity))
+                         (fk-edges :- (Vec FkEdge))
+                         (state-machines :- (Vec StateMachine))
+                         (persist :- IrPersist?)
+                         (defstates :- (Vec IrDefstate))
+                         (list-details :- (Vec IrListDetail))
+                         (forms :- (Vec IrSmartForm))
+                         (theme :- IrTheme?)
+                         (raw-sqls :- (Vec IrRawSql))
+                         (queries :- (Vec IrQuery))
+                         (components :- (Vec IrComponent))
+                         (views :- (Vec IrView))
+                         (router :- IrRouter?)
+                         (auth :- IrAuth?)
+                         (layout :- IrLayout?)])
+
+;; --- Shared utilities ---
+
+(defn strip-colon [(s :- String)] :- String
+  (if (.startsWith s ":") (subs s 1) s))
+
+(defn capitalize [(s :- String)] :- String
+  (str (.toUpperCase (subs s 0 1)) (subs s 1)))
+
+(defn titlecase [(s :- String)] :- String
+  (str (.toUpperCase (subs s 0 1)) (subs s 1)))
+
+;; --- Field analysis ---
+
+(defn analyze-field [(attr :- IrAttr)] :- GField
+  (let [name (.-name attr)
+        type (.-type attr)
+        opts (.-opts attr)]
+    (->GField name type
+              (get opts "unique")
+              (get opts "default")
+              (= type "Derived")
+              (= type "Ref")
+              (if (= type "Derived") (or (get opts "deps") []) [])
+              (if (= type "Derived") (get opts "expr") nil)
+              (or (get opts "column") name)
+              (get opts "lookup-table")
+              (get opts "lookup-display")
+              (get opts "sql-expr")
+              (get opts "filter-sql")
+              (get opts "filter-lookup-table")
+              (get opts "filter-lookup-id")
+              (get opts "filter-lookup-display"))))
+
+;; --- Entity analysis ---
+
+(defn analyze-entity [(entity :- IrEntity)] :- GEntity
+  (let [name (.-name entity)
+        opts (or (.-opts entity) {})
+        fields (mapv analyze-field (.-attrs entity))
+        stored-fields (filterv (fn [f] (not (.-derived f))) fields)
+        derived-fields (filterv (fn [f] (.-derived f)) fields)
+        ref-fields (filterv (fn [f] (.-ref f)) fields)
+        unique-fields (filterv (fn [f] (some? (.-unique f))) fields)
+        table-name (or (get opts "table") name)
+        pk-column (or (get opts "id") "eid")
+        where-clause (get opts "where")]
+    (->GEntity name fields stored-fields derived-fields
+               ref-fields unique-fields (str name "s")
+               table-name pk-column where-clause)))
+
+;; --- FK edge resolution ---
+
+(defn resolve-fk-edges [(entities :- (Vec GEntity))] :- (Vec FkEdge)
+  (reduce
+    (fn [edges entity]
+      (let [refs (.-ref-fields entity)]
+        (reduce
+          (fn [acc ref-field]
+            (conj acc (->FkEdge (.-name entity)
+                                (.-name ref-field)
+                                (.-name ref-field)
+                                true)))
+          edges refs)))
+    [] entities))
+
+;; --- State machine resolution ---
+
+(defn resolve-state-machines [(entities :- (Vec GEntity)) (defstates :- (Vec IrDefstate))] :- (Vec StateMachine)
+  (reduce
+    (fn [machines entity]
+      (let [status-fields (filterv
+              (fn [f]
+                (and (not (= (.-type f) "String"))
+                     (not (= (.-type f) "Ref"))
+                     (not (= (.-type f) "Derived"))
+                     (some? (first (filterv (fn [ds] (= (.-name ds) (.-type f))) defstates)))))
+              (.-fields entity))]
+        (reduce
+          (fn [acc sf]
+            (let [ds (first (filterv (fn [d] (= (.-name d) (.-type sf))) defstates))]
+              (conj acc (->StateMachine (.-name entity)
+                                        (.-name sf)
+                                        (.-type sf)
+                                        (.-transitions ds)
+                                        (.-initial ds)))))
+          machines status-fields)))
+    [] entities))
+
+
+;; --- Main: build checked graph ---
+
+(defn check-program [(prog :- IrProgram)] :- CheckedGraph
+  (let [entities (mapv analyze-entity (.-entities prog))
+        fk-edges (resolve-fk-edges entities)
+        state-machines (resolve-state-machines entities (or (.-defstates prog) []))]
+    (->CheckedGraph
+      (or (.-ns prog) "eddy.app")
+      entities
+      fk-edges
+      state-machines
+      (.-persist prog)
+      (or (.-defstates prog) [])
+      (or (.-list-details prog) [])
+      (or (.-forms prog) [])
+      (.-theme prog)
+      (or (.-raw-sqls prog) [])
+      (or (.-queries prog) [])
+      (or (.-components prog) [])
+      (or (.-views prog) [])
+      (.-router prog)
+      (.-auth prog)
+      (.-layout prog))))

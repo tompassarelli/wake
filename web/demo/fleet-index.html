@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Fleet Observatory — eddy dogfood</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/geist@1/index.min.css">
+  <link rel="stylesheet" href="../dist.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- SHELL STUB (stands in for framescope): defines the custom panes eddy mounts via
+       (panel … :mount "framescope.mountX"). Each receives { el, eddy } and shares the SAME
+       /presence feed + selection bus as the eddy entity-view. framescope swaps real
+       Cytoscape/stream renderers in here; the seam (el + window.eddy) is unchanged. -->
+  <script>
+    window.framescope = window.framescope || {};
+    function _pane(el, title) {
+      el.style.cssText = 'border:1px solid var(--border,#ccc);border-radius:8px;margin:12px;padding:12px;background:var(--muted,#f4f4f5)';
+      const h = document.createElement('div');
+      h.style.cssText = 'font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted-foreground,#666);margin-bottom:6px';
+      h.textContent = title;
+      const body = document.createElement('div');
+      body.style.cssText = 'font-size:13px;color:var(--foreground,#111)';
+      el.appendChild(h); el.appendChild(body);
+      return body;
+    }
+    window.framescope.mountGraph = ({ el, eddy }) => {
+      const body = _pane(el, 'framescope · agent graph (Cytoscape pane)');
+      const render = () => {
+        const rows = eddy && eddy.stores && eddy.stores.agents ? eddy.stores.agents.all() : [];
+        const sel = eddy && eddy.selection ? eddy.selection.get() : null;
+        body.textContent = `▣ ${rows.length} nodes from shared feed` + (sel ? ` · selected ${sel}` : '');
+      };
+      render();
+      if (eddy && eddy.feed) eddy.feed.onUpdate(({ changed }) => { body.dataset.lastDelta = (changed||[]).length; render(); });
+    };
+    window.framescope.mountStream = ({ el, eddy }) => {
+      const body = _pane(el, 'framescope · live stream-tail');
+      let n = 0;
+      const line = (t) => { const d = document.createElement('div'); d.style.cssText='font-family:monospace;font-size:11px'; d.textContent = t; body.prepend(d); while (body.childElementCount > 4) body.lastChild.remove(); };
+      line('stream attached to window.eddy.feed');
+      if (eddy && eddy.feed) eddy.feed.onUpdate(({ name, changed }) => { line(`Δ ${name}: ${(changed||[]).length} row(s) moved  [#${++n}]`); });
+    };
+  </script>
+
+  <script src="fleet-app.js"></script>
+</body>
+</html>

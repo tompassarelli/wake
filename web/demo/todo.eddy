@@ -1,0 +1,18 @@
+(ns eddy.todo)
+(persist :localStorage "eddy-todo")
+
+(entity task
+  (title : String)
+  (status : String))
+
+(component task-row
+  :props [title status]
+  (div :class "flex items-center gap-4 px-4 py-2.5 border-b border-border"
+    (span :class "flex-1 text-sm" :text title)
+    (span :class "text-xs text-muted-foreground" :text status)))
+
+(view main
+  :entity task
+  :each task-row
+  :add-form [title]
+  :title "Tasks")
