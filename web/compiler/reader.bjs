@@ -105,13 +105,6 @@
   (cond
     (kw= (nth form 1) ":localStorage")
       (ir/->IrPersist "localStorage" (nth form 2))
-    (kw= (nth form 1) ":server")
-      (let [db-hint (if (> (count form) 2) (nth form 2) nil)]
-        (ir/->IrPersist "server"
-          (cond
-            (and (not (nil? db-hint)) (kw= db-hint ":postgres")) "postgres"
-            (and (not (nil? db-hint)) (kw= db-hint ":mssql")) "mssql"
-            :else "sqlite")))
     ;; (persist :claims "key") — opt-in CLAIM-BACKED store (ADR 0001): the app's data is
     ;; an append-only claim log (update=supersede, history kept), persisted to localStorage.
     (kw= (nth form 1) ":claims")
@@ -256,25 +249,6 @@
           (kw= (nth form i) ":on-success")
             (recur (+ i 2) entity fields required label (kw-name (nth form (+ i 1))))
           :else (recur (+ i 1) entity fields required label on-success))))))
-
-;; --- Raw SQL escape hatch ---
-
-(defn parse-raw-sql [(form :- Any)] :- Any
-  (ir/->IrRawSql (nth form 1)))
-
-;; --- Named query escape hatch ---
-
-(defn parse-query [(form :- Any)] :- Any
-  (let [qname (sym-name (nth form 1))]
-    (loop [i :- Int 2 sql :- String? nil params :- (Vec String) []]
-      (if (>= i (count form))
-        (ir/->IrQuery qname (or sql "") params)
-        (cond
-          (kw= (nth form i) ":sql")
-            (recur (+ i 2) (nth form (+ i 1)) params)
-          (kw= (nth form i) ":params")
-            (recur (+ i 2) sql (mapv sym-name (vec-items (nth form (+ i 1)))))
-          :else (recur (+ i 1) sql params))))))
 
 ;; --- Element tree parsing (component bodies) ---
 
@@ -478,8 +452,6 @@
               (= name "defstate")    (->ParseResult "defstate" (parse-defstate form))
               (= name "list-detail") (->ParseResult "list-detail" (parse-list-detail form))
               (= name "form")        (->ParseResult "form" (parse-smart-form form))
-              (= name "raw-sql")     (->ParseResult "raw-sql" (parse-raw-sql form))
-              (= name "query")       (->ParseResult "query" (parse-query form))
               (= name "component")   (->ParseResult "component" (parse-component form))
               (= name "view")        (->ParseResult "view" (parse-view form))
               (= name "routes")      (->ParseResult "routes" (parse-routes form))
@@ -519,8 +491,6 @@
           lds       (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "list-detail")) parsed))
           forms     (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "form")) parsed))
           theme     (first (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "theme")) parsed)))
-          raw-sqls  (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "raw-sql")) parsed))
-          queries   (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "query")) parsed))
           components (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "component")) parsed))
           views     (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "view")) parsed))
           router    (first (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "routes")) parsed)))
@@ -531,4 +501,4 @@
       (validate-program ns-name entities defstates)
       (ir/->IrProgram
         (or ns-name "wake.app")
-        entities persist defstates lds forms theme raw-sqls queries components views router auth layout panels))))
+        entities persist defstates lds forms theme components views router auth layout panels))))

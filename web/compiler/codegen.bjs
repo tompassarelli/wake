@@ -1025,86 +1025,6 @@ function _wakePushSelection(eid) {
                  "    else if (" (q mfn) ") console.warn('wake: panel mount fn not found:', " (q mfn) "); }\n")))
           panels) ""))))
 
-;; --- Server persistence (sync to server) ---
-
-(defn gen-server-persistence [(all-stores :- Any)] :- String
-  (let [sync-fn #r#"
-        function syncToServer(storeName, evt) {
-          const url = window.location.origin + '/api/' + storeName;
-          if (evt.type === 'add') {
-            fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(evt.entity)
-            }).catch(err => console.error('sync failed:', err));
-          }
-          if (evt.type === 'update') {
-            fetch(url + '/' + evt.eid, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ [evt.attr]: evt['new'] })
-            }).catch(err => console.error('sync failed:', err));
-          }
-          if (evt.type === 'remove') {
-            fetch(url + '/' + evt.eid, {
-              method: 'DELETE'
-            }).catch(err => console.error('sync failed:', err));
-          }
-        }
-        "#
-        store-names-arr (str "[" (.join (mapv (fn [s] (str "'" s "'")) all-stores) ", ") "]")]
-    (str sync-fn "\n\n"
-         "const _pageSize = 50;\n"
-         "const _page = {};\n"
-         "const _totals = {};\n"
-         "const _sort = {};\n"
-         "const _sortDir = {};\n"
-         "const _search = {};\n"
-         "const _filters = {};\n"
-         "const _pageListeners = [];\n"
-         "function onPageChange(fn) { _pageListeners.push(fn); }\n"
-         "function _buildQuery(storeName) {\n"
-         "  let q = '?limit=' + _pageSize + '&offset=' + ((_page[storeName] || 0) * _pageSize);\n"
-         "  if (_sort[storeName]) q += '&sort=' + _sort[storeName] + '&dir=' + (_sortDir[storeName] || 'asc');\n"
-         "  if (_search[storeName]) q += '&search=' + encodeURIComponent(_search[storeName]);\n"
-         "  const sf = _filters[storeName];\n"
-         "  if (sf) for (const [k,v] of Object.entries(sf)) { if (v) q += '&f_' + k + '=' + encodeURIComponent(v); }\n"
-         "  return q;\n"
-         "}\n"
-         "function _filterQuery(storeName) {\n"
-         "  let q = '';\n"
-         "  if (_search[storeName]) q += (q ? '&' : '?') + 'search=' + encodeURIComponent(_search[storeName]);\n"
-         "  const sf = _filters[storeName];\n"
-         "  if (sf) for (const [k,v] of Object.entries(sf)) { if (v) q += (q ? '&' : '?') + 'f_' + k + '=' + encodeURIComponent(v); }\n"
-         "  return q;\n"
-         "}\n\n"
-         (str #r#"
-         async function loadFromServer() {
-           try {
-             const names = "# store-names-arr #r#";
-             const stores = { "# (.join (mapv (fn [s] (str "'" s "': " s)) all-stores) ", ") #r#" };
-             for (const sn of names) {
-               const r = await fetch(window.location.origin + '/api/' + sn + _buildQuery(sn));
-               if (r.ok) stores[sn].load(await r.json());
-               const c = await fetch(window.location.origin + '/api/' + sn + '/count' + _filterQuery(sn));
-               if (c.ok) { const d = await c.json(); _totals[sn] = d.total; }
-             }
-             _pageListeners.forEach(fn => fn());
-           } catch(err) { console.error('load failed:', err); }
-         }
-         async function loadStore(storeName) {
-           try {
-             const stores = { "# (.join (mapv (fn [s] (str "'" s "': " s)) all-stores) ", ") #r#" };
-             const r = await fetch(window.location.origin + '/api/' + storeName + _buildQuery(storeName));
-             if (r.ok) stores[storeName].load(await r.json());
-             const c = await fetch(window.location.origin + '/api/' + storeName + '/count' + _filterQuery(storeName));
-             if (c.ok) { const d = await c.json(); _totals[storeName] = d.total; }
-             _pageListeners.forEach(fn => fn());
-           } catch(err) { console.error('load failed:', err); }
-         }
-         "#)
-         )))
-
 ;; --- Compiled per-attribute update paths ---
 
 (defn gen-update-fns [(columns :- Any) (search-cols :- Any) (overview-fields :- Any)
@@ -1832,9 +1752,6 @@ function _wakePushSelection(eid) {
       (gen-undo-redo) "\n"
 
       (cond
-        is-server
-          (str "// ── Persistence (server) ─────────────────────────────\n"
-               (gen-server-persistence [store-name]) "\n")
         (not (nil? persist-key))
           (str "// ── Persistence ──────────────────────────────────────\n"
                (gen-persistence persist-key [store-name]) "\n")
@@ -2963,9 +2880,6 @@ function _wakePushSelection(eid) {
       (gen-undo-redo) "\n"
 
       (cond
-        is-server
-          (str "// ── Persistence (server) ─────────────────────────────\n"
-               (gen-server-persistence all-stores) "\n")
         (not (nil? persist-key))
           (str "// ── Persistence ──────────────────────────────────────\n"
                (gen-persistence persist-key all-stores) "\n")
@@ -3139,9 +3053,6 @@ function _wakePushSelection(eid) {
 
       ;; Persistence
       (cond
-        is-server
-          (str "\n// ── Persistence (server) ─────────────────────────────\n"
-               (gen-server-persistence all-stores) "\n")
         (not (nil? persist-key))
           (str "\n// ── Persistence ──────────────────────────────────────\n"
                (gen-persistence persist-key all-stores) "\n")

@@ -324,19 +324,6 @@
       "  });\n"
       "});\n\n")))
 
-;; --- Named query tests ---
-
-(defn gen-query-tests [(q :- Any)] :- String
-  (let [qname (.-name q)]
-    (str
-      "describe('query: " qname "', () => {\n"
-      "  it('GET /api/queries/" qname " returns array', async () => {\n"
-      "    const { status, data } = await api('GET', '/api/queries/" qname "');\n"
-      "    assert.equal(status, 200);\n"
-      "    assert.ok(Array.isArray(data));\n"
-      "  });\n"
-      "});\n\n")))
-
 ;; --- Health check ---
 
 (defn gen-health-test [] :- String
@@ -360,7 +347,6 @@
         entities (.-entities g)
         fk-edges (.-fk-edges g)
         state-machines (.-state-machines g)
-        queries (.-queries g)
         src-name (.-ns g)]
     (str
       (gen-preamble src-name)
@@ -369,5 +355,4 @@
       (.join (mapv (fn [e] (gen-crud-tests e state-machines)) entities) "")
       (.join (mapv (fn [e] (gen-constraint-tests e state-machines entities)) entities) "")
       (.join (mapv (fn [sm] (gen-sm-tests sm state-machines entities)) state-machines) "")
-      (.join (mapv (fn [edge] (gen-cascade-tests edge state-machines entities)) fk-edges) "")
-      (.join (mapv gen-query-tests queries) ""))))
+      (.join (mapv (fn [edge] (gen-cascade-tests edge state-machines entities)) fk-edges) ""))))

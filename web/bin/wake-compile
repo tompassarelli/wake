@@ -5,8 +5,6 @@
 # Usage:
 #   bin/wake-compile                        # compile all modules
 #   bin/wake-compile demo/crm-v2.wake      # compile + build one app (JS)
-#   bin/wake-compile --sql demo/crm-v2.wake  # emit SQL DDL
-#   bin/wake-compile --server demo/crm-v2.wake # emit server.js
 #   bin/wake-compile --mcp demo/crm-v2.wake    # emit MCP tool catalog (JSON)
 #   bin/wake-compile --all demo/crm-v2.wake out/ # full stack
 
@@ -38,7 +36,7 @@ dist="$compiler/dist"
 mkdir -p "$dist"
 
 # Step 1: compile each .bjs → .js
-modules=(sexpr ir graph reader ui js-ast emit-sql emit-server emit-test emit-nix emit-claims-ir emit-mcp codegen)
+modules=(sexpr ir graph reader ui js-ast emit-test emit-nix emit-claims-ir emit-mcp codegen)
 for mod in "${modules[@]}"; do
   echo "compiling $mod.bjs..." >&2
   compile "$compiler/$mod.bjs" > "$dist/$mod.js.tmp"
@@ -85,22 +83,6 @@ done
     paste -sd, | \
     sed 's/^/export { /; s/$/ };/'
 } > "$dist/js-ast.js"
-
-# emit-sql.js — fix imports, add export
-{
-  sed "s|from './wake/graph.js';|from './graph.js';|" \
-    "$dist/emit-sql.js.tmp"
-  echo ""
-  echo "export { gen_sql, gen_migration };"
-} > "$dist/emit-sql.js"
-
-# emit-server.js — fix imports, add export
-{
-  sed "s|from './wake/graph.js';|from './graph.js';|; s|from './wake/js-ast.js';|from './js-ast.js';|" \
-    "$dist/emit-server.js.tmp"
-  echo ""
-  echo "export { gen_server };"
-} > "$dist/emit-server.js"
 
 # reader.js — fix imports, add export
 {
@@ -167,28 +149,6 @@ process.stdout.write(gen_program_bang(prog));
 " > "$out"
 }
 
-emit_sql() {
-  local src="$1" out="$2"
-  node --input-type=module -e "
-import { readFileSync } from 'fs';
-import { parse_program } from '$dist/reader.js';
-import { gen_sql } from '$dist/emit-sql.js';
-const prog = parse_program(readFileSync('$src', 'utf-8'));
-process.stdout.write(gen_sql(prog));
-" > "$out"
-}
-
-emit_server() {
-  local src="$1" out="$2"
-  node --input-type=module -e "
-import { readFileSync } from 'fs';
-import { parse_program } from '$dist/reader.js';
-import { gen_server } from '$dist/emit-server.js';
-const prog = parse_program(readFileSync('$src', 'utf-8'));
-process.stdout.write(gen_server(prog));
-" > "$out"
-}
-
 emit_test() {
   local src="$1" out="$2"
   node --input-type=module -e "
@@ -239,37 +199,17 @@ if [[ $# -ge 1 && "$1" == "--all" ]]; then
   out_dir="${2:-.}"
   mkdir -p "$out_dir"
   emit_js "$wake_file" "$out_dir/app.js"
-  emit_sql "$wake_file" "$out_dir/schema.sql"
-  emit_server "$wake_file" "$out_dir/server.js"
   emit_test "$wake_file" "$out_dir/tests.js"
   emit_nix "$wake_file" "$out_dir/flake.nix"
   emit_claims "$wake_file" "$out_dir/app.claims"
   emit_mcp "$wake_file" "$out_dir/mcp.json"
   cp "$wake_root/public-js/index.html" "$out_dir/" 2>/dev/null || true
   cp "$wake_root/public-js/dist.css" "$out_dir/" 2>/dev/null || true
-  "$wake_root/bin/wake-lint-output" "$out_dir/server.js" >&2
   "$wake_root/bin/wake-lint-output" "$out_dir/app.js" >&2
-  echo "$wake_file -> $out_dir/ (app.js + schema.sql + server.js + tests.js + flake.nix)" >&2
+  echo "$wake_file -> $out_dir/ (app.js + tests.js + flake.nix)" >&2
 elif [[ $# -ge 1 && "$1" == "--test" ]]; then
   shift; emit_test "$1" "${2:-/dev/stdout}"
   [[ "${2:-}" ]] && echo "$1 -> $2 (tests)" >&2
-elif [[ $# -ge 1 && "$1" == "--sql" ]]; then
-  shift; emit_sql "$1" "${2:-/dev/stdout}"
-  [[ "${2:-}" ]] && echo "$1 -> $2 (sql)" >&2
-elif [[ $# -ge 1 && "$1" == "--migrate" ]]; then
-  shift
-  old_file="$1"; new_file="$2"; out_file="${3:-/dev/stdout}"
-  destructive="false"
-  [[ "${4:-}" == "--destructive" ]] && destructive="true"
-  node --input-type=module -e "
-import { readFileSync } from 'fs';
-import { parse_program } from '$dist/reader.js';
-import { gen_migration } from '$dist/emit-sql.js';
-const oldProg = parse_program(readFileSync('$old_file', 'utf-8'));
-const newProg = parse_program(readFileSync('$new_file', 'utf-8'));
-process.stdout.write(gen_migration(oldProg, newProg, $destructive));
-" > "$out_file"
-  [[ "$out_file" != "/dev/stdout" ]] && echo "$old_file -> $new_file -> $out_file (migration)" >&2
 elif [[ $# -ge 1 && "$1" == "--nix" ]]; then
   shift; emit_nix "$1" "${2:-/dev/stdout}"
   [[ "${2:-}" ]] && echo "$1 -> $2 (nix)" >&2
@@ -279,10 +219,6 @@ elif [[ $# -ge 1 && "$1" == "--claims" ]]; then
 elif [[ $# -ge 1 && "$1" == "--mcp" ]]; then
   shift; emit_mcp "$1" "${2:-/dev/stdout}"
   [[ "${2:-}" ]] && echo "$1 -> $2 (mcp)" >&2
-elif [[ $# -ge 1 && "$1" == "--server" ]]; then
-  shift; emit_server "$1" "${2:-/dev/stdout}"
-  [[ "${2:-}" ]] && "$wake_root/bin/wake-lint-output" "$2" >&2
-  [[ "${2:-}" ]] && echo "$1 -> $2 (server)" >&2
 elif [[ $# -ge 1 ]]; then
   emit_js "$1" "${2:-/dev/stdout}"
   [[ "${2:-}" ]] && echo "$1 -> $2" >&2

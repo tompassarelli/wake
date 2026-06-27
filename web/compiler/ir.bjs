@@ -12,8 +12,6 @@
 (defrecord IrListDetail [(entity-name :- String) (title :- String) (columns :- (Vec String)) (search-cols :- (Vec String)) (detail-tabs :- (Vec IrDetailTab))])
 (defrecord IrSmartForm [(name :- String) (entity-name :- String) (fields :- (Vec String)) (required :- (Vec String)) (submit-label :- String) (on-success :- String)])
 (defrecord IrTheme [(colors :- (Map String String))])
-(defrecord IrRawSql [(sql :- String)])
-(defrecord IrQuery [(name :- String) (sql :- String) (params :- (Vec String))])
 (defrecord IrComponent [(name :- String) (props :- (Vec String)) (body :- (Vec IrElement))])
 (defrecord IrElement [(tag :- String) (attrs :- Any) (children :- Any)])
 (defrecord IrWhen [(prop :- String) (children :- Any)])
@@ -32,4 +30,4 @@
 ;; container carved from the wake view, sharing feed+selection via window.wake. mount-fn is a
 ;; dotted path resolved off window at runtime (e.g. "lodestar.mountGraph").
 (defrecord IrPanel [(name :- String) (mount-fn :- String)])
-(defrecord IrProgram [(ns :- String) (entities :- (Vec IrEntity)) (persist :- IrPersist?) (defstates :- (Vec IrDefstate)) (list-details :- (Vec IrListDetail)) (forms :- (Vec IrSmartForm)) (theme :- IrTheme?) (raw-sqls :- (Vec IrRawSql)) (queries :- (Vec IrQuery)) (components :- (Vec IrComponent)) (views :- (Vec IrView)) (router :- IrRouter?) (auth :- IrAuth?) (layout :- IrLayout?) (panels :- (Vec IrPanel))])
+(defrecord IrProgram [(ns :- String) (entities :- (Vec IrEntity)) (persist :- IrPersist?) (defstates :- (Vec IrDefstate)) (list-details :- (Vec IrListDetail)) (forms :- (Vec IrSmartForm)) (theme :- IrTheme?) (components :- (Vec IrComponent)) (views :- (Vec IrView)) (router :- IrRouter?) (auth :- IrAuth?) (layout :- IrLayout?) (panels :- (Vec IrPanel))])
