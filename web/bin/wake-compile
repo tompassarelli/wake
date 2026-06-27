@@ -16,9 +16,16 @@ wake_root="$(cd "$(dirname "$0")/.." && pwd)"
 compiler="$wake_root/compiler"
 
 BEAGLE_COMPILER="${BEAGLE_COMPILER:-$HOME/code/beagle/self-host/dist/compiler.cjs}"
+BEAGLE_BUILD="${BEAGLE_BUILD:-$HOME/code/beagle/bin/beagle-build}"
 if [[ -f "$BEAGLE_COMPILER" ]] && command -v bun >/dev/null 2>&1; then
   compile() { bun run "$BEAGLE_COMPILER" "$1"; }
   echo "using beagle-bun compiler" >&2
+elif [[ -x "$BEAGLE_BUILD" ]]; then
+  # No self-host compiler.cjs yet; use beagle-build (racket with beagle-lib
+  # collections linked via _beagle-racket). It can't write /dev/stdout, so
+  # round-trip through a temp file.
+  compile() { local o; o="$(mktemp)"; "$BEAGLE_BUILD" "$1" "$o" >/dev/null 2>&1; cat "$o"; rm -f "$o"; }
+  echo "using beagle-build compiler" >&2
 else
   if [[ -z "${IN_NIX_SHELL:-}" ]] && [[ -f "$wake_root/flake.nix" ]]; then
     exec nix develop "$wake_root" --command "$0" "$@"
