@@ -1,7 +1,7 @@
-(ns fleet.observatory)
+(ns agents.presence)
 
-;; LIVE EXTERNAL FEED — the store mirrors framescope's bridge /presence endpoint
-;; (start it: ~/code/framescope/bin/framescope, default http :8088, target daemon :7978).
+;; LIVE EXTERNAL FEED — the store mirrors lodestar-web's bridge /presence endpoint
+;; (start it: lodestar-web bridge (systemd: lodestar-web.service), default http :8088, target daemon :7978).
 ;; Field names mirror the presence JSON keys verbatim so load() needs no projection.
 (persist :feed "http://localhost:8088/presence")
 
@@ -48,14 +48,14 @@
       (div :class "text-xs uppercase text-muted-foreground mt-2" :text "Cost (USD)")
       (div :class "text-sm text-foreground" :text cost_usd))))
 
-(view fleet
+(view agents
   :entity agent :each agent-row
-  :add-form [uuid] :title "Fleet Observatory"
+  :add-form [uuid] :title "Agent Presence"
   :select agent-detail)
 
-;; ESCAPE-HATCH PANELS — framescope's custom Cytoscape graph + live stream-tail mount
+;; ESCAPE-HATCH PANELS — lodestar-web's Cytoscape graph + live stream-tail mount
 ;; INSIDE this wake view, sharing the same /presence feed + selection via window.wake.
-;; The shell defines window.framescope.{mountGraph,mountStream}({ el, wake }); wake carves
-;; the container and hands it the bus. This is framescope-cockpit-in-wake on a real pane.
-(panel agent-graph :mount "framescope.mountGraph")
-(panel agent-stream :mount "framescope.mountStream")
+;; The shell defines window.lodestar.{mountGraph,mountStream}({ el, wake }); wake carves
+;; the container and hands it the bus. This is lodestar-cockpit-in-wake on a real pane.
+(panel agent-graph :mount "lodestar.mountGraph")
+(panel agent-stream :mount "lodestar.mountStream")

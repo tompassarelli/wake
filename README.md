@@ -71,8 +71,8 @@ schemas into a migration.
 per-row push (diff-by-identity) instead of `localStorage`; feed-mode stores are read-only.
 For views Wake can't express, `(panel name :mount "js.fn")` hands a pane to your own
 JavaScript, and generated apps expose a `window.wake` bus (ready signal, selection, feed
-deltas) so mounted panes share the app's state. Working examples: `web/demo/fleet.wake`
-(a live agent observatory) and `web/demo/schema.wake`.
+deltas) so mounted panes share the app's state. Working examples: `web/demo/agents.wake`
+(a live agent presence view) and `web/demo/schema.wake`.
 
 ## Claim-backed store
 

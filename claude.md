@@ -72,7 +72,7 @@ event log, split-pane selection) are realized in `codegen.bjs`; read it as the s
 Live/seam features (real, see the demos for syntax): `(persist :feed "http://…")` mirrors a
 remote endpoint with real-time per-row push (read-only stores); `(panel name :mount "js.fn")`
 is the escape hatch to mount external JS; generated apps expose a `window.wake` bus (ready
-signal, selection, feed deltas) so mounted panes share state. Demos: `demo/fleet.wake`,
+signal, selection, feed deltas) so mounted panes share state. Demos: `demo/agents.wake`,
 `demo/schema.wake`.
 
 ## Authoring rules

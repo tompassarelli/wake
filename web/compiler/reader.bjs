@@ -438,7 +438,7 @@
           :else (recur (+ i 1) title groups))))))
 
 ;; --- Panel parsing ---
-;; (panel agent-graph :mount "framescope.mountGraph")
+;; (panel agent-graph :mount "lodestar.mountGraph")
 ;; A named region the shell fills with its own JS, sharing feed+selection via window.wake.
 (defn parse-panel [(form :- Any)] :- Any
   (let [name (sym-name (nth form 1))]
