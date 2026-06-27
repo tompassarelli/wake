@@ -1507,23 +1507,35 @@ function _wakePushSelection(eid) {
 
 ;; === Component-based codegen ===
 
-;; An IrAction → a JS statement mutating the entity's store at props.eid.
-;; assert/set → update (supersede on a claim store); retract → remove (tombstone).
-;; A claim-store + the :fram write transport turn these into real claim writes.
+;; An IrAction → a JS statement.
+;;  (tell pred val)     → REMOTE claim write: POST /api/tell {graph,id,pred,obj}.
+;;                        The daemon commits → /live push → feed re-fetch → re-render.
+;;                        Uses props.id (the claim ref) + window.WAKE_GRAPH. No store needed.
+;;  (assert/set pred v) → LOCAL store mutation (update = supersede on a claim store).
+;;  (retract)           → LOCAL store.remove (tombstone).
+;; tell is the claims-native round-trip; assert/set/retract are local-optimistic.
 (defn compile-action [(action :- Any) (store-name :- String)] :- String
-  (if (or (nil? action) (nil? store-name) (= store-name "")) ""
+  (if (nil? action) ""
     (let [verb (.-verb action)
           args (.-args action)
           argval (fn [a]
                    (if (= (get a "kind") "literal") (q (get a "value"))
-                     (str "props." (get a "name"))))]
-      (if (or (= verb "assert") (= verb "set"))
-        (if (>= (count args) 2)
-          (str store-name ".update(props.eid, " (q (get (nth args 0) "name")) ", " (argval (nth args 1)) ");")
-          "")
-        (if (= verb "retract")
+                     (str "props." (get a "name"))))
+          local? (or (= store-name "") (nil? store-name))]
+      (cond
+        (= verb "tell")
+          (if (>= (count args) 2)
+            (str "fetch('/api/tell',{method:'POST',headers:{'Content-Type':'application/json'},"
+                 "body:JSON.stringify({graph:(window.WAKE_GRAPH||'board'),id:props.id,pred:"
+                 (q (get (nth args 0) "name")) ",obj:" (argval (nth args 1)) "})});")
+            "")
+        (and (not local?) (or (= verb "assert") (= verb "set")))
+          (if (>= (count args) 2)
+            (str store-name ".update(props.eid, " (q (get (nth args 0) "name")) ", " (argval (nth args 1)) ");")
+            "")
+        (and (not local?) (= verb "retract"))
           (str store-name ".remove(props.eid);")
-          "")))))
+        :else ""))))
 
 (defn gen-when-block! [(node :- Any) (counter :- Any) (parent-var :- String) (props :- Any) (store-name :- String)] :- Any
   (let [prop (.-prop node)
