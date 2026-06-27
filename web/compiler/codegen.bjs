@@ -1507,13 +1507,31 @@ function _wakePushSelection(eid) {
 
 ;; === Component-based codegen ===
 
-(defn gen-when-block! [(node :- Any) (counter :- Any) (parent-var :- String) (props :- Any)] :- Any
+;; An IrAction → a JS statement mutating the entity's store at props.eid.
+;; assert/set → update (supersede on a claim store); retract → remove (tombstone).
+;; A claim-store + the :fram write transport turn these into real claim writes.
+(defn compile-action [(action :- Any) (store-name :- String)] :- String
+  (if (or (nil? action) (nil? store-name) (= store-name "")) ""
+    (let [verb (.-verb action)
+          args (.-args action)
+          argval (fn [a]
+                   (if (= (get a "kind") "literal") (q (get a "value"))
+                     (str "props." (get a "name"))))]
+      (if (or (= verb "assert") (= verb "set"))
+        (if (>= (count args) 2)
+          (str store-name ".update(props.eid, " (q (get (nth args 0) "name")) ", " (argval (nth args 1)) ");")
+          "")
+        (if (= verb "retract")
+          (str store-name ".remove(props.eid);")
+          "")))))
+
+(defn gen-when-block! [(node :- Any) (counter :- Any) (parent-var :- String) (props :- Any) (store-name :- String)] :- Any
   (let [prop (.-prop node)
         wc (get counter "n")
         when-var (str "when_" wc)
         anchor-var (str "whenAnchor_" wc)]
     (set! (.-n counter) (+ wc 1))
-    (let [child-results (mapv (fn [el] (gen-element! el counter props)) (.-children node))
+    (let [child-results (mapv (fn [el] (gen-element! el counter props store-name)) (.-children node))
           child-code (.join (mapv (fn [cr] (.-code cr)) child-results) "")
           child-appends (.join
             (mapv (fn [cr] (str "      " parent-var ".insertBefore(" (.-vname cr) ", " anchor-var ");\n"))
@@ -1537,7 +1555,7 @@ function _wakePushSelection(eid) {
         ""
         [(->Binding prop (str when-var "_update") "_when")]))))
 
-(defn gen-element! [(el :- Any) (counter :- Any) (props :- Any)] :- Any
+(defn gen-element! [(el :- Any) (counter :- Any) (props :- Any) (store-name :- String)] :- Any
   (if (not (nil? (.-prop el)))
     nil
     (let [c (get counter "n")
@@ -1560,34 +1578,41 @@ function _wakePushSelection(eid) {
                               (str "  " var-name ".placeholder = " (q (get placeholder-attr "value")) ";\n"))
             type-line (if (nil? type-attr) ""
                        (str "  " var-name ".type = " (q (get type-attr "value")) ";\n"))
+            action-lines (.join
+              (mapv (fn [k]
+                      (let [a (get attrs k)]
+                        (str "  " var-name ".addEventListener(" (q (get a "event"))
+                             ", (ev) => { ev.preventDefault(); " (compile-action (get a "action") store-name) " });\n")))
+                (filterv (fn [k] (= (get (get attrs k) "type") "action")) (keys attrs)))
+              "")
             bindings (if (and (not (nil? text-attr)) (= (get text-attr "type") "bind"))
                       [(->Binding (get text-attr "prop") var-name "textContent")]
                       [])
             when-children (filterv (fn [child] (not (nil? (.-prop child)))) children)
             element-children (filterv (fn [child] (nil? (.-prop child))) children)
-            child-results (mapv (fn [child] (gen-element! child counter props)) element-children)
+            child-results (mapv (fn [child] (gen-element! child counter props store-name)) element-children)
             child-code (.join (mapv (fn [cr] (.-code cr)) child-results) "")
             child-appends (.join
               (mapv (fn [cr] (str "  " var-name ".appendChild(" (.-vname cr) ");\n"))
                 child-results) "")
-            when-results (mapv (fn [wc] (gen-when-block! wc counter var-name props)) when-children)
+            when-results (mapv (fn [wc] (gen-when-block! wc counter var-name props store-name)) when-children)
             when-code (.join (mapv (fn [wr] (.-code wr)) when-results) "")
             child-bindings (reduce (fn [acc cr] (into acc (.-bindings cr))) bindings child-results)
             all-bindings (reduce (fn [acc wr] (into acc (.-bindings wr))) child-bindings when-results)]
         (->RenderResult
           (str "  const " var-name " = document.createElement(" (q tag) ");\n"
-               cls-line text-line placeholder-line type-line
+               cls-line text-line placeholder-line type-line action-lines
                child-code child-appends when-code)
           var-name
           all-bindings)))))
 
-(defn gen-component-fn! [(comp :- Any)] :- String
+(defn gen-component-fn! [(comp :- Any) (store-name :- String)] :- String
   (let [name (.-name comp)
         props (.-props comp)
         body (.-body comp)
         fn-name (str (id->ref name) "_create")
         counter {"n" 0}
-        root-results (mapv (fn [el] (gen-element! el counter props)) body)
+        root-results (mapv (fn [el] (gen-element! el counter props store-name)) body)
         root-code (.join (mapv (fn [r] (.-code r)) root-results) "")
         all-bindings (reduce (fn [acc r] (into acc (.-bindings r))) [] root-results)
         root-var (if (= (count root-results) 1)
@@ -1784,11 +1809,11 @@ function _wakePushSelection(eid) {
       (if (= persist-mode "claims") (gen-store-claims store-name []) (gen-store store-name [])) "\n\n"
 
       "// ── Component ────────────────────────────────────────\n"
-      (gen-component-fn! comp) "\n"
+      (gen-component-fn! comp store-name) "\n"
 
       (if has-select
         (str "// ── Detail Component ─────────────────────────────────\n"
-             (gen-component-fn! select-comp) "\n")
+             (gen-component-fn! select-comp store-name) "\n")
         "")
 
       "// ── Undo / Redo ─────────────────────────────────────\n"
@@ -2918,7 +2943,7 @@ function _wakePushSelection(eid) {
       "// ── Components ──────────────────────────────────────\n"
       (.join
         (mapv (fn [cn]
-          (gen-component-fn! (first (filterv (fn [c] (= (.-name c) cn)) components))))
+          (gen-component-fn! (first (filterv (fn [c] (= (.-name c) cn)) components)) ""))
           unique-comp-names) "\n")
       "\n"
 
