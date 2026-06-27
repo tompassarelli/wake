@@ -17,6 +17,9 @@
 (defrecord IrComponent [(name :- String) (props :- (Vec String)) (body :- (Vec IrElement))])
 (defrecord IrElement [(tag :- String) (attrs :- Any) (children :- Any)])
 (defrecord IrWhen [(prop :- String) (children :- Any)])
+;; An event handler effect: verb (assert/set/retract/select/refetch) + args.
+;; Rides inside an element's attrs map under an "on-<event>" key.
+(defrecord IrAction [(verb :- String) (args :- Any)])
 (defunion IrNode IrElement IrWhen)
 (defrecord IrRelatedTab [(label :- String) (entity-name :- String) (fk-column :- String) (filter :- String?) (display-fields :- (Vec String))])
 (defrecord IrView [(name :- String) (entity-name :- String) (component :- String) (add-fields :- (Vec String)) (title :- String) (select-component :- String?) (tabs :- (Vec IrRelatedTab)) (filters :- (Vec String)) (date-filters :- (Vec String))])

@@ -285,6 +285,18 @@
               "table" "tr" "td" "th" "thead" "tbody"]]
     (.includes tags name)))
 
+;; An action form, e.g. (assert status "done") or (select uuid) — verb + args.
+;; Args: symbols => prop/field refs, keywords => tags, else literals.
+(defn parse-action [(form :- Any)] :- Any
+  (if (not (vector? form)) nil
+    (let [verb (sym-name (nth form 0))
+          args (mapv (fn [a]
+                       (if (sym? a) {"kind" "ref" "name" (sym-name a)}
+                         (if (kw? a) {"kind" "tag" "name" (kw-name a)}
+                           {"kind" "literal" "value" a})))
+                     (subvec form 1))]
+      (ir/->IrAction verb args))))
+
 (defn parse-element [(form :- Any)] :- Any
   (if (not (vector? form)) nil
     (if (= (count form) 0) nil
@@ -302,9 +314,11 @@
                             v (nth form (+ i 1))]
                         (recur (+ i 2)
                                (assoc attrs k
-                                 (if (sym? v) {"type" "bind" "prop" (sym-name v)}
-                                   (if (string? v) {"type" "static" "value" v}
-                                     v)))
+                                 (if (.startsWith k "on-")
+                                   {"type" "action" "event" (subs k 3) "action" (parse-action v)}
+                                   (if (sym? v) {"type" "bind" "prop" (sym-name v)}
+                                     (if (string? v) {"type" "static" "value" v}
+                                       v))))
                                children))
                       (recur (+ i 1) attrs children))
                     (let [child (nth form i)]
