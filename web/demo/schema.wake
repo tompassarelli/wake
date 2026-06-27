@@ -2,7 +2,7 @@
 
 ;; SCHEMA EDITOR — the fram predicate vocabulary AS an wake view. "Edit the graph,
 ;; not text": each predicate is a row; cardinality (single|multi) + value_kind
-;; (ref|literal) are the editable schema facts. The store MIRRORS lodestar-web's
+;; (ref|literal) are the editable schema facts. The store MIRRORS the web client's
 ;; bridge /schema endpoint (systemd: lodestar-web.service, http :8088,
 ;; default target board daemon :7977). Field names mirror the /schema JSON keys
 ;; verbatim so load() needs no projection. Read-only feed; the WRITE-BACK rides the
