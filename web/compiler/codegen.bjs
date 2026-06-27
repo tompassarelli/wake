@@ -1029,7 +1029,7 @@ function _wakePushSelection(eid) {
 
 (defn gen-update-fns [(columns :- Any) (search-cols :- Any) (overview-fields :- Any)
                       (subtitle-field :- Any) (persist-key :- Any) (related-tab-keys :- Any)
-                      (derived-attrs :- Any) (store-name :- String) (is-server :- Bool)] :- String
+                      (derived-attrs :- Any) (store-name :- String)] :- String
   (let [search-text-expr (str "[" (.join (mapv (fn [c] (str "entity." c " || ''")) search-cols) ", ") "].join(' ').toLowerCase()")
         attr-fns (.join
           (mapv (fn [col]
@@ -1086,8 +1086,7 @@ function _wakePushSelection(eid) {
                           "    }\n")
                      "")
                    (if is-search "    filterRows();\n" "")
-                   (cond is-server (str "    syncToServer('" store-name "', { type: 'update', eid, attr: '" col "', 'new': value });\n")
-                         (not (nil? persist-key)) "    saveDb();\n"
+                   (cond (not (nil? persist-key)) "    saveDb();\n"
                          :else "")
                    "  }")))
             columns)
@@ -1339,7 +1338,7 @@ function _wakePushSelection(eid) {
 ;; --- Init function ---
 
 (defn gen-init-fn [(en :- String) (form-name :- String) (store-name :- String)
-                   (related-info :- Any) (persist-key :- Any) (is-server :- Bool) (layout-result :- Any)] :- String
+                   (related-info :- Any) (persist-key :- Any) (layout-result :- Any)] :- String
   (let [form-ref (id->ref (str "form-" form-name))
         search-ref (id->ref (str "ld-" en "-search"))
         ref-assigns (gen-ref-assigns (.-refs layout-result))
@@ -1352,21 +1351,19 @@ function _wakePushSelection(eid) {
                    "    if (evt.type === 'add' || evt.type === 'load' || evt.type === 'remove') " render-fn "();\n"
                    "    if (evt.type === 'add') {\n"
                    "      recordUndo({ type: 'add', store: " rel-store ", eid: evt.eid, entity: evt.entity });\n"
-                   (cond is-server (str "      syncToServer('" rel-store "', evt);\n")
-                         (not (nil? persist-key)) "      saveDb();\n"
+                   (cond (not (nil? persist-key)) "      saveDb();\n"
                          :else "")
                    "    }\n"
                    "    if (evt.type === 'remove') {\n"
                    "      recordUndo({ type: 'remove', store: " rel-store ", eid: evt.eid, entity: evt.entity });\n"
-                   (cond is-server (str "      syncToServer('" rel-store "', evt);\n")
-                         (not (nil? persist-key)) "      saveDb();\n"
+                   (cond (not (nil? persist-key)) "      saveDb();\n"
                          :else "")
                    "    }\n"
                    "  });\n")))
             related-info)
           "\n")]
     (str
-      (if is-server "async function init() {\n" "function init() {\n")
+      "function init() {\n"
       "  const root = document.getElementById(window.WAKE_MOUNT_ID || 'app');\n"
       "\n"
       (.-code layout-result) "\n"
@@ -1385,8 +1382,7 @@ function _wakePushSelection(eid) {
       "      " (id->ref en) "Count++;\n"
       "      updateStats();\n"
       "      recordUndo({ type: 'add', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
-      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
-            (not (nil? persist-key)) "      saveDb();\n"
+      (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
       "    }\n"
       "    if (evt.type === 'load') {\n"
@@ -1406,8 +1402,7 @@ function _wakePushSelection(eid) {
       "      updateStats();\n"
       "      recordUndo({ type: 'remove', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
       "      if (selectedContact === evt.eid) selectContact(null);\n"
-      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
-            (not (nil? persist-key)) "      saveDb();\n"
+      (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
       "    }\n"
       "  });\n"
@@ -1418,8 +1413,7 @@ function _wakePushSelection(eid) {
       "    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }\n"
       "  });\n"
       "\n"
-      (cond is-server "  await loadFromServer();\n"
-            (not (nil? persist-key)) "  restoreDb();\n"
+      (cond (not (nil? persist-key)) "  restoreDb();\n"
             :else "")
       "  updateStats();\n"
       "  renderDetail();\n"
@@ -1594,7 +1588,6 @@ function _wakePushSelection(eid) {
         persist (.-persist g)
         raw-persist-key (if (nil? persist) nil (.-key persist))
         persist-mode (if (nil? persist) nil (.-storage persist))
-        is-server (= persist-mode "server")
         is-feed (= persist-mode "feed")
         feed-url (if is-feed raw-persist-key nil)
         ;; identity field for per-row feed diffing: prefer a field marked :unique identity,
@@ -1761,7 +1754,7 @@ function _wakePushSelection(eid) {
         :else "")
 
       "// ── Init ─────────────────────────────────────────────\n"
-      (if is-server (.replace init-open "function init()" "async function init()") init-open) "\n"
+      init-open "\n"
       (gen-theme-style (.-theme prog))
       form-fields-code
       submit-btn "\n"
@@ -1790,15 +1783,13 @@ function _wakePushSelection(eid) {
       (if has-select "      inst.el.addEventListener('click', () => selectItem(evt.eid));\n" "")
       "      statsEl.textContent = 'Total: ' + instances.size;\n"
       "      recordUndo({ type: 'add', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
-      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
-            (not (nil? persist-key)) "      saveDb();\n"
+      (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
       "    }\n"
       watcher-update "\n"
       (if has-select "      if (selectedEid === evt.eid && detailInst && detailInst.update[evt.attr]) detailInst.update[evt.attr](evt.new || '');\n" "")
       "      recordUndo({ type: 'update', store: " store-name ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"
-      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
-            (not (nil? persist-key)) "      saveDb();\n"
+      (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
       "    }\n"
       "    if (evt.type === 'remove') {\n"
@@ -1807,8 +1798,7 @@ function _wakePushSelection(eid) {
       "      statsEl.textContent = 'Total: ' + instances.size;\n"
       (if has-select "      if (selectedEid === evt.eid) selectItem(null);\n" "")
       "      recordUndo({ type: 'remove', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
-      (cond is-server (str "      syncToServer('" store-name "', evt);\n")
-            (not (nil? persist-key)) "      saveDb();\n"
+      (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
       "    }\n"
       "    if (evt.type === 'load') {\n"
@@ -1827,8 +1817,7 @@ function _wakePushSelection(eid) {
       "  });\n\n"
 
       keyboard-handler "\n\n"
-      (cond is-server "  await loadFromServer();\n"
-            (not (nil? persist-key)) "  restoreDb();\n"
+      (cond (not (nil? persist-key)) "  restoreDb();\n"
             is-feed "  startFeed();\n"
             :else "")
       "}\n\n"
@@ -1837,7 +1826,7 @@ function _wakePushSelection(eid) {
 
 ;; === Multi-view routing codegen ===
 
-(defn gen-view-section [(view :- Any) (components :- Any) (ge :- Any) (store-name :- String) (is-server :- Bool) (all-entities :- Any) (all-views :- Any)] :- String
+(defn gen-view-section [(view :- Any) (components :- Any) (ge :- Any) (store-name :- String) (all-entities :- Any) (all-views :- Any)] :- String
   (let [comp-name (.-component view)
         fn-name (str (id->ref comp-name) "_create")
         add-fields (or (.-add-fields view) [])
@@ -1847,51 +1836,20 @@ function _wakePushSelection(eid) {
         select-fn-name (if has-select (str (id->ref (.-select-component view)) "_create") nil)
         has-form (> (count add-fields) 0)
         tabs (or (.-tabs view) [])
-        has-tabs (and has-select is-server (> (count tabs) 0))
+        has-tabs false
 
-        lookup-fields-meta (if (and is-server has-select)
-          (let [stored (.-stored-fields ge)
-                lf (filterv (fn [f] (not (nil? (.-lookup-table f)))) stored)]
-            (if (= (count lf) 0) nil lf))
-          nil)
+        lookup-fields-meta nil
 
         view-filters (or (.-filters view) [])
         view-date-filters (or (.-date-filters view) [])
-        all-stored (if is-server (.-stored-fields ge) [])
-        filter-fields-meta (if (and is-server (> (count view-filters) 0))
-          (filterv some? (mapv (fn [n]
-            (first (filterv (fn [f] (= (.-name f) n)) all-stored)))
-            view-filters))
-          [])
+        filter-fields-meta []
         has-filters (> (count filter-fields-meta) 0)
-        date-filter-fields-meta (if (and is-server (> (count view-date-filters) 0))
-          (filterv some? (mapv (fn [n]
-            (first (filterv (fn [f] (= (.-name f) n)) all-stored)))
-            view-date-filters))
-          [])
+        date-filter-fields-meta []
         has-date-filters (> (count date-filter-fields-meta) 0)
 
-        lookup-map-js (if (some? lookup-fields-meta)
-          (str "      const _lookups = {"
-            (.join (mapv (fn [f]
-              (str "'" (.-name f) "': '" (.-lookup-table f) "'"))
-              lookup-fields-meta) ", ")
-            "};\n")
-          "")
+        lookup-map-js ""
 
-        nav-map-js (if (and (some? lookup-fields-meta) (some? all-views))
-          (let [nav-fields (filterv (fn [f]
-                  (some? (first (filterv (fn [e] (= (.-table-name e) (.-lookup-table f))) all-entities))))
-                  lookup-fields-meta)]
-            (if (= (count nav-fields) 0) ""
-              (str "      const _navFields = {"
-                (.join (mapv (fn [f]
-                  (let [target-entity (first (filterv (fn [e] (= (.-table-name e) (.-lookup-table f))) all-entities))
-                        target-view (first (filterv (fn [v] (= (.-entity-name v) (.-name target-entity))) all-views))]
-                    (str "'" (.-name f) "': '" (if (some? target-view) (.-name target-view) (.-store-name target-entity)) "'")))
-                  nav-fields) ", ")
-                "};\n")))
-          "")
+        nav-map-js ""
         form-fields (.join
           (mapv (fn [f]
             (let [fid (str "form_" (id->ref f))]
@@ -1934,280 +1892,46 @@ function _wakePushSelection(eid) {
                 :else "2fr")))
             col-children) " ")
         col-props (mapv (fn [ch] (get (get (.-attrs ch) "text") "prop")) col-children)
-        grid-tpl-sel (if is-server (str "30px " grid-tpl) grid-tpl)
+        grid-tpl-sel grid-tpl
 
-        tab-stores (if has-tabs
-          (mapv (fn [tab]
-            (let [tab-entity-name (.-entity-name tab)
-                  tab-ge (first (filterv (fn [e] (= (.-name e) tab-entity-name)) all-entities))]
-              (if (nil? tab-ge) (str tab-entity-name "s") (.-store-name tab-ge))))
-            tabs)
-          [])
+        tab-stores []
 
-        tab-btn-code (if has-tabs
-          (loop [i 0 acc ""]
-            (if (>= i (count tabs))
-              acc
-              (let [tab (nth tabs i)
-                    label (.-label tab)
-                    ref (str "_tb" i)]
-                (recur (+ i 1)
-                  (str acc
-                    "      const " ref " = document.createElement('button');\n"
-                    "      " ref ".textContent = " (q label) ";\n"
-                    "      " ref ".className = 'px-4 py-2 text-sm font-medium text-muted-foreground border-b-2 border-transparent hover:text-foreground';\n"
-                    "      " ref ".addEventListener('click', () => _switchTab(" i "));\n"
-                    "      _tabBar.appendChild(" ref ");\n"
-                    "      _tabBtns.push(" ref ");\n")))))
-          "")
+        tab-btn-code ""
 
-        tab-endpoints-js (if has-tabs
-          (str "[" (.join
-            (loop [i 0 acc []]
-              (if (>= i (count tabs))
-                acc
-                (recur (+ i 1)
-                  (conj acc (str "'/api/" store-name "/' + eid + '/" (nth tab-stores i) "'")))))
-            ", ") "]")
-          "[]")
+        tab-endpoints-js "[]"
 
-        tab-fields-js (if has-tabs
-          (str "[" (.join
-            (mapv (fn [tab]
-              (str "[" (.join (mapv (fn [f] (str "'" f "'")) (.-display-fields tab)) ", ") "]"))
-              tabs)
-            ", ") "]")
-          "[]")
+        tab-fields-js "[]"
 
-        tab-labels-js (if has-tabs
-          (str "[" (.join
-            (mapv (fn [tab]
-              (str "[" (.join (mapv (fn [f] (str "'" (titlecase f) "'")) (.-display-fields tab)) ", ") "]"))
-              tabs)
-            ", ") "]")
-          "[]")
+        tab-labels-js "[]"
 
-        tab-meta-js (if has-tabs
-          (str "[" (.join
-            (mapv (fn [tab]
-              (let [fk (.-fk-column tab)
-                    ent (.-entity-name tab)
-                    filt (or (.-filter tab) "")
-                    filt-pairs (if (= filt "") "{}"
-                      (let [clean (.replace (.replace filt " " "") "  " "")
-                            parts (.split clean "AND")
-                            entries (mapv (fn [p]
-                              (let [kv (.split (.trim p) "=")]
-                                (str "'" (.trim (nth kv 0)) "': '" (.trim (nth kv 1)) "'")))
-                              parts)]
-                        (str "{" (.join entries ", ") "}")))]
-                (str "{store:'" ent "s', fk:'" fk "', filter:" filt-pairs "}")))
-              tabs)
-            ", ") "]")
-          "[]")
+        tab-meta-js "[]"
 
-        tab-code (if has-tabs
-          (str
-            "      const _tabBar = document.createElement('div');\n"
-            "      _tabBar.className = 'flex border-b border-border mt-4';\n"
-            "      const _tabBtns = [];\n"
-            "      const _tabContent = document.createElement('div');\n"
-            "      _tabContent.className = 'p-4';\n"
-            tab-btn-code
-            "      let _activeTabIdx = -1;\n"
-            "      const _tabEndpoints = " tab-endpoints-js ";\n"
-            "      const _tabFields = " tab-fields-js ";\n"
-            "      const _tabLabels = " tab-labels-js ";\n"
-            "      const _tabMeta = " tab-meta-js ";\n"
-            "      function _switchTab(idx) {\n"
-            "        if (_activeTabIdx === idx) return;\n"
-            "        _activeTabIdx = idx;\n"
-            "        _tabBtns.forEach((b, i) => {\n"
-            "          b.className = i === idx ? 'px-4 py-2 text-sm font-medium text-foreground border-b-2 border-primary' : 'px-4 py-2 text-sm font-medium text-muted-foreground border-b-2 border-transparent hover:text-foreground';\n"
-            "        });\n"
-            "        _tabContent.innerHTML = '<div class=\"text-sm text-muted-foreground\">Loading...</div>';\n"
-            "        fetch(window.location.origin + _tabEndpoints[idx])\n"
-            "          .then(r => r.json())\n"
-            "          .then(rows => {\n"
-            "            _tabContent.innerHTML = '';\n"
-            "            const meta = _tabMeta[idx];\n"
-            "            const addBtn = document.createElement('button');\n"
-            "            addBtn.textContent = '+ Add';\n"
-            "            addBtn.className = 'mb-2 px-3 py-1 text-xs font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90';\n"
-            "            const addForm = document.createElement('div');\n"
-            "            addForm.className = 'mb-3 p-3 border border-border rounded-md bg-muted/30';\n"
-            "            addForm.style.display = 'none';\n"
-            "            const fields = _tabFields[idx], labels = _tabLabels[idx];\n"
-            "            const inputs = {};\n"
-            "            fields.forEach(f => {\n"
-            "              const lbl = document.createElement('label'); lbl.className = 'text-xs font-medium uppercase text-muted-foreground block mt-1'; lbl.textContent = f;\n"
-            "              const inp = document.createElement('input'); inp.className = 'w-full px-2 py-1 border border-input rounded-md bg-background text-foreground text-sm mt-0.5';\n"
-            "              inputs[f] = inp; addForm.appendChild(lbl); addForm.appendChild(inp);\n"
-            "            });\n"
-            "            const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';\n"
-            "            saveBtn.className = 'mt-2 mr-2 px-3 py-1 text-xs font-medium bg-primary text-primary-foreground rounded-md';\n"
-            "            const cancelBtn = document.createElement('button'); cancelBtn.textContent = 'Cancel';\n"
-            "            cancelBtn.className = 'mt-2 px-3 py-1 text-xs font-medium border border-border text-foreground rounded-md';\n"
-            "            saveBtn.addEventListener('click', async () => {\n"
-            "              const body = {...meta.filter}; body[meta.fk] = selectedEid;\n"
-            "              for (const [k,v] of Object.entries(inputs)) body[k] = v.value;\n"
-            "              await fetch(window.location.origin + '/api/' + meta.store, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });\n"
-            "              addForm.style.display = 'none'; _activeTabIdx = -1; _switchTab(idx);\n"
-            "            });\n"
-            "            cancelBtn.addEventListener('click', () => { addForm.style.display = 'none'; });\n"
-            "            addForm.appendChild(saveBtn); addForm.appendChild(cancelBtn);\n"
-            "            addBtn.addEventListener('click', () => { addForm.style.display = addForm.style.display === 'none' ? '' : 'none'; });\n"
-            "            _tabContent.appendChild(addBtn); _tabContent.appendChild(addForm);\n"
-            "            if (rows.length === 0) { const noRec = document.createElement('div'); noRec.className = 'text-sm text-muted-foreground py-2'; noRec.textContent = 'No records'; _tabContent.appendChild(noRec); return; }\n"
-            "            const tbl = document.createElement('table');\n"
-            "            tbl.className = 'w-full text-sm';\n"
-            "            const thead = document.createElement('thead'), hr = document.createElement('tr');\n"
-            "            labels.forEach(l => { const th = document.createElement('th'); th.className = 'text-left text-xs font-medium uppercase text-muted-foreground py-1 px-2'; th.textContent = l; hr.appendChild(th); });\n"
-            "            thead.appendChild(hr); tbl.appendChild(thead);\n"
-            "            const tbody = document.createElement('tbody');\n"
-            "            for (const row of rows) { const tr = document.createElement('tr'); tr.className = 'border-t border-border'; fields.forEach(f => { const td = document.createElement('td'); td.className = 'py-1.5 px-2'; td.textContent = row[f] || ''; tr.appendChild(td); }); tbody.appendChild(tr); }\n"
-            "            tbl.appendChild(tbody); _tabContent.appendChild(tbl);\n"
-            "          });\n"
-            "      }\n"
-            "      _tabBarEl = _tabBar;\n"
-            "      _tabContentEl = _tabContent;\n"
-            "      rightPane.appendChild(_tabBar);\n"
-            "      rightPane.appendChild(_tabContent);\n"
-            "      _switchTab(0);\n")
-          "")
+        tab-code ""
 
-        export-btn-js (if is-server
-          (str
-            "    const exportBtn = document.createElement('button');\n"
-            "    exportBtn.textContent = 'Export CSV';\n"
-            "    exportBtn.className = 'px-3 py-1 text-sm font-medium border border-border text-foreground rounded-md hover:bg-muted';\n"
-            "    exportBtn.addEventListener('click', () => {\n"
-            "      let url = window.location.origin + '/api/" store-name "?limit=100000&offset=0';\n"
-            "      if (_sort['" store-name "']) url += '&sort=' + _sort['" store-name "'] + '&dir=' + (_sortDir['" store-name "'] || 'asc');\n"
-            "      if (_search['" store-name "']) url += '&search=' + encodeURIComponent(_search['" store-name "']);\n"
-            "      fetch(url).then(r => r.json()).then(rows => {\n"
-            "        if (rows.length === 0) return;\n"
-            "        const headers = Object.keys(rows[0]);\n"
-            "        const _csvQ = v => '\"' + String(v).replace(/\"/g, '\"\"') + '\"';\n"
-            "        const csv = headers.join(',') + '\\n' + rows.map(r => headers.map(h => _csvQ(r[h] || '')).join(',')).join('\\n');\n"
-            "        const blob = new Blob([csv], { type: 'text/csv' });\n"
-            "        const a = document.createElement('a');\n"
-            "        a.href = URL.createObjectURL(blob);\n"
-            "        a.download = '" store-name ".csv';\n"
-            "        a.click();\n"
-            "      });\n"
-            "    });\n"
-            "    toolbar.appendChild(exportBtn);\n")
-          "")
+        export-btn-js ""
 
-        selection-setup (if is-server
-          (str
-            "    const _selected = new Set();\n"
-            "    const _selectBar = document.createElement('div');\n"
-            "    _selectBar.className = 'flex items-center justify-between px-4 py-2 border-t border-border bg-muted/50';\n"
-            "    _selectBar.style.display = 'none';\n"
-            "    const _selectCount = document.createElement('span');\n"
-            "    _selectCount.className = 'text-sm text-muted-foreground';\n"
-            "    const _exportSelBtn = document.createElement('button');\n"
-            "    _exportSelBtn.textContent = 'Export Selected';\n"
-            "    _exportSelBtn.className = 'px-3 py-1 text-sm font-medium border border-border text-foreground rounded-md hover:bg-muted';\n"
-            "    _exportSelBtn.addEventListener('click', () => {\n"
-            "      if (_selected.size === 0) return;\n"
-            "      const rows = Array.from(_selected).map(eid => " store-name ".get(eid)).filter(Boolean);\n"
-            "      if (rows.length === 0) return;\n"
-            "      const headers = Object.keys(rows[0]);\n"
-            "      const _csvQ = v => '\"' + String(v).replace(/\"/g, '\"\"') + '\"';\n"
-            "      const csv = headers.join(',') + '\\n' + rows.map(r => headers.map(h => _csvQ(r[h] || '')).join(',')).join('\\n');\n"
-            "      const blob = new Blob([csv], { type: 'text/csv' });\n"
-            "      const a = document.createElement('a');\n"
-            "      a.href = URL.createObjectURL(blob);\n"
-            "      a.download = '" store-name "_selected.csv';\n"
-            "      a.click();\n"
-            "    });\n"
-            "    _selectBar.appendChild(_selectCount);\n"
-            "    _selectBar.appendChild(_exportSelBtn);\n"
-            "    function _updateSelectBar() {\n"
-            "      _selectBar.style.display = _selected.size > 0 ? '' : 'none';\n"
-            "      _selectCount.textContent = _selected.size + ' selected';\n"
-            "    }\n")
-          "")
+        selection-setup ""
 
-        select-all-cb (if is-server
-          (str
-            "    const _selectAll = document.createElement('input');\n"
-            "    _selectAll.type = 'checkbox';\n"
-            "    _selectAll.className = 'w-4 h-4 cursor-pointer self-center';\n"
-            "    _selectAll.addEventListener('change', () => {\n"
-            "      for (const [eid, inst] of instances) {\n"
-            "        const cb = inst.el.querySelector('input[type=\"checkbox\"]');\n"
-            "        if (cb) cb.checked = _selectAll.checked;\n"
-            "        if (_selectAll.checked) _selected.add(eid);\n"
-            "        else _selected.delete(eid);\n"
-            "      }\n"
-            "      _updateSelectBar();\n"
-            "    });\n"
-            "    colHeader.insertBefore(_selectAll, colHeader.firstChild);\n")
-          "")
+        select-all-cb ""
 
-        row-cb-add (if is-server
-          (str
-            "        const _cb = document.createElement('input');\n"
-            "        _cb.type = 'checkbox';\n"
-            "        _cb.className = 'w-4 h-4 cursor-pointer self-center';\n"
-            "        _cb.addEventListener('click', (e) => e.stopPropagation());\n"
-            "        _cb.addEventListener('change', () => {\n"
-            "          if (_cb.checked) _selected.add(evt.eid);\n"
-            "          else _selected.delete(evt.eid);\n"
-            "          _updateSelectBar();\n"
-            "        });\n"
-            "        inst.el.insertBefore(_cb, inst.el.firstChild);\n")
-          "")
+        row-cb-add ""
 
-        row-cb-load (if is-server
-          (str
-            "          const _cb = document.createElement('input');\n"
-            "          _cb.type = 'checkbox';\n"
-            "          _cb.className = 'w-4 h-4 cursor-pointer self-center';\n"
-            "          _cb.addEventListener('click', (e) => e.stopPropagation());\n"
-            "          _cb.addEventListener('change', () => {\n"
-            "            if (_cb.checked) _selected.add(entity.eid);\n"
-            "            else _selected.delete(entity.eid);\n"
-            "            _updateSelectBar();\n"
-            "          });\n"
-            "          inst.el.insertBefore(_cb, inst.el.firstChild);\n")
-          "")
+        row-cb-load ""
 
         col-header-js (str
           "    const colHeader = document.createElement('div');\n"
           "    colHeader.className = 'items-center gap-4 px-4 py-2 border-b border-border bg-muted/30';\n"
           "    colHeader.style.display = 'grid';\n"
           "    colHeader.style.gridTemplateColumns = '" grid-tpl-sel "';\n"
-          (if is-server
-            (str "    const _sortHeaders = {};\n"
-              "    function _updateSortIndicators() {\n"
-              "      for (const [p, el] of Object.entries(_sortHeaders)) {\n"
-              "        const arrow = _sort['" store-name "'] === p ? (_sortDir['" store-name "'] === 'desc' ? ' ↓' : ' ↑') : '';\n"
-              "        el.textContent = el.dataset.label + arrow;\n"
-              "      }\n"
-              "    }\n")
-            "")
+          ""
           (.join (mapv (fn [ch]
             (let [prop (get (get (.-attrs ch) "text") "prop")
                   ref (id->ref prop)]
               (str "    const hdr_" ref " = document.createElement('span');\n"
-                   "    hdr_" ref ".className = 'text-xs font-medium uppercase text-muted-foreground truncate" (if is-server " cursor-pointer" "") "';\n"
+                   "    hdr_" ref ".className = 'text-xs font-medium uppercase text-muted-foreground truncate';\n"
                    "    hdr_" ref ".textContent = " (q (titlecase prop)) ";\n"
                    "    hdr_" ref ".dataset.label = " (q (titlecase prop)) ";\n"
-                   (if is-server
-                     (str "    _sortHeaders['" prop "'] = hdr_" ref ";\n"
-                          "    hdr_" ref ".addEventListener('click', () => {\n"
-                          "      if (_sort['" store-name "'] === '" prop "') { _sortDir['" store-name "'] = _sortDir['" store-name "'] === 'desc' ? 'asc' : 'desc'; }\n"
-                          "      else { _sort['" store-name "'] = '" prop "'; _sortDir['" store-name "'] = 'asc'; }\n"
-                          "      _page['" store-name "'] = 0;\n"
-                          "      _updateSortIndicators();\n"
-                          "      loadStore('" store-name "');\n"
-                          "    });\n")
-                     "")
+                   ""
                    "    colHeader.appendChild(hdr_" ref ");\n")))
             col-children) ""))
 
@@ -2263,146 +1987,13 @@ function _wakePushSelection(eid) {
 
 "#
 
-        filter-dropdowns-js (if has-filters
-          (.join (mapv (fn [f]
-            (let [fname (.-name f)
-                  fltable (.-filter-lookup-table f)
-                  ltable (or fltable (.-lookup-table f))
-                  is-lookup (not (nil? ltable))
-                  label (titlecase fname)
-                  fetch-url (if is-lookup
-                    (str "/api/_lookup/" ltable)
-                    (str "/api/_distinct/" store-name "/" fname))
-                  option-builder (if is-lookup
-                    (str "      rows.forEach(r => { const o = document.createElement('option'); o.value = r.id; o.textContent = r.name; _fsel_" fname ".appendChild(o); });\n")
-                    (str "      rows.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = v; _fsel_" fname ".appendChild(o); });\n"))]
-              (str "    const _fsel_" fname " = document.createElement('select');\n"
-                   "    _fsel_" fname ".className = 'px-2 py-1.5 border border-border rounded-md bg-background text-foreground text-xs';\n"
-                   "    _fsel_" fname ".innerHTML = '<option value=\"\">All " label "</option>';\n"
-                   "    fetch(window.location.origin + '" fetch-url "').then(r => r.json()).then(rows => {\n"
-                   option-builder
-                   "    });\n"
-                   "    _fsel_" fname ".addEventListener('change', () => {\n"
-                   "      if (!_filters['" store-name "']) _filters['" store-name "'] = {};\n"
-                   "      _filters['" store-name "']['" fname "'] = _fsel_" fname ".value;\n"
-                   "      _page['" store-name "'] = 0;\n"
-                   "      loadStore('" store-name "');\n"
-                   "    });\n")))
-            filter-fields-meta) "")
-          "")
+        filter-dropdowns-js ""
 
-        date-filter-inputs-js (if has-date-filters
-          (.join (mapv (fn [f]
-            (let [fname (.-name f)
-                  label (titlecase fname)]
-              (str "    const _dflabel_" fname " = document.createElement('span');\n"
-                   "    _dflabel_" fname ".textContent = '" label ":';\n"
-                   "    _dflabel_" fname ".className = 'text-xs text-muted-foreground self-center';\n"
-                   "    const _dfrom_" fname " = document.createElement('input');\n"
-                   "    _dfrom_" fname ".type = 'date';\n"
-                   "    _dfrom_" fname ".className = 'px-2 py-1 border border-border rounded-md bg-background text-foreground text-xs';\n"
-                   "    _dfrom_" fname ".title = '" label " from';\n"
-                   "    const _dto_" fname " = document.createElement('input');\n"
-                   "    _dto_" fname ".type = 'date';\n"
-                   "    _dto_" fname ".className = 'px-2 py-1 border border-border rounded-md bg-background text-foreground text-xs';\n"
-                   "    _dto_" fname ".title = '" label " to';\n"
-                   "    _dfrom_" fname ".addEventListener('change', () => {\n"
-                   "      if (!_filters['" store-name "']) _filters['" store-name "'] = {};\n"
-                   "      _filters['" store-name "']['" fname "_from'] = _dfrom_" fname ".value;\n"
-                   "      _page['" store-name "'] = 0;\n"
-                   "      loadStore('" store-name "');\n"
-                   "    });\n"
-                   "    _dto_" fname ".addEventListener('change', () => {\n"
-                   "      if (!_filters['" store-name "']) _filters['" store-name "'] = {};\n"
-                   "      _filters['" store-name "']['" fname "_to'] = _dto_" fname ".value;\n"
-                   "      _page['" store-name "'] = 0;\n"
-                   "      loadStore('" store-name "');\n"
-                   "    });\n")))
-            date-filter-fields-meta) "")
-          "")
+        date-filter-inputs-js ""
 
-        saved-search-js (if is-server
-          (str "    const _ssKey = 'wake_searches_" store-name "';\n"
-               "    const _ssLoad = document.createElement('select');\n"
-               "    _ssLoad.className = 'px-2 py-1.5 border border-border rounded-md bg-background text-foreground text-xs';\n"
-               "    _ssLoad.innerHTML = '<option value=\"\">Saved Searches</option>';\n"
-               "    function _ssRefresh() {\n"
-               "      const saved = JSON.parse(localStorage.getItem(_ssKey) || '[]');\n"
-               "      _ssLoad.innerHTML = '<option value=\"\">Saved Searches</option>';\n"
-               "      saved.forEach((s,i) => { const o = document.createElement('option'); o.value = i; o.textContent = s.name; _ssLoad.appendChild(o); });\n"
-               "    }\n"
-               "    _ssRefresh();\n"
-               "    _ssLoad.addEventListener('change', () => {\n"
-               "      const saved = JSON.parse(localStorage.getItem(_ssKey) || '[]');\n"
-               "      const idx = parseInt(_ssLoad.value);\n"
-               "      if (isNaN(idx)) return;\n"
-               "      const s = saved[idx];\n"
-               "      if (!s) return;\n"
-               "      searchEl.value = s.search || '';\n"
-               "      _search['" store-name "'] = s.search || '';\n"
-               "      _filters['" store-name "'] = Object.assign({}, s.filters || {});\n"
-               "      const sf = s.filters || {};\n"
-               (if has-filters
-                 (.join (mapv (fn [f] (str "      if (_fsel_" (.-name f) ") _fsel_" (.-name f) ".value = sf['" (.-name f) "'] || '';\n")) filter-fields-meta) "")
-                 "")
-               (if has-date-filters
-                 (.join (mapv (fn [f]
-                   (let [fname (.-name f)]
-                     (str "      if (_dfrom_" fname ") _dfrom_" fname ".value = sf['" fname "_from'] || '';\n"
-                          "      if (_dto_" fname ") _dto_" fname ".value = sf['" fname "_to'] || '';\n")))
-                   date-filter-fields-meta) "")
-                 "")
-               "      _page['" store-name "'] = 0;\n"
-               "      loadStore('" store-name "');\n"
-               "    });\n"
-               "    const _ssSave = document.createElement('button');\n"
-               "    _ssSave.textContent = 'Save';\n"
-               "    _ssSave.className = 'px-2 py-1 text-xs border border-border rounded-md bg-background text-foreground hover:bg-muted';\n"
-               "    _ssSave.addEventListener('click', () => {\n"
-               "      const name = prompt('Search name:');\n"
-               "      if (!name) return;\n"
-               "      const saved = JSON.parse(localStorage.getItem(_ssKey) || '[]');\n"
-               "      saved.push({ name, search: searchEl.value, filters: Object.assign({}, _filters['" store-name "'] || {}) });\n"
-               "      localStorage.setItem(_ssKey, JSON.stringify(saved));\n"
-               "      _ssRefresh();\n"
-               "    });\n"
-               "    const _ssDel = document.createElement('button');\n"
-               "    _ssDel.textContent = '✕';\n"
-               "    _ssDel.className = 'px-2 py-1 text-xs border border-border rounded-md bg-background text-destructive hover:bg-muted';\n"
-               "    _ssDel.addEventListener('click', () => {\n"
-               "      const idx = parseInt(_ssLoad.value);\n"
-               "      if (isNaN(idx)) return;\n"
-               "      const saved = JSON.parse(localStorage.getItem(_ssKey) || '[]');\n"
-               "      saved.splice(idx, 1);\n"
-               "      localStorage.setItem(_ssKey, JSON.stringify(saved));\n"
-               "      _ssRefresh();\n"
-               "    });\n")
-          "")
+        saved-search-js ""
 
-        filter-bar-append-js (if (or has-filters has-date-filters is-server)
-          (let [filter-appends (if has-filters
-                  (.join (mapv (fn [f] (str "    filterBar.appendChild(_fsel_" (.-name f) ");\n")) filter-fields-meta) "")
-                  "")
-                date-appends (if has-date-filters
-                  (.join (mapv (fn [f]
-                    (let [fname (.-name f)]
-                      (str "    filterBar.appendChild(_dflabel_" fname ");\n"
-                           "    filterBar.appendChild(_dfrom_" fname ");\n"
-                           "    filterBar.appendChild(_dto_" fname ");\n")))
-                    date-filter-fields-meta) "")
-                  "")
-                search-appends (if is-server
-                  (str "    filterBar.appendChild(_ssLoad);\n"
-                       "    filterBar.appendChild(_ssSave);\n"
-                       "    filterBar.appendChild(_ssDel);\n")
-                  "")]
-            (str "    const filterBar = document.createElement('div');\n"
-                 "    filterBar.className = 'flex flex-wrap gap-2 mt-2 items-center';\n"
-                 filter-appends
-                 date-appends
-                 search-appends
-                 "    searchBar.appendChild(filterBar);\n"))
-          "")
+        filter-bar-append-js ""
 
         search-setup (str #r#"
     const searchEl = document.createElement('input');
@@ -2426,24 +2017,12 @@ function _wakePushSelection(eid) {
     listEl.className = 'flex-1 overflow-y-auto';
 
 "#
-          (if is-server
-            (str "    function filterRows() {}\n"
-                 "    let _searchTimer = null;\n"
-                 "    searchEl.addEventListener('input', () => {\n"
-                 "      clearTimeout(_searchTimer);\n"
-                 "      _searchTimer = setTimeout(() => {\n"
-                 "        _search['" store-name "'] = searchEl.value.trim();\n"
-                 "        _page['" store-name "'] = 0;\n"
-                 "        loadStore('" store-name "');\n"
-                 "      }, 300);\n"
-                 "    });\n")
-            (str "    function filterRows() {\n"
-                 "      const q = searchEl.value.toLowerCase();\n"
-                 "      let visible = 0;\n"
-                 "      for (const [eid, inst] of instances) {\n")))
+          (str "    function filterRows() {\n"
+               "      const q = searchEl.value.toLowerCase();\n"
+               "      let visible = 0;\n"
+               "      for (const [eid, inst] of instances) {\n"))
 
-        filter-fn-bottom (if is-server ""
-          #r#"
+        filter-fn-bottom #r#"
         if (!entity) continue;
         const text = Object.values(entity).join(' ').toLowerCase();
         const show = !q || text.includes(q);
@@ -2455,7 +2034,6 @@ function _wakePushSelection(eid) {
     searchEl.addEventListener('input', filterRows);
 
 "#
-        )
 
         split-pane-setup (str
           "    viewEl.appendChild(searchBar);\n"
@@ -2643,34 +2221,7 @@ function _wakePushSelection(eid) {
 
 "#
 
-        pagination-bar (str #r#"
-    const pageBar = document.createElement('div');
-    pageBar.className = 'flex items-center justify-between px-4 py-2 border-t border-border text-xs text-muted-foreground';
-    const pageInfo = document.createElement('span');
-    const pageNav = document.createElement('div');
-    pageNav.className = 'flex gap-2';
-    const prevBtn = document.createElement('button');
-    prevBtn.textContent = '← Prev';
-    prevBtn.className = 'px-2 py-1 border border-border rounded-md hover:bg-muted';
-    const nextBtn = document.createElement('button');
-    nextBtn.textContent = 'Next →';
-    nextBtn.className = 'px-2 py-1 border border-border rounded-md hover:bg-muted';
-    pageNav.appendChild(prevBtn);
-    pageNav.appendChild(nextBtn);
-    pageBar.appendChild(pageInfo);
-    pageBar.appendChild(pageNav);
-"#
-          "\n    function updatePageInfo() {\n"
-          "      const p = _page['" store-name "'] || 0;\n"
-          "      const total = _totals['" store-name "'] || 0;\n"
-          "      const pages = Math.ceil(total / _pageSize);\n"
-          "      pageInfo.textContent = 'Page ' + (p + 1) + ' of ' + (pages || 1) + ' (' + total + ' total)';\n"
-          "      prevBtn.disabled = p <= 0;\n"
-          "      nextBtn.disabled = p >= pages - 1;\n"
-          "    }\n"
-          "    prevBtn.addEventListener('click', () => { _page['" store-name "'] = Math.max(0, (_page['" store-name "'] || 0) - 1); loadStore('" store-name "'); });\n"
-          "    nextBtn.addEventListener('click', () => { _page['" store-name "'] = (_page['" store-name "'] || 0) + 1; loadStore('" store-name "'); });\n"
-          "    onPageChange(updatePageInfo);\n")
+        pagination-bar ""
 
         view-close #r#"
   })();
@@ -2697,7 +2248,7 @@ function _wakePushSelection(eid) {
 
       ;; Search + filter
       search-setup
-      (if (not is-server) (str "        const entity = " store-name ".get(eid);\n") "")
+      (str "        const entity = " store-name ".get(eid);\n")
       filter-fn-bottom
 
       ;; Column header
@@ -2728,25 +2279,14 @@ function _wakePushSelection(eid) {
       (if has-select "        if (selectedEid === evt.eid && detailInst && detailInst.update[evt.attr]) detailInst.update[evt.attr](evt.new || '');\n" "")
       watcher-remove
       (if has-select "        if (selectedEid === evt.eid) selectItem(null);\n" "")
-      (if is-server "        _selected.delete(evt.eid); _updateSelectBar();\n" "")
       watcher-load
       (if has-select "        if (selectedEid) selectItem(null);\n" "")
-      (if is-server "        _selected.clear(); _updateSelectBar();\n        if (_selectAll) _selectAll.checked = false;\n" "")
       "        for (const entity of " store-name ".all()) {\n"
       "          const inst = " fn-name "(entity);\n"
       watcher-load-body
       row-cb-load
       (if has-select "          inst.el.addEventListener('click', () => selectItem(entity.eid));\n" "")
       watcher-load-tail
-
-      (if is-server
-        (str pagination-bar
-          (if has-select
-            (str "    leftPane.appendChild(pageBar);\n"
-                 "    leftPane.appendChild(_selectBar);\n")
-            (str "    viewEl.appendChild(pageBar);\n"
-                 "    viewEl.appendChild(_selectBar);\n")))
-        "")
 
       "    viewContainers[" (q view-name) "] = viewEl;\n"
       "    main.appendChild(viewEl);\n"
@@ -2763,7 +2303,6 @@ function _wakePushSelection(eid) {
         persist (.-persist g)
         persist-key (if (nil? persist) nil (.-key persist))
         persist-mode (if (nil? persist) nil (.-storage persist))
-        is-server (= persist-mode "server")
         src-name (.-ns g)
         layout (.-layout g)
         layout-title (if (and (some? layout) (some? (.-title layout)))
@@ -2816,13 +2355,12 @@ function _wakePushSelection(eid) {
             (let [en (.-entity-name v)
                   ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities g)))
                   store-name (.-store-name ge)]
-              (gen-view-section v components ge store-name is-server (.-entities g) views)))
+              (gen-view-section v components ge store-name (.-entities g) views)))
             views) "\n")
 
         undo-watchers (.join
           (mapv (fn [sn]
-            (let [save (cond is-server (str "    syncToServer('" sn "', evt);\n")
-                             (not (nil? persist-key)) "    saveDb();\n"
+            (let [save (cond (not (nil? persist-key)) "    saveDb();\n"
                              :else "")]
               (str sn ".watch((evt) => {\n"
                    "  if (evt.type === 'add') {\n"
@@ -2889,7 +2427,7 @@ function _wakePushSelection(eid) {
       undo-watchers "\n"
 
       "// ── Init ─────────────────────────────────────────────\n"
-      (if is-server "async function init() {\n" "function init() {\n")
+      "function init() {\n"
       #r#"
   const root = document.getElementById(window.WAKE_MOUNT_ID || 'app');
   const app = document.createElement('div');
@@ -2964,8 +2502,7 @@ function _wakePushSelection(eid) {
   });
 
 "#
-      (cond is-server "  await loadFromServer();\n"
-            (not (nil? persist-key)) "  restoreDb();\n"
+      (cond (not (nil? persist-key)) "  restoreDb();\n"
             :else "")
       "}\n\n"
       "init();\n"
@@ -3002,7 +2539,6 @@ function _wakePushSelection(eid) {
         persist (.-persist ug)
         persist-key (if (nil? persist) nil (.-key persist))
         persist-mode (if (nil? persist) nil (.-storage persist))
-        is-server (= persist-mode "server")
         all-stores (into [store-name] (mapv (fn [ri] (.-store ri)) related-info))
 
         subtitle-field (if (> (count overview-fields) 1) (nth overview-fields 1) nil)
@@ -3061,7 +2597,7 @@ function _wakePushSelection(eid) {
       ;; Compiled update paths
       "\n// ── Compiled update paths ────────────────────────────\n"
       (gen-update-fns columns search-cols overview-fields subtitle-field
-                      persist-key related-tab-keys derived-attrs store-name is-server) "\n"
+                      persist-key related-tab-keys derived-attrs store-name) "\n"
 
       ;; Undo/redo
       "\n// ── Undo / Redo ─────────────────────────────────────\n"
@@ -3069,7 +2605,7 @@ function _wakePushSelection(eid) {
 
       ;; Init
       "// ── Init ─────────────────────────────────────────────\n"
-      (gen-init-fn en (.-name (.-form ug)) store-name related-info persist-key is-server layout-result) "\n"
+      (gen-init-fn en (.-name (.-form ug)) store-name related-info persist-key layout-result) "\n"
 
       "init();\n"
       "})();\n"))))
