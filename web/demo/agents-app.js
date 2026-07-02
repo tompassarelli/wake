@@ -443,7 +443,7 @@ function _emitFeedUpdate(changed) {
             const titleEl = document.createElement('h1');
             titleEl.className = 'text-lg font-semibold text-foreground';
           
-  titleEl.textContent = "Fleet Observatory";
+  titleEl.textContent = "Swarm Observatory";
   headerEl.appendChild(titleEl);
 
             const statsEl = document.createElement('div');

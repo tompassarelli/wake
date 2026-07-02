@@ -10,7 +10,7 @@ page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', e => errors.push('pageerror: ' + e.message));
 
 await page.goto(URL, { waitUntil: 'networkidle' });
-// real fleet rows = clickable agent rows fed from /presence
+// real swarm rows = clickable agent rows fed from /presence
 await page.waitForFunction(() => document.querySelectorAll('#app .cursor-pointer').length > 0, { timeout: 10000 });
 
 const before = await page.evaluate(() => ({

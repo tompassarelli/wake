@@ -18,7 +18,7 @@ const errors = [];
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
 page.on('pageerror', e => errors.push('pageerror: ' + e.message));
 
-await page.goto('http://localhost:8091/demo/fleet-index.html', { waitUntil: 'networkidle' });
+await page.goto('http://localhost:8091/demo/swarm-index.html', { waitUntil: 'networkidle' });
 await page.waitForFunction(() => document.querySelectorAll('#app .cursor-pointer').length > 0, { timeout: 8000 });
 
 // SEAM ASSERTIONS — both custom panes carved by wake, fed by window.wake.
@@ -40,7 +40,7 @@ await page.waitForTimeout(6000);
 const streamAfter = await page.$eval('#panel-agent-stream', el => el.textContent);
 const feedReachedPane = streamAfter !== streamBefore && /Δ/.test(streamAfter);
 
-await page.screenshot({ path: 'demo/fleet-seam.png', fullPage: true });
+await page.screenshot({ path: 'demo/swarm-seam.png', fullPage: true });
 
 console.log(JSON.stringify({ panesMounted, selectedUuid, feedReachedPane, errors }, null, 2));
 await browser.close();
