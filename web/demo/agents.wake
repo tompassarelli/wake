@@ -1,7 +1,7 @@
 (ns agents.presence)
 
 ;; LIVE EXTERNAL FEED — the store mirrors the web client's bridge /presence endpoint
-;; (systemd: lodestar-web.service, default http :8088, target daemon :7978).
+;; (systemd: north-web.service, default http :8088, target daemon :7978).
 ;; Field names mirror the presence JSON keys verbatim so load() needs no projection.
 (persist :feed "http://localhost:8088/presence")
 
@@ -55,7 +55,7 @@
 
 ;; ESCAPE-HATCH PANELS — web client's Cytoscape graph + live stream-tail mount
 ;; INSIDE this wake view, sharing the same /presence feed + selection via window.wake.
-;; The shell defines window.lodestar.{mountGraph,mountStream}({ el, wake }); wake carves
-;; the container and hands it the bus. This is lodestar-cockpit-in-wake on a real pane.
-(panel agent-graph :mount "lodestar.mountGraph")
-(panel agent-stream :mount "lodestar.mountStream")
+;; The shell defines window.north.{mountGraph,mountStream}({ el, wake }); wake carves
+;; the container and hands it the bus. This is north-cockpit-in-wake on a real pane.
+(panel agent-graph :mount "north.mountGraph")
+(panel agent-stream :mount "north.mountStream")

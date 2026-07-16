@@ -491,16 +491,16 @@ function _emitFeedUpdate(changed) {
   panel_agent_graph.id = "panel-agent-graph";
   panel_agent_graph.className = 'wake-panel';
   container.appendChild(panel_agent_graph);
-  { const _fn = "lodestar.mountGraph" ? _wakeResolve("lodestar.mountGraph") : null;
+  { const _fn = "north.mountGraph" ? _wakeResolve("north.mountGraph") : null;
     if (typeof _fn === 'function') { try { _fn({ el: panel_agent_graph, wake: window.wake || null }); } catch (err) { console.error('wake: panel mount threw:', err); } }
-    else if ("lodestar.mountGraph") console.warn('wake: panel mount fn not found:', "lodestar.mountGraph"); }
+    else if ("north.mountGraph") console.warn('wake: panel mount fn not found:', "north.mountGraph"); }
   const panel_agent_stream = document.createElement('div');
   panel_agent_stream.id = "panel-agent-stream";
   panel_agent_stream.className = 'wake-panel';
   container.appendChild(panel_agent_stream);
-  { const _fn = "lodestar.mountStream" ? _wakeResolve("lodestar.mountStream") : null;
+  { const _fn = "north.mountStream" ? _wakeResolve("north.mountStream") : null;
     if (typeof _fn === 'function') { try { _fn({ el: panel_agent_stream, wake: window.wake || null }); } catch (err) { console.error('wake: panel mount threw:', err); } }
-    else if ("lodestar.mountStream") console.warn('wake: panel mount fn not found:', "lodestar.mountStream"); }
+    else if ("north.mountStream") console.warn('wake: panel mount fn not found:', "north.mountStream"); }
   agents.watch((evt) => {
     if (evt.type === 'add') {
       const inst = agent_row_create(evt.entity);

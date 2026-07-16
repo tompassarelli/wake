@@ -26,7 +26,7 @@ QUERY: change contact.company — what is the blast radius?
 
 A bare-name (regex-style) pass drags in `note.company` — an unrelated entity's field.
 The claim-graph closure (transitive `reaches` over `dep` edges, the same Fram Datalog
-engine Beagle/Lodestar use) includes only the genuine dependent and **excludes the
+engine Beagle/North use) includes only the genuine dependent and **excludes the
 decoy**. Kill-criterion #1 cleared: app-as-claims reasoning is scope-correct.
 
 ## Run it
