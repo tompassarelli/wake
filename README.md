@@ -127,3 +127,9 @@ docs/adr/       architecture decisions  ·  docs/devlog/  build log  ·  docs/ex
 - Playwright — testing
 
 Exact pinned versions live in `web/package.json` and `web/flake.lock`, not here.
+
+## License
+
+Wake is dual-licensed under the [MIT License](LICENSE-MIT) or the
+[Apache License 2.0](LICENSE-APACHE), at your option. See the root
+[license chooser](LICENSE).
