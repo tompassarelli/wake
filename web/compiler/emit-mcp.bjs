@@ -9,14 +9,14 @@
 ;; the API/MCP sibling of emit-sql (DDL) and codegen's :claims store — pure projection,
 ;; no bespoke logic (that stays app code; see the charter's Phase-C finding).
 
-(defn tool-json [(name :- String) (desc :- String) (props :- (Vec String))] :- String
+(defn tool-json [name: String desc: String props: (Vec String)] :- String
   (let [params (.join (mapv (fn [p] (str "\"" p "\": {\"type\": \"string\"}")) props) ", ")]
     (str "{\"name\": \"" name "\", \"description\": \"" desc
          "\", \"inputSchema\": {\"type\": \"object\", \"properties\": {" params "}}}")))
 
 ;; the tools for one entity, already joined into one block (avoids mapcat/flatten,
 ;; which would pull the beagle runtime — emit-sql/emit-server stick to mapv/.concat/.join).
-(defn entity-tools [(e :- Any)] :- String
+(defn entity-tools [e: Any] :- String
   (let [name (.-name e)
         stored (.-stored-fields e)
         fields (mapv (fn [f] (.-name f)) stored)
@@ -31,7 +31,7 @@
                        rels)]
     (.join (.concat crud closures) ",\n    ")))
 
-(defn gen-mcp [(prog :- Any)] :- String
+(defn gen-mcp [prog: Any] :- String
   (let [g (graph/check-program prog)
         entities (.-entities g)
         blocks (mapv (fn [e] (entity-tools e)) entities)

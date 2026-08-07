@@ -4,30 +4,35 @@
 ;; IR data structures for the Wake compiler.
 ;; Produced by the reader, consumed by codegen.
 
-(defrecord IrAttr [(name :- String) (type :- String) (opts :- Any)])
-(defrecord IrEntity [(name :- String) (attrs :- (Vec IrAttr)) (opts :- Any)])
-(defrecord IrPersist [(storage :- String) (key :- String)])
-(defrecord IrDefstate [(name :- String) (transitions :- (Map String (Vec String))) (initial :- String)])
-(defrecord IrDetailTab [(label :- String) (content-type :- String) (content-spec :- Any)])
-(defrecord IrListDetail [(entity-name :- String) (title :- String) (columns :- (Vec String)) (search-cols :- (Vec String)) (detail-tabs :- (Vec IrDetailTab))])
-(defrecord IrSmartForm [(name :- String) (entity-name :- String) (fields :- (Vec String)) (required :- (Vec String)) (submit-label :- String) (on-success :- String)])
-(defrecord IrTheme [(colors :- (Map String String))])
-(defrecord IrComponent [(name :- String) (props :- (Vec String)) (body :- (Vec IrElement))])
-(defrecord IrElement [(tag :- String) (attrs :- Any) (children :- Any)])
-(defrecord IrWhen [(prop :- String) (children :- Any)])
+(defrecord IrAttr [name: String type: String opts: Any])
+(defrecord IrEntity [name: String attrs: (Vec IrAttr) opts: Any])
+(defrecord IrPersist [storage: String key: String])
+(defrecord IrDefstate [name: String transitions: (Map String (Vec String)) initial: String])
+(defrecord IrDetailTab [label: String content-type: String content-spec: Any])
+(defrecord IrListDetail [entity-name: String title: String columns: (Vec String) search-cols: (Vec String) detail-tabs: (Vec IrDetailTab)])
+(defrecord IrSmartForm [name: String entity-name: String fields: (Vec String) required: (Vec String) submit-label: String on-success: String])
+(defrecord IrTheme [colors: (Map String String)])
+(defrecord IrComponent [name: String props: (Vec String) body: (Vec IrElement)])
+(defrecord IrElement [tag: String attrs: Any children: Any])
+(defrecord IrWhen [prop: String children: Any])
 ;; An event handler effect: verb (assert/set/retract/select/refetch) + args.
 ;; Rides inside an element's attrs map under an "on-<event>" key.
-(defrecord IrAction [(verb :- String) (args :- Any)])
-(defunion IrNode IrElement IrWhen)
-(defrecord IrRelatedTab [(label :- String) (entity-name :- String) (fk-column :- String) (filter :- String?) (display-fields :- (Vec String))])
-(defrecord IrView [(name :- String) (entity-name :- String) (component :- String) (add-fields :- (Vec String)) (title :- String) (select-component :- String?) (tabs :- (Vec IrRelatedTab)) (filters :- (Vec String)) (date-filters :- (Vec String))])
-(defrecord IrRoute [(path :- String) (view-name :- String)])
-(defrecord IrRouter [(default-route :- String) (routes :- (Vec IrRoute))])
-(defrecord IrAuth [(entity :- String) (login-field :- String) (password-field :- String) (session :- String) (protect :- (Vec String))])
-(defrecord IrNavGroup [(label :- String) (items :- (Vec String))])
-(defrecord IrLayout [(style :- String) (title :- String?) (groups :- (Vec IrNavGroup))])
+(defrecord IrAction [verb: String args: Any])
+;; Fields repeated inline (not just member names): the cross-module defunion
+;; interface only carries constructor arity when fields ride on the member
+;; form itself, not via a separate same-name defrecord.
+(defunion IrNode
+  (IrElement [tag: String attrs: Any children: Any])
+  (IrWhen [prop: String children: Any]))
+(defrecord IrRelatedTab [label: String entity-name: String fk-column: String filter: String? display-fields: (Vec String)])
+(defrecord IrView [name: String entity-name: String component: String add-fields: (Vec String) title: String select-component: String? tabs: (Vec IrRelatedTab) filters: (Vec String) date-filters: (Vec String)])
+(defrecord IrRoute [path: String view-name: String])
+(defrecord IrRouter [default-route: String routes: (Vec IrRoute)])
+(defrecord IrAuth [entity: String login-field: String password-field: String session: String protect: (Vec String)])
+(defrecord IrNavGroup [label: String items: (Vec String)])
+(defrecord IrLayout [style: String title: String? groups: (Vec IrNavGroup)])
 ;; A custom-pane escape hatch: the shell mounts its own JS (Cytoscape/stream) into a named
 ;; container carved from the wake view, sharing feed+selection via window.wake. mount-fn is a
 ;; dotted path resolved off window at runtime (e.g. "north.mountGraph").
-(defrecord IrPanel [(name :- String) (mount-fn :- String)])
-(defrecord IrProgram [(ns :- String) (entities :- (Vec IrEntity)) (persist :- IrPersist?) (defstates :- (Vec IrDefstate)) (list-details :- (Vec IrListDetail)) (forms :- (Vec IrSmartForm)) (theme :- IrTheme?) (components :- (Vec IrComponent)) (views :- (Vec IrView)) (router :- IrRouter?) (auth :- IrAuth?) (layout :- IrLayout?) (panels :- (Vec IrPanel))])
+(defrecord IrPanel [name: String mount-fn: String])
+(defrecord IrProgram [ns: String entities: (Vec IrEntity) persist: IrPersist? defstates: (Vec IrDefstate) list-details: (Vec IrListDetail) forms: (Vec IrSmartForm) theme: IrTheme? components: (Vec IrComponent) views: (Vec IrView) router: IrRouter? auth: IrAuth? layout: IrLayout? panels: (Vec IrPanel)])

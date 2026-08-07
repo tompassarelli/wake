@@ -9,39 +9,39 @@
 
 ;; --- Typed records ---
 
-(defrecord RenderResult [(code :- String) (vname :- String) (bindings :- Any)])
-(defrecord Binding [(prop :- String) (vname :- String) (dom-prop :- String)])
-(defrecord LayoutRef [(id :- String) (vname :- String)])
-(defrecord LayoutResult [(code :- String) (refs :- (Vec LayoutRef))])
+(defrecord RenderResult [code: String vname: String bindings: Any])
+(defrecord Binding [prop: String vname: String dom-prop: String])
+(defrecord LayoutRef [id: String vname: String])
+(defrecord LayoutResult [code: String refs: (Vec LayoutRef)])
 
 ;; --- JS AST (inline, typed) ---
 
-(defrecord JsIdent [(name :- String)])
-(defrecord JsLiteral [(value :- Any)])
-(defrecord JsRawExpr [(code :- String)])
-(defrecord JsCall [(callee :- JsExpr) (args :- (Vec JsExpr))])
-(defrecord JsMember [(obj :- JsExpr) (prop :- String)])
-(defrecord JsBinary [(op :- String) (left :- JsExpr) (right :- JsExpr)])
-(defrecord JsAwait [(expr :- JsExpr)])
-(defrecord JsArrowBlock [(params :- (Vec String)) (body :- (Vec JsStmt))])
-(defrecord JsArray [(items :- (Vec JsExpr))])
-(defrecord JsSpread [(expr :- JsExpr)])
+(defrecord JsIdent [name: String])
+(defrecord JsLiteral [value: Any])
+(defrecord JsRawExpr [code: String])
+(defrecord JsCall [callee: JsExpr args: (Vec JsExpr)])
+(defrecord JsMember [obj: JsExpr prop: String])
+(defrecord JsBinary [op: String left: JsExpr right: JsExpr])
+(defrecord JsAwait [expr: JsExpr])
+(defrecord JsArrowBlock [params: (Vec String) body: (Vec JsStmt)])
+(defrecord JsArray [items: (Vec JsExpr)])
+(defrecord JsSpread [expr: JsExpr])
 
 (defunion JsExpr JsIdent JsLiteral JsRawExpr JsCall JsMember JsBinary JsAwait JsArrowBlock JsArray JsSpread)
 
-(defrecord JsRawStmt [(code :- String)])
-(defrecord JsConst [(name :- String) (value :- JsExpr)])
-(defrecord JsAssign [(target :- JsExpr) (value :- JsExpr)])
-(defrecord JsReturn [(expr :- JsExpr)])
-(defrecord JsIf [(test :- JsExpr) (then :- (Vec JsStmt)) (else-branch :- (Vec JsStmt))])
-(defrecord JsBlock [(stmts :- (Vec JsStmt))])
-(defrecord JsExprStmt [(expr :- JsExpr)])
+(defrecord JsRawStmt [code: String])
+(defrecord JsConst [name: String value: JsExpr])
+(defrecord JsAssign [target: JsExpr value: JsExpr])
+(defrecord JsReturn [expr: JsExpr])
+(defrecord JsIf [test: JsExpr then: (Vec JsStmt) else-branch: (Vec JsStmt)])
+(defrecord JsBlock [stmts: (Vec JsStmt)])
+(defrecord JsExprStmt [expr: JsExpr])
 
 (defunion JsStmt JsRawStmt JsConst JsAssign JsReturn JsIf JsBlock JsExprStmt)
 
 ;; --- JS AST emitter ---
 
-(defn emit-expr [(node :- JsExpr)] :- String
+(defn emit-expr [node: JsExpr] :- String
   (match node
     [(JsIdent name) name]
     [(JsLiteral value) (if (string? value) (str "'" value "'") (str value))]
@@ -54,11 +54,11 @@
     [(JsArray items) (str "[" (.join (mapv emit-expr items) ", ") "]")]
     [(JsSpread expr) (str "..." (emit-expr expr))]))
 
-(defn indent [(depth :- Int)] :- String
+(defn indent [depth: Int] :- String
   (loop [i 0 acc ""]
     (if (>= i depth) acc (recur (+ i 1) (str acc "  ")))))
 
-(defn emit-stmt [(node :- JsStmt) (depth :- Int)] :- String
+(defn emit-stmt [node: JsStmt depth: Int] :- String
   (let [pad (indent depth)]
     (match node
       [(JsRawStmt code) (str pad code)]
@@ -73,46 +73,46 @@
          (str pad "if (" (emit-expr test) ")" then-str else-str))]
       [(JsBlock stmts) (emit-stmts stmts depth)])))
 
-(defn emit-stmts [(stmts :- (Vec JsStmt)) (depth :- Int)] :- String
+(defn emit-stmts [stmts: (Vec JsStmt) depth: Int] :- String
   (.join (mapv (fn [s] (emit-stmt s depth)) stmts) "\n"))
 
 ;; --- DOM AST helpers ---
 
-(defn dom-create [(tag :- String)] :- JsExpr
+(defn dom-create [tag: String] :- JsExpr
   (->JsCall (->JsMember (->JsIdent "document") "createElement") [(->JsLiteral tag)]))
 
-(defn dom-set-prop [(target :- JsExpr) (prop :- String) (value :- JsExpr)] :- JsStmt
+(defn dom-set-prop [target: JsExpr prop: String value: JsExpr] :- JsStmt
   (->JsAssign (->JsMember target prop) value))
 
-(defn dom-append [(parent :- JsExpr) (child :- JsExpr)] :- JsStmt
+(defn dom-append [parent: JsExpr child: JsExpr] :- JsStmt
   (->JsExprStmt (->JsCall (->JsMember parent "appendChild") [child])))
 
-(defn dom-add-listener [(target :- JsExpr) (event :- String) (handler :- JsExpr)] :- JsStmt
+(defn dom-add-listener [target: JsExpr event: String handler: JsExpr] :- JsStmt
   (->JsExprStmt (->JsCall (->JsMember target "addEventListener") [(->JsLiteral event) handler])))
 
 ;; --- Helpers ---
 
-(defn id->ref [(s :- String)] :- String
+(defn id->ref [s: String] :- String
   (.replaceAll (.replaceAll s "-" "_") "." "_"))
 
-(defn titlecase [(s :- String)] :- String
+(defn titlecase [s: String] :- String
   (if (= (count s) 0) s
     (.join
       (mapv (fn [w] (if (= (count w) 0) w (str (.toUpperCase (subs w 0 1)) (subs w 1))))
             (.split s " "))
       " ")))
 
-(defn q [(s :- String)] :- String
+(defn q [s: String] :- String
   (str "\"" s "\""))
 
-(defn sym? [(x :- Any)] :- Bool
+(defn sym? [x: Any] :- Bool
   (if (nil? x) false (= (.-_tag x) "Sym")))
 
-(defn sym-name [(x :- Any)] :- String
+(defn sym-name [x: Any] :- String
   (.-name x))
 
 
-(defn compile-derived-expr [(expr :- Any) (subst :- Any)] :- String
+(defn compile-derived-expr [expr: Any subst: Any] :- String
   (if (sym? expr)
     (let [name (sym-name expr)]
       (if (and (not (nil? subst)) (not (nil? (get subst name))))
@@ -221,7 +221,7 @@
 
 ;; --- Entity store ---
 
-(defn gen-store [(name :- String) (fk-methods :- Any)] :- String
+(defn gen-store [name: String fk-methods: Any] :- String
   (let [fk-lines (mapv (fn [fk]
                    (str "    by" (titlecase fk) "(fkEid) { return Array.from(entities.values()).filter(e => e." fk " === fkEid); },"))
                    fk-methods)]
@@ -281,7 +281,7 @@
 ;; update keeps the old value (marked sup) so HISTORY is intrinsic; remove tombstones
 ;; (non-destructive); snapshot() is the LOG so localStorage persists history, not just
 ;; current state. The rest of the app is unchanged. JS sibling: web/runtime/claim-store.js.
-(defn gen-store-claims [(name :- String) (fk-methods :- Any)] :- String
+(defn gen-store-claims [name: String fk-methods: Any] :- String
   (let [fk-lines (mapv (fn [fk]
                    (str "    by" (titlecase fk) "(fkEid) { return entityIds().filter(e => !tombstoned(e)).map(project).filter(e => e." fk " === fkEid); },"))
                    fk-methods)]
@@ -314,8 +314,8 @@
 
 ;; --- Detail panel ---
 
-(defn gen-detail [(en :- String) (store-name :- String) (overview-fields :- Any)
-                  (derived-attrs :- Any) (related-info :- Any) (field-info :- Any)] :- String
+(defn gen-detail [en: String store-name: String overview-fields: Any
+                  derived-attrs: Any related-info: Any field-info: Any] :- String
   (let [tab-active-cls "px-4 py-2 text-sm font-medium border-b-2 border-primary text-foreground"
         tab-inactive-cls "px-4 py-2 text-sm font-medium text-muted-foreground"
         delete-svg "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M3 6h18\"></path><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"></path><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"></path></svg>"
@@ -676,8 +676,8 @@
 
 ;; --- List view ---
 
-(defn gen-list-fns [(en :- String) (store-name :- String) (columns :- Any)
-                    (search-cols :- Any) (derived-attrs :- Any)] :- String
+(defn gen-list-fns [en: String store-name: String columns: Any
+                    search-cols: Any derived-attrs: Any] :- String
   (let [list-ref (id->ref (str "ld-" en "-list"))
         search-ref (id->ref (str "ld-" en "-search"))
         ;; All cell names: regular columns + derived field refs
@@ -749,7 +749,7 @@
 
 ;; --- Stats ---
 
-(defn gen-stats [(en :- String) (store-name :- String)] :- String
+(defn gen-stats [en: String store-name: String] :- String
   (let [stats-ref (id->ref (str "ld-" en "-stats"))
         count-var (str (id->ref en) "Count")]
     (str "let " count-var " = 0;\n"
@@ -760,7 +760,7 @@
 
 ;; --- Form handler ---
 
-(defn gen-form-handler [(en :- String) (form :- Any)] :- String
+(defn gen-form-handler [en: String form: Any] :- String
   (let [form-name (.-name form)
         fields (.-fields form)
         field-info (.-field-info form)
@@ -818,7 +818,7 @@
 
 ;; --- Persistence ---
 
-(defn gen-persistence [(persist-key :- Any) (all-stores :- Any)] :- String
+(defn gen-persistence [persist-key: Any all-stores: Any] :- String
   (let [snapshot-entries (.join
           (mapv (fn [s] (str "      " s ": " s ".snapshot()")) all-stores)
           ",\n")
@@ -980,7 +980,7 @@ function _wakePushSelection(eid) {
 }
 "#)
 
-(defn gen-feed-persistence [(url :- Any) (store-name :- String) (id-field :- Any)] :- String
+(defn gen-feed-persistence [url: Any store-name: String id-field: Any] :- String
   (str "const _feedUrl = " (q url) ";\n"
        "const _feedStore = " store-name ";\n"
        "const _feedStoreName = " (q store-name) ";\n"
@@ -992,7 +992,7 @@ function _wakePushSelection(eid) {
 ;; injected <style> in init so a no-build deploy (wake app dropped into a static host) is
 ;; self-contained — the var values ride in the JS, the utility→var mapping rides in dist.css.
 ;; (Was parsed-and-threaded but never emitted — a silent no-op; this closes that.) ---
-(defn gen-theme-style [(theme :- Any)] :- String
+(defn gen-theme-style [theme: Any] :- String
   (if (nil? theme) ""
     (let [colors (.-colors theme)
           decls (.join
@@ -1006,7 +1006,7 @@ function _wakePushSelection(eid) {
 ;; containers carved from the wake view. The pane fn receives { el, wake } so it shares the
 ;; same feed (feed.onUpdate) + selection as the entity-view. mount-fn is a dotted path
 ;; resolved off window at runtime; a missing fn warns and no-ops (never throws). ---
-(defn gen-panels-mount [(panels :- Any) (parent-var :- String)] :- String
+(defn gen-panels-mount [panels: Any parent-var: String] :- String
   (if (empty? panels) ""
     (str
       "\n  // ── Escape-hatch panels (shell-owned custom panes; share window.wake) ──────\n"
@@ -1027,9 +1027,9 @@ function _wakePushSelection(eid) {
 
 ;; --- Compiled per-attribute update paths ---
 
-(defn gen-update-fns [(columns :- Any) (search-cols :- Any) (overview-fields :- Any)
-                      (subtitle-field :- Any) (persist-key :- Any) (related-tab-keys :- Any)
-                      (derived-attrs :- Any) (store-name :- String)] :- String
+(defn gen-update-fns [columns: Any search-cols: Any overview-fields: Any
+                      subtitle-field: Any persist-key: Any related-tab-keys: Any
+                      derived-attrs: Any store-name: String] :- String
   (let [search-text-expr (str "[" (.join (mapv (fn [c] (str "entity." c " || ''")) search-cols) ", ") "].join(' ').toLowerCase()")
         attr-fns (.join
           (mapv (fn [col]
@@ -1159,10 +1159,10 @@ function _wakePushSelection(eid) {
 
 ;; --- Layout (DOM construction for init) ---
 
-(defn field-info-for [(fi-list :- Any) (fname :- String)] :- Any
+(defn field-info-for [fi-list: Any fname: String] :- Any
   (first (filterv (fn [fi] (= (.-name fi) fname)) fi-list)))
 
-(defn gen-field-types-map [(fi-list :- Any)] :- String
+(defn gen-field-types-map [fi-list: Any] :- String
   (if (or (nil? fi-list) (= (count fi-list) 0)) "{}"
     (let [entries (filterv (fn [fi] (not (= (.-kind fi) "text"))) fi-list)
           parts (mapv (fn [fi]
@@ -1175,7 +1175,7 @@ function _wakePushSelection(eid) {
             entries)]
       (str "{ " (.join parts ", ") " }"))))
 
-(defn gen-layout [(en :- String) (form :- Any) (title :- String)] :- Any
+(defn gen-layout [en: String form: Any title: String] :- Any
   (let [form-name (.-name form)
         fields (.-fields form)
         required (.-required form)
@@ -1329,16 +1329,16 @@ function _wakePushSelection(eid) {
 
 ;; --- Ref declarations ---
 
-(defn gen-ref-decls [(refs :- Any)] :- String
+(defn gen-ref-decls [refs: Any] :- String
   (.join (mapv (fn [r] (str "let " (id->ref (.-id r)) ";")) refs) "\n"))
 
-(defn gen-ref-assigns [(refs :- Any)] :- String
+(defn gen-ref-assigns [refs: Any] :- String
   (.join (mapv (fn [r] (str "  " (id->ref (.-id r)) " = " (.-vname r) ";")) refs) "\n"))
 
 ;; --- Init function ---
 
-(defn gen-init-fn [(en :- String) (form-name :- String) (store-name :- String)
-                   (related-info :- Any) (persist-key :- Any) (layout-result :- Any)] :- String
+(defn gen-init-fn [en: String form-name: String store-name: String
+                   related-info: Any persist-key: Any layout-result: Any] :- String
   (let [form-ref (id->ref (str "form-" form-name))
         search-ref (id->ref (str "ld-" en "-search"))
         ref-assigns (gen-ref-assigns (.-refs layout-result))
@@ -1428,7 +1428,7 @@ function _wakePushSelection(eid) {
 ;;  (assert/set pred v) → LOCAL store mutation (update = supersede on a claim store).
 ;;  (retract)           → LOCAL store.remove (tombstone).
 ;; tell is the claims-native round-trip; assert/set/retract are local-optimistic.
-(defn compile-action [(action :- Any) (store-name :- String)] :- String
+(defn compile-action [action: Any store-name: String] :- String
   (if (nil? action) ""
     (let [verb (.-verb action)
           args (.-args action)
@@ -1451,7 +1451,7 @@ function _wakePushSelection(eid) {
           (str store-name ".remove(props.eid);")
         :else ""))))
 
-(defn gen-when-block! [(node :- Any) (counter :- Any) (parent-var :- String) (props :- Any) (store-name :- String)] :- Any
+(defn gen-when-block! [node: Any counter: Any parent-var: String props: Any store-name: String] :- Any
   (let [prop (.-prop node)
         wc (get counter "n")
         when-var (str "when_" wc)
@@ -1481,7 +1481,7 @@ function _wakePushSelection(eid) {
         ""
         [(->Binding prop (str when-var "_update") "_when")]))))
 
-(defn gen-element! [(el :- Any) (counter :- Any) (props :- Any) (store-name :- String)] :- Any
+(defn gen-element! [el: Any counter: Any props: Any store-name: String] :- Any
   (if (not (nil? (.-prop el)))
     nil
     (let [c (get counter "n")
@@ -1532,7 +1532,7 @@ function _wakePushSelection(eid) {
           var-name
           all-bindings)))))
 
-(defn gen-component-fn! [(comp :- Any) (store-name :- String)] :- String
+(defn gen-component-fn! [comp: Any store-name: String] :- String
   (let [name (.-name comp)
         props (.-props comp)
         body (.-body comp)
@@ -1573,7 +1573,7 @@ function _wakePushSelection(eid) {
          "  };\n"
          "}\n")))
 
-(defn gen-view-program! [(prog :- Any)] :- String
+(defn gen-view-program! [prog: Any] :- String
   (let [g (graph/check-program prog)
         components (or (.-components prog) [])
         view (first (or (.-views prog) []))
@@ -1826,7 +1826,7 @@ function _wakePushSelection(eid) {
 
 ;; === Multi-view routing codegen ===
 
-(defn gen-view-section [(view :- Any) (components :- Any) (ge :- Any) (store-name :- String) (all-entities :- Any) (all-views :- Any)] :- String
+(defn gen-view-section [view: Any components: Any ge: Any store-name: String all-entities: Any all-views: Any] :- String
   (let [comp-name (.-component view)
         fn-name (str (id->ref comp-name) "_create")
         add-fields (or (.-add-fields view) [])
@@ -2292,7 +2292,7 @@ function _wakePushSelection(eid) {
       "    main.appendChild(viewEl);\n"
       view-close)))
 
-(defn gen-routed-program [(prog :- Any)] :- String
+(defn gen-routed-program [prog: Any] :- String
   (let [g (graph/check-program prog)
         components (or (.-components prog) [])
         views (or (.-views prog) [])
@@ -2510,7 +2510,7 @@ function _wakePushSelection(eid) {
 
 ;; --- Main entry point ---
 
-(defn gen-program! [(prog :- Any)] :- String
+(defn gen-program! [prog: Any] :- String
   (if (and (not (nil? (.-views prog))) (> (count (.-views prog)) 0))
     (if (not (nil? (.-router prog)))
       (gen-routed-program prog)

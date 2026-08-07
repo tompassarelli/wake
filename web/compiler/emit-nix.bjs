@@ -5,7 +5,7 @@
 ;; Nix emitter — entity graph → flake.nix
 ;; Uses str chains because the Beagle formatter mangles Nix inside heredocs.
 
-(defn gen-pg-service [(app-name :- String)] :- String
+(defn gen-pg-service [app-name: String] :- String
   (str
     "    services.postgresql = {\n"
     "      enable = true;\n"
@@ -16,7 +16,7 @@
     "      }];\n"
     "    };\n"))
 
-(defn gen-nix [(prog :- Any)] :- String
+(defn gen-nix [prog: Any] :- String
   (let [g (graph/check-program prog)
         src-name (.-ns g)
         app-name (.replaceAll src-name "." "-")

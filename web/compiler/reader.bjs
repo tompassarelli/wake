@@ -6,38 +6,38 @@
 ;; Reader: s-expressions → IR program.
 ;; Consumes output of sexpr/parse-all, produces an IrProgram.
 
-(defrecord ParseResult [(type :- String) (value :- Any)])
+(defrecord ParseResult [type: String value: Any])
 
-(defn sym? [(x :- Any)] :- Bool
+(defn sym? [x: Any] :- Bool
   (if (nil? x) false
     (= (.-_tag x) "Sym")))
 
-(defn kw? [(x :- Any)] :- Bool
+(defn kw? [x: Any] :- Bool
   (if (nil? x) false
     (= (.-_tag x) "Kw")))
 
-(defn vec? [(x :- Any)] :- Bool
+(defn vec? [x: Any] :- Bool
   (if (nil? x) false
     (= (.-_tag x) "SexprVec")))
 
-(defn sym-name [(x :- Any)] :- String
+(defn sym-name [x: Any] :- String
   (.-name x))
 
-(defn kw-name [(x :- Any)] :- String
+(defn kw-name [x: Any] :- String
   (.-name x))
 
-(defn vec-items [(x :- Any)] :- Any
+(defn vec-items [x: Any] :- Any
   (.-items x))
 
-(defn sym= [(x :- Any) (s :- String)] :- Bool
+(defn sym= [x: Any s: String] :- Bool
   (if (sym? x) (= (sym-name x) s) false))
 
-(defn kw= [(x :- Any) (s :- String)] :- Bool
+(defn kw= [x: Any s: String] :- Bool
   (if (kw? x) (= (kw-name x) s) false))
 
 ;; --- Attribute parsing ---
 
-(defn extract-field-refs [(expr :- Any)] :- Any
+(defn extract-field-refs [expr: Any] :- Any
   (if (sym? expr)
     [(sym-name expr)]
     (if (vector? expr)
@@ -52,7 +52,7 @@
           [] items))
       [])))
 
-(defn parse-attr [(form :- Any)] :- Any
+(defn parse-attr [form: Any] :- Any
   (if (< (count form) 3) nil
     (let [name (sym-name (nth form 0))
           colon (nth form 1)
@@ -83,7 +83,7 @@
 
 ;; --- Entity parsing ---
 
-(defn parse-entity [(form :- Any)] :- Any
+(defn parse-entity [form: Any] :- Any
   (let [name (sym-name (nth form 1))]
     (loop [i 2 opts {} attr-forms []]
       (if (>= i (count form))
@@ -101,7 +101,7 @@
 
 ;; --- Persist parsing ---
 
-(defn parse-persist [(form :- Any)] :- Any
+(defn parse-persist [form: Any] :- Any
   (cond
     (kw= (nth form 1) ":localStorage")
       (ir/->IrPersist "localStorage" (nth form 2))
@@ -118,7 +118,7 @@
 
 ;; --- Theme parsing ---
 
-(defn parse-theme [(form :- Any)] :- Any
+(defn parse-theme [form: Any] :- Any
   (loop [i 1 colors {}]
     (if (>= i (count form))
       (ir/->IrTheme colors)
@@ -136,7 +136,7 @@
 
 ;; --- Theme parsing: (theme :colors (bg "..." fg "..." ...)) ---
 
-(defn parse-color-list [(items :- Any)] :- Any
+(defn parse-color-list [items: Any] :- Any
   (loop [i 0 colors {}]
     (if (>= (+ i 1) (count items))
       colors
@@ -146,7 +146,7 @@
           (recur (+ i 1) colors))
         (recur (+ i 1) colors)))))
 
-(defn parse-theme-colors [(form :- Any)] :- Any
+(defn parse-theme-colors [form: Any] :- Any
   (loop [i 1 colors {}]
     (if (>= i (count form))
       (ir/->IrTheme colors)
@@ -158,7 +158,7 @@
 
 ;; --- Defstate parsing ---
 
-(defn parse-defstate [(form :- Any)] :- Any
+(defn parse-defstate [form: Any] :- Any
   (let [name (sym-name (nth form 1))
         transitions (subvec form 2)]
     (let [initial (if (> (count transitions) 0)
@@ -181,7 +181,7 @@
 
 ;; --- Detail tab parsing ---
 
-(defn parse-detail-tab [(form :- Any)] :- Any
+(defn parse-detail-tab [form: Any] :- Any
   (let [label (nth form 1)
         body (nth form 2)]
     (if (sym= (nth body 0) "fields")
@@ -199,16 +199,16 @@
                   (recur (+ i 1) query display))))))
         nil))))
 
-(defn parse-tabs [(form :- Any)] :- Any
+(defn parse-tabs [form: Any] :- Any
   (mapv parse-detail-tab (subvec form 1)))
 
 ;; --- List-detail parsing ---
 
-(defn titlecase [(s :- String)] :- String
+(defn titlecase [s: String] :- String
   (if (= (count s) 0) s
     (str (.toUpperCase (subs s 0 1)) (subs s 1))))
 
-(defn parse-list-detail [(form :- Any)] :- Any
+(defn parse-list-detail [form: Any] :- Any
   (let [entity-name (sym-name (nth form 1))]
     (loop [i :- Int 2
            title :- String? nil
@@ -232,7 +232,7 @@
 
 ;; --- Smart form parsing ---
 
-(defn parse-smart-form [(form :- Any)] :- Any
+(defn parse-smart-form [form: Any] :- Any
   (let [name (sym-name (nth form 1))]
     (loop [i :- Int 2 entity :- String? nil fields :- (Vec String) [] required :- (Vec String) [] label :- String "Submit" on-success :- String ":clear"]
       (if (>= i (count form))
@@ -252,7 +252,7 @@
 
 ;; --- Element tree parsing (component bodies) ---
 
-(defn html-tag? [(name :- String)] :- Bool
+(defn html-tag? [name: String] :- Bool
   (let [tags ["div" "span" "p" "h1" "h2" "h3" "h4" "h5" "h6"
               "button" "input" "form" "label" "textarea" "select" "option"
               "ul" "ol" "li" "a" "img" "section" "header" "footer" "nav" "main"
@@ -261,7 +261,7 @@
 
 ;; An action form, e.g. (assert status "done") or (select uuid) — verb + args.
 ;; Args: symbols => prop/field refs, keywords => tags, else literals.
-(defn parse-action [(form :- Any)] :- Any
+(defn parse-action [form: Any] :- Any
   (if (not (vector? form)) nil
     (let [verb (sym-name (nth form 0))
           args (mapv (fn [a]
@@ -271,7 +271,7 @@
                      (subvec form 1))]
       (ir/->IrAction verb args))))
 
-(defn parse-element [(form :- Any)] :- Any
+(defn parse-element [form: Any] :- Any
   (if (not (vector? form)) nil
     (if (= (count form) 0) nil
       (let [head (nth form 0)]
@@ -308,7 +308,7 @@
 
 ;; --- Component parsing ---
 
-(defn parse-component [(form :- Any)] :- Any
+(defn parse-component [form: Any] :- Any
   (let [name (sym-name (nth form 1))]
     (loop [i :- Int 2 props :- (Vec String) [] body :- (Vec IrElement) []]
       (if (>= i (count form))
@@ -322,7 +322,7 @@
 
 ;; --- View parsing ---
 
-(defn parse-tab [(form :- Any)] :- Any
+(defn parse-tab [form: Any] :- Any
   (let [label (nth form 1)
         entity-name (sym-name (nth form 2))
         fk-column (nth form 3)]
@@ -336,7 +336,7 @@
             (recur (+ i 2) filter (mapv sym-name (vec-items (nth form (+ i 1)))))
           :else (recur (+ i 1) filter fields))))))
 
-(defn parse-view [(form :- Any)] :- Any
+(defn parse-view [form: Any] :- Any
   (let [name (sym-name (nth form 1))]
     (loop [i :- Int 2 entity :- String? nil component :- String? nil add-fields :- (Vec String) [] title :- String? nil select :- String? nil tabs :- (Vec IrRelatedTab) [] filters :- (Vec String) [] date-filters :- (Vec String) []]
       (if (>= i (count form))
@@ -370,7 +370,7 @@
 
 ;; --- Router parsing ---
 
-(defn parse-routes [(form :- Any)] :- Any
+(defn parse-routes [form: Any] :- Any
   (loop [i :- Int 1 dflt :- String? nil routes :- (Vec IrRoute) []]
     (if (>= i (count form))
       (ir/->IrRouter (or dflt (if (> (count routes) 0) (.-view-name (nth routes 0)) "main")) routes)
@@ -385,7 +385,7 @@
 
 ;; --- Auth parsing ---
 
-(defn parse-auth [(form :- Any)] :- Any
+(defn parse-auth [form: Any] :- Any
   (loop [i :- Int 1 entity :- String? nil login :- String? nil password :- String? nil session :- String "cookie" protect :- (Vec String) []]
     (if (>= i (count form))
       (ir/->IrAuth (or entity "user") (or login "email") (or password "password") session protect)
@@ -405,12 +405,12 @@
 
 ;; --- Layout parsing ---
 
-(defn parse-nav-group [(form :- Any)] :- Any
+(defn parse-nav-group [form: Any] :- Any
   (let [label (nth form 1)
         items (mapv sym-name (vec-items (nth form 2)))]
     (ir/->IrNavGroup label items)))
 
-(defn parse-layout [(form :- Any)] :- Any
+(defn parse-layout [form: Any] :- Any
   (let [style (kw-name (nth form 1))]
     (loop [i :- Int 2 title :- String? nil groups :- (Vec IrNavGroup) []]
       (if (>= i (count form))
@@ -428,7 +428,7 @@
 ;; --- Panel parsing ---
 ;; (panel agent-graph :mount "north.mountGraph")
 ;; A named region the shell fills with its own JS, sharing feed+selection via window.wake.
-(defn parse-panel [(form :- Any)] :- Any
+(defn parse-panel [form: Any] :- Any
   (let [name (sym-name (nth form 1))]
     (loop [i 2 mount-fn nil]
       (if (>= i (count form))
@@ -439,7 +439,7 @@
 
 ;; --- Top-level dispatcher ---
 
-(defn parse-form [(form :- Any)] :- Any
+(defn parse-form [form: Any] :- Any
   (if (not (vector? form)) nil
     (if (= (count form) 0) nil
       (let [head (nth form 0)]
@@ -464,7 +464,7 @@
 
 ;; --- Entry point ---
 
-(defn validate-program [(ns-name :- Any) (entities :- Any) (defstates :- Any)] :- Any
+(defn validate-program [ns-name: Any entities: Any defstates: Any] :- Any
   (if (nil? ns-name) (.error js/console "wake: missing (ns ...) declaration") nil)
   (if (= (count entities) 0) (.error js/console "wake: no entity declarations found") nil)
   (let [entity-names (mapv (fn [e] (.-name e)) entities)
@@ -481,7 +481,7 @@
           [] state-names)]
     nil))
 
-(defn parse-program [(src :- String)] :- Any
+(defn parse-program [src: String] :- Any
   (let [forms (sexpr/parse-all src)
         parsed (filterv some? (mapv parse-form forms))]
     (let [ns-form   (first (filterv (fn [p] (= (.-type p) "ns")) parsed))
