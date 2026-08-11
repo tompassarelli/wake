@@ -1,104 +1,137 @@
 # Wake
 
-Projection compiler: `.wake` declarations → a checked entity graph → many targets
-(direct-DOM JS, SQL, server, tests, …). Thesis & invariants:
-`docs/adr/0001-wake-is-a-projection-compiler.md`. Chronological why: `docs/devlog/`.
+Wake is a projection compiler:
 
-<!-- beagle -->
-## Beagle
-
-The compiler is authored in [beagle](https://github.com/tompassarelli/beagle) — a typed
-authoring layer for Clojure/JS/Nix. Full language reference: `.claude/beagle-context.md`.
-
-- `beagle check .` — type-check
-- `beagle build . --out .build/` — compile
-- `beagle sig fn-name .` — a function's type signature
-- `beagle fields Record .` — record fields + accessors
-
-The daemon (`beagle-daemon start --watch .`) gives instant type feedback after each edit via
-the PostToolUse hook.
-<!-- /beagle -->
-
-## Build & test
-
-The build script's own usage header is the source of truth for flags and outputs — read it,
-don't trust a copy:
-
-```
-sed -n '/^# Usage/,/^$/p' web/bin/wake-compile
+```text
+.wake → IR → checked application graph → direct-DOM JS | FRAM plan
 ```
 
-Typical loop (from `web/`):
+The checked graph is the authority. Do not let an emitter or runtime infer a
+second schema.
 
+## Authoring loop
+
+The compiler is written in Beagle/JS. Before editing `.bjs`, run:
+
+```sh
+beagle doctor --deep
+beagle langs --json
+beagle check --agent web/compiler
 ```
-bin/wake-compile demo/<app>.wake out/app.js   # rebuilds compiler modules, then emits
-npx playwright test                            # or a single tests/<name>.spec.ts
+
+Use current flat annotations (`name: Type`, `] -> Return`), not legacy `:-`.
+After an edit, ask the compiler first:
+
+```sh
+beagle syntax web/compiler/FILE.bjs
+beagle check --agent web/compiler
+beagle fmt --check web/compiler
 ```
 
-`wake-compile` recompiles the `.bjs` sources every run and self-selects its toolchain
-(bun-beagle fast path, else Racket via the flake) — you don't pick. After editing a `.bjs`,
-just rebuild and run tests. Validate a `.bjs` with `racket <file>` to catch paren errors
-before chasing a logic bug.
+Run these Wake commands from `wake:web/`:
 
-## Where things live
-
-`ls web/compiler/` is the real index. The durable roles (these change slowly; the file roster
-does not):
-
-| Anchor | Role |
-|--------|------|
-| `compiler/sexpr.bjs` | s-expression parser |
-| `compiler/reader.bjs` | `.wake` → IR (`compiler/ir.bjs` defines the IR records) |
-| `compiler/ui.bjs` | view expansion (list-detail, selection) |
-| `compiler/graph.bjs` | **the checker** — every emitter consumes this one checked graph |
-| `compiler/codegen.bjs` | IR → direct-DOM JS (builds JS via `compiler/js-ast.bjs`) |
-| `compiler/emit-*.bjs` | one projection each (SQL, server, tests, nix, claims, mcp, …) — `ls` them |
-| `bin/wake-compile` | build entry; wires modules + every emit target |
-| `runtime/claim-store.js` | claim-backed drop-in store (its header explains the semantics) |
-| `demo/*.wake` | canonical, runnable syntax reference — read these, not prose, for syntax |
-| `tests/*.spec.ts` | Playwright suites — `ls` for the current set |
-
-`public-js/app.js` and everything under `out/` are **build artifacts** — never hand-edit;
-change the `.wake` source or the codegen.
-
-## Architecture
-
-Codegen emits plain JS with zero runtime. The graph is checked once, then every target is a
-projection of it — that's why a single field edit propagates to schema, server, and tests
-together. Frontend patterns (compiled per-attribute DOM mutation, `when` conditional branches
-via comment anchors, compile-time-traced derived fields, FK propagation, undo/redo over an
-event log, split-pane selection) are realized in `codegen.bjs`; read it as the spec.
-
-Live/seam features (real, see the demos for syntax): `(persist :feed "http://…")` mirrors a
-remote endpoint with real-time per-row push (read-only stores); `(panel name :mount "js.fn")`
-is the escape hatch to mount external JS; generated apps expose a `window.wake` bus (ready
-signal, selection, feed deltas) so mounted panes share state. Demos: `demo/agents.wake`,
-`demo/schema.wake`.
-
-## Authoring rules
-
-- Author the compiler in Beagle/JS (`.bjs`). Fix emitter bugs **upstream** in `~/code/beagle`,
-  never by patching generated output.
-- Generated files (`public-js/app.js`, `out/*`) are artifacts — edit source, not output.
-- Beagle compiler + docs: `~/code/beagle/`.
-
-## Beagle heredocs in emitters
-
-When emitting multi-line JS/SQL/Nix from a `.bjs`, use Beagle `#<<TAG` heredocs for static
-boilerplate instead of escaped `(str "...\n" ...)` chains. Dynamic parts (store names, field
-refs, generated identifiers) stay as `(str ...)`. The closing tag's indentation sets the
-dedent baseline.
-
-```scheme
-;; Good: heredoc for the static block
-(let [preamble #<<JS
-  const root = document.getElementById('app');
-  const container = document.createElement('div');
-        JS
-      ]
-  (str preamble "\n" dynamic-part))
-
-;; Bad: escaped string soup
-(str "  const root = document.getElementById('app');\n"
-     "  const container = document.createElement('div');\n")
+```sh
+./bin/wake-compile
+./bin/wake-compile demo/tracker.wake out/app.js
+./bin/wake-compile --fram demo/wiki.wake out/app.fram.json
+./bin/wake-compile --all demo/wiki.wake out/wiki
+npm test
+npm run test:browser
 ```
+
+The browser command is the fixture authority: it concurrently compiles the
+current CRM, todo, tracker, and wiki sources into one private temporary
+directory, checks each emitted file with Node, and passes that directory to
+Playwright. Tests must not read tracked generated JavaScript or fixed `/tmp`
+paths.
+
+`wake:web/bin/wake-compile` owns the current flags and module roster. Each
+invocation stages modules in its own temporary directory, so parallel builds
+must never share compiler staging. It uses the configured Beagle checkout; do
+not invoke bare Racket or patch generated JavaScript.
+
+## Source anchors
+
+| Source | Responsibility |
+| --- | --- |
+| `wake:web/compiler/sexpr.bjs` | s-expression parser |
+| `wake:web/compiler/ir.bjs` | reader IR records |
+| `wake:web/compiler/reader.bjs` | `.wake` forms to IR |
+| `wake:web/compiler/graph.bjs` | semantic validation and checked graph |
+| `wake:web/compiler/ui.bjs` | UI expansion |
+| `wake:web/compiler/codegen.bjs` | direct-DOM and browser connector output |
+| `wake:web/compiler/emit-fram.bjs` | deterministic `app.fram.json` plan |
+| `wake:web/runtime/fram-gateway.mjs` | checked-plan operations over the FRAM client |
+| `wake:web/runtime/fram-http.mjs` | closed POST/JSON transport and authorization seam |
+| `wake:web/demo/wiki.wake` | canonical FRAM-backed application fixture |
+| `wake:web/bin/wake-browser-test` | hermetic local-app browser fixture runner |
+
+Generated output in `wake:web/out/` is never an edit target. The tracked files
+in `wake:web/public-js/` are test-shell assets, not generated applications.
+
+## Data authorities
+
+Wake supports two deliberately separate declarations:
+
+- `(persist :localStorage "key")` means browser-local data authority.
+- `(backend :fram)` means FRAM data authority through the Wake gateway.
+
+They cannot be combined. Retired alternative persistence and deployment
+projections are not compatibility surfaces and must not return.
+
+A FRAM-backed entity has exactly one stored `:identity` field. A `Ref` must
+declare `:to ENTITY`; `:many` means multi-cardinality. The graph checker owns
+these application-level invariants before any emitter runs.
+
+## Separation of concerns
+
+Wake owns:
+
+- entity, field, reference, component, view, form, and route declarations;
+- application-schema validation and compilation to the checked graph;
+- deterministic subject and predicate templates in the FRAM plan;
+- the named application query/command surface;
+- browser cache synchronization and the host-provided authorization seam.
+
+The schema-neutral FRAM kernel owns:
+
+- recursive Term and Triple encoding;
+- occurrence batches, versions, retractions, and history;
+- Datalog evaluation and storage durability.
+
+FRAM's official Node client owns occurrence-correct atomic identity uniqueness,
+create/upsert, and guarded field replacement.
+
+If Wake needs to emulate a missing FRAM storage guarantee, stop and repair or
+extend FRAM instead. The gateway translates application intent; it is not a
+second database engine.
+
+## Gateway contract
+
+The browser-facing adapter accepts POST JSON only:
+
+- `/api/wake/query`: `list` or `get` for a declared entity.
+- `/api/wake/command`: `create`, `set`, or a declared atomic domain command.
+- `/api/wake/changes`: changes after an occurrence-version cursor.
+
+Requests have exact key sets and a bounded body. The adapter denies by default;
+its host must provide an authorization callback. It exposes no raw FRAM query,
+Term, schema, or transaction endpoint. Big integer versions cross JSON as
+unsigned decimal strings.
+
+The current browser connector loads entity rows, sends create/set/publication
+commands, and polls changes. It refreshes an affected entity store as a unit
+even though change records carry identities. Generic delete, remote undo, and
+push subscriptions are not implemented yet.
+
+## Compiler discipline
+
+- Preserve the single checked-graph chokepoint. Add a graph field once, then
+  update every in-tree consumer in the same change.
+- Keep FRAM vocabulary out of ordinary UI declarations. Backend-specific
+  lowering belongs in the plan emitter and gateway.
+- Use Beagle heredocs for substantial static emitted text; keep dynamic pieces
+  in explicit expressions.
+- Fix Beagle parser, checker, or emitter defects upstream in Beagle before
+  continuing Wake work.
+- Run the nearest existing check once and report exactly what it observed.

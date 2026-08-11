@@ -18,14 +18,14 @@
 
 (entity contact
   (name : String)
-  (email : String :unique identity)
+  (email : String :identity)
   (company : String)
   (status : ContactStatus)
   (display-name : Derived (str name " @ " company)))
 
 (entity note
   (content : String)
-  (contact : Ref)
+  (contact : Ref :to contact)
   (created-at : String))
 
 (list-detail contact

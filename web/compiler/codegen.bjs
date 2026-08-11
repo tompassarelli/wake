@@ -5,12 +5,18 @@
 
 ;; Codegen: Checked Entity Graph → self-contained JavaScript IIFE.
 ;; Produces direct-DOM code: entity stores, compiled update paths,
-;; list-detail view, form handler, undo/redo, persistence.
+;; list-detail view, form handler, local undo/redo, persistence.
 
 ;; --- Typed records ---
 
-(defrecord RenderResult [code: String vname: String bindings: Any])
-(defrecord Binding [prop: String vname: String dom-prop: String])
+(defrecord RenderResult
+  [code: String
+   vname: String
+   bindings: Any])
+(defrecord Binding
+  [prop: String
+   vname: String
+   dom-prop: String])
 (defrecord LayoutRef [id: String vname: String])
 (defrecord LayoutResult [code: String refs: (Vec LayoutRef)])
 
@@ -21,7 +27,10 @@
 (defrecord JsRawExpr [code: String])
 (defrecord JsCall [callee: JsExpr args: (Vec JsExpr)])
 (defrecord JsMember [obj: JsExpr prop: String])
-(defrecord JsBinary [op: String left: JsExpr right: JsExpr])
+(defrecord JsBinary
+  [op: String
+   left: JsExpr
+   right: JsExpr])
 (defrecord JsAwait [expr: JsExpr])
 (defrecord JsArrowBlock [params: (Vec String) body: (Vec JsStmt)])
 (defrecord JsArray [items: (Vec JsExpr)])
@@ -33,18 +42,35 @@
 (defrecord JsConst [name: String value: JsExpr])
 (defrecord JsAssign [target: JsExpr value: JsExpr])
 (defrecord JsReturn [expr: JsExpr])
-(defrecord JsIf [test: JsExpr then: (Vec JsStmt) else-branch: (Vec JsStmt)])
+(defrecord JsIf
+  [test: JsExpr
+   then: (Vec JsStmt)
+   else-branch: (Vec JsStmt)])
 (defrecord JsBlock [stmts: (Vec JsStmt)])
 (defrecord JsExprStmt [expr: JsExpr])
 
 (defunion JsStmt JsRawStmt JsConst JsAssign JsReturn JsIf JsBlock JsExprStmt)
 
+;; JSON produces a JavaScript string literal with correct quote, slash, and
+;; control-character escaping. Escape the two ECMAScript line separators too:
+;; they terminate // comments, including the generated source-name comment.
+(defn q [s: String] -> String
+  (let [serialized (JSON/stringify s)]
+    (loop [i: Int 0 out: String ""]
+      (if (>= i (count serialized))
+        out
+        (let [code (.charCodeAt serialized i)]
+          (cond
+            (= code 8232) (recur (+ i 1) (str out "\\u2028"))
+            (= code 8233) (recur (+ i 1) (str out "\\u2029"))
+            :else (recur (+ i 1) (str out (subs serialized i (+ i 1))))))))))
+
 ;; --- JS AST emitter ---
 
-(defn emit-expr [node: JsExpr] :- String
+(defn emit-expr [node: JsExpr] -> String
   (match node
     [(JsIdent name) name]
-    [(JsLiteral value) (if (string? value) (str "'" value "'") (str value))]
+    [(JsLiteral value) (if (string? value) (q value) (str value))]
     [(JsRawExpr code) code]
     [(JsCall callee args) (str (emit-expr callee) "(" (.join (mapv emit-expr args) ", ") ")")]
     [(JsMember obj prop) (str (emit-expr obj) "." prop)]
@@ -54,11 +80,11 @@
     [(JsArray items) (str "[" (.join (mapv emit-expr items) ", ") "]")]
     [(JsSpread expr) (str "..." (emit-expr expr))]))
 
-(defn indent [depth: Int] :- String
+(defn indent [depth: Int] -> String
   (loop [i 0 acc ""]
     (if (>= i depth) acc (recur (+ i 1) (str acc "  ")))))
 
-(defn emit-stmt [node: JsStmt depth: Int] :- String
+(defn emit-stmt [node: JsStmt depth: Int] -> String
   (let [pad (indent depth)]
     (match node
       [(JsRawStmt code) (str pad code)]
@@ -73,51 +99,155 @@
          (str pad "if (" (emit-expr test) ")" then-str else-str))]
       [(JsBlock stmts) (emit-stmts stmts depth)])))
 
-(defn emit-stmts [stmts: (Vec JsStmt) depth: Int] :- String
+(defn emit-stmts [stmts: (Vec JsStmt) depth: Int] -> String
   (.join (mapv (fn [s] (emit-stmt s depth)) stmts) "\n"))
 
 ;; --- DOM AST helpers ---
 
-(defn dom-create [tag: String] :- JsExpr
+(defn dom-create [tag: String] -> JsExpr
   (->JsCall (->JsMember (->JsIdent "document") "createElement") [(->JsLiteral tag)]))
 
-(defn dom-set-prop [target: JsExpr prop: String value: JsExpr] :- JsStmt
+(defn dom-set-prop
+  [target: JsExpr
+   prop: String
+   value: JsExpr] -> JsStmt
   (->JsAssign (->JsMember target prop) value))
 
-(defn dom-append [parent: JsExpr child: JsExpr] :- JsStmt
+(defn dom-append [parent: JsExpr child: JsExpr] -> JsStmt
   (->JsExprStmt (->JsCall (->JsMember parent "appendChild") [child])))
 
-(defn dom-add-listener [target: JsExpr event: String handler: JsExpr] :- JsStmt
+(defn dom-add-listener
+  [target: JsExpr
+   event: String
+   handler: JsExpr] -> JsStmt
   (->JsExprStmt (->JsCall (->JsMember target "addEventListener") [(->JsLiteral event) handler])))
 
 ;; --- Helpers ---
 
-(defn id->ref [s: String] :- String
-  (.replaceAll (.replaceAll s "-" "_") "." "_"))
+(defn id->ref [s: String] -> String
+  ;; Encode every UTF-16 code unit. The fixed non-keyword prefix makes the
+  ;; result a valid JavaScript binding even when the source starts with a
+  ;; digit or is itself a JavaScript keyword; delimiters make it injective.
+  (loop [i: Int 0 out: String "wake$"]
+    (if (>= i (count s))
+      out
+      (recur (+ i 1) (str out (.charCodeAt s i) "$")))))
 
-(defn titlecase [s: String] :- String
+(defn store-ref [store-name: String] -> String
+  (id->ref (str "store/" store-name)))
+
+(defn titlecase [s: String] -> String
   (if (= (count s) 0) s
     (.join
       (mapv (fn [w] (if (= (count w) 0) w (str (.toUpperCase (subs w 0 1)) (subs w 1))))
             (.split s " "))
       " ")))
 
-(defn q [s: String] :- String
-  (str "\"" s "\""))
-
-(defn sym? [x: Any] :- Bool
+(defn sym? [x: Any] -> Bool
   (if (nil? x) false (= (.-_tag x) "Sym")))
 
-(defn sym-name [x: Any] :- String
+(defn sym-name [x: Any] -> String
   (.-name x))
 
+(defn fram-graph? [g: Any] -> Bool
+  (let [backend (.-backend g)]
+    (and (not (nil? backend)) (= (.-kind backend) "fram"))))
 
-(defn compile-derived-expr [expr: Any subst: Any] :- String
+(defn entity-identity-name [ge: Any] -> Any
+  (let [identity-field (.-identity-field ge)]
+    (if (nil? identity-field) nil (.-name identity-field))))
+
+(defn graph-entity-named [entities: Any name: String] -> Any
+  (first (filterv (fn [entity] (= (.-name entity) name)) entities)))
+
+(defn graph-field-named [entity: Any name: String] -> Any
+  (if (nil? entity) nil
+    (first
+      (filterv (fn [field] (= (.-name field) name)) (.-fields entity)))))
+
+(defn field-wire-type [field: Any entities: Any] -> String
+  (if (nil? field) "String"
+    (if (= (.-value-kind field) "ref")
+      (let [target (graph-entity-named entities (or (.-target-entity field) ""))
+            target-identity (if (nil? target) nil (.-identity-field target))]
+        (if (nil? target-identity) "String" (.-type target-identity)))
+      (.-type field))))
+
+(defn field-checkbox? [field: Any] -> Bool
+  (if (nil? field) false
+    (and (= (.-cardinality field) "single")
+         (or (= (.-type field) "Bool") (= (.-type field) "Boolean")))))
+
+(defn fram-field-meta-expr [field: Any entities: Any] -> String
+  (if (nil? field)
+    "{ type: 'String', cardinality: 'single', write: 'set', identity: false }"
+    (str "{ type: " (q (field-wire-type field entities))
+         ", cardinality: " (q (.-cardinality field))
+         ", write: " (q (.-write-policy field))
+         ", identity: " (if (.-identity field) "true" "false") " }")))
+
+(defn add-entity-by-name
+  [entities: Any
+   selected: Any
+   name: String] -> Any
+  (if (some? (first (filterv (fn [entity] (= (.-name entity) name)) selected)))
+    selected
+    (let [entity (graph-entity-named entities name)]
+      (if (nil? entity) selected (conj selected entity)))))
+
+(defn publication-entities [g: Any selected: Any] -> Any
+  (reduce
+    (fn [result publication]
+      (add-entity-by-name
+        (.-entities g)
+        (add-entity-by-name
+          (.-entities g) result (.-owner-entity publication))
+        (.-revision-entity publication)))
+    selected
+    (or (.-publications g) [])))
+
+(defn state-machine-field?
+  [g: Any
+   entity-name: String
+   field-name: String] -> Bool
+  (some?
+    (first
+      (filterv
+        (fn [machine]
+          (and (= (.-entity machine) entity-name)
+               (= (.-field machine) field-name)))
+        (.-state-machines g)))))
+
+(defn fram-related-add-fields
+  [g: Any
+   entity: Any
+   automatic-field: String] -> Any
+  (filterv
+    (fn [field]
+      (and (not (= (.-name field) automatic-field))
+           (not (= (.-write-policy field) "command"))
+           (not
+             (state-machine-field?
+               g (.-name entity) (.-name field)))))
+    (.-stored-fields entity)))
+
+(defn fram-publication-meta-expr [publication: Any] -> String
+  (str "{ owner: { entity: " (q (.-owner-entity publication))
+       ", pointer: " (q (.-pointer-field publication))
+       " }, revision: { entity: " (q (.-revision-entity publication))
+       ", ownerField: " (q (.-owner-field publication))
+       ", stateField: " (q (.-state-field publication))
+       " }, states: { draft: " (q (.-draft-state publication))
+       ", published: " (q (.-published-state publication))
+       ", retired: " (q (.-retired-state publication)) " } }"))
+
+
+(defn compile-derived-expr [expr: Any subst: Any] -> String
   (if (sym? expr)
     (let [name (sym-name expr)]
       (if (and (not (nil? subst)) (not (nil? (get subst name))))
         (get subst name)
-        (str "(entity." name " || '')")))
+        (str "(entity[" (q name) "] || '')")))
     (if (and (vector? expr) (> (count expr) 0)
              (sym? (nth expr 0)) (= (sym-name (nth expr 0)) "str"))
       (.join
@@ -127,7 +257,7 @@
               (let [name (sym-name p)]
                 (if (and (not (nil? subst)) (not (nil? (get subst name))))
                   (get subst name)
-                  (str "(entity." name " || '')")))
+                  (str "(entity[" (q name) "] || '')")))
               (compile-derived-expr p subst))))
           (subvec expr 1))
         " + ")
@@ -139,8 +269,8 @@
 ;; declarations, copied VERBATIM from beagle core.js (lib/beagle/core.js), so
 ;; each generated app is self-contained (ZERO imports). These back the store
 ;; change-gate: a write whose value is structurally EQUAL to the current value
-;; becomes a true no-op (no mutation, no notify, no superseding claim).
-(defn gen-equiv-runtime [] :- String
+;; becomes a true no-op (no mutation and no notification).
+(defn gen-equiv-runtime [] -> String
   (.join
     ["// ── Value equality (Clojure = semantics) ─────────────"
      "function equiv(a, b) {"
@@ -221,21 +351,20 @@
 
 ;; --- Entity store ---
 
-(defn gen-store [name: String fk-methods: Any] :- String
-  (let [fk-lines (mapv (fn [fk]
-                   (str "    by" (titlecase fk) "(fkEid) { return Array.from(entities.values()).filter(e => e." fk " === fkEid); },"))
-                   fk-methods)]
+(defn gen-store [name: String fk-methods: Any] -> String
+  (let [ref-name (store-ref name)]
     (.join
       (.concat
-        [(str "const " name " = (() => {")
+        [(str "const " ref-name " = (() => {")
          "  let nextEid = 1;"
          "  const entities = new Map();"
          "  const watchers = [];"
          "  function notify(evt) { for (const fn of watchers) fn(evt); }"
+         "  function materialize(source, eid) { return Object.assign(Object.create(null), source, { eid }); }"
          "  return {"
          "    add(fields) {"
          "      const eid = nextEid++;"
-         "      const entity = { ...fields, eid };"
+         "      const entity = materialize(fields, eid);"
          "      entities.set(eid, entity);"
          "      notify({ type: 'add', eid, entity });"
          "      return entity;"
@@ -248,7 +377,7 @@
          "      if (equiv(old, value)) return false;"
          "      entity[attr] = value;"
          "      notify({ type: 'update', eid, entity, attr, old, 'new': value });"
-         "      return true;"  ;; change-gated: feed reads this to emit only moved uuids
+         "      return true;"
          "    },"
          "    all() { return Array.from(entities.values()); },"
          "    remove(eid) {"
@@ -258,16 +387,19 @@
          "      notify({ type: 'remove', eid, entity });"
          "    },"
          "    addBack(entity) {"
-         "      entities.set(entity.eid, entity);"
-         "      if (entity.eid >= nextEid) nextEid = entity.eid + 1;"
-         "      notify({ type: 'add', eid: entity.eid, entity });"
+         "      const restored = materialize(entity, entity.eid);"
+         "      entities.set(restored.eid, restored);"
+         "      if (restored.eid >= nextEid) nextEid = restored.eid + 1;"
+         "      notify({ type: 'add', eid: restored.eid, entity: restored });"
          "    },"]
-        fk-lines
-        ["    watch(fn) { watchers.push(fn); },"
+        [(if (> (count fk-methods) 0)
+           "    by(field, value) { return Array.from(entities.values()).filter(entity => equiv(entity[field], value)); },"
+           "")
+         "    watch(fn) { watchers.push(fn); },"
          "    load(items) {"
          "      entities.clear();"
          "      let maxEid = 0;"
-         "      for (const item of items) { entities.set(item.eid, item); if (item.eid > maxEid) maxEid = item.eid; }"
+         "      for (const item of items) { const entity = materialize(item, item.eid); entities.set(entity.eid, entity); if (entity.eid > maxEid) maxEid = entity.eid; }"
          "      nextEid = maxEid + 1;"
          "      notify({ type: 'load' });"
          "    },"
@@ -276,58 +408,495 @@
          "})();"])
       "\n")))
 
-;; gen-store-claims — a CLAIM-BACKED store with gen-store's exact interface (ADR 0001).
-;; Internally an append-only claim log (subject predicate object) with supersession:
-;; update keeps the old value (marked sup) so HISTORY is intrinsic; remove tombstones
-;; (non-destructive); snapshot() is the LOG so localStorage persists history, not just
-;; current state. The rest of the app is unchanged. JS sibling: web/runtime/claim-store.js.
-(defn gen-store-claims [name: String fk-methods: Any] :- String
-  (let [fk-lines (mapv (fn [fk]
-                   (str "    by" (titlecase fk) "(fkEid) { return entityIds().filter(e => !tombstoned(e)).map(project).filter(e => e." fk " === fkEid); },"))
-                   fk-methods)]
+;; FRAM stores expose the same read/watch surface as local stores. Their eid is
+;; only a stable browser-cache key; every command is addressed by the declared
+;; entity identity.
+(defn gen-fram-store [ge: Any fk-methods: Any] -> String
+  (let [name (store-ref (.-store-name ge))
+        entity-name (.-name ge)
+        identity-field (.-identity-field ge)
+        identity-name (if (nil? identity-field) "" (.-name identity-field))]
     (.join
       (.concat
         [(str "const " name " = (() => {")
-         "  let nextEid = 1, nextCid = 1;"
-         "  const claims = [];"
+         "  let nextEid = 1;"
+         "  const entities = new Map();"
+         "  const identityIndex = new Map();"
          "  const watchers = [];"
+         (str "  const identityField = " (q identity-name) ";")
+         "  const commandErrorMessage = 'Could not save changes. Try again.';"
+         "  function identityKey(value) { return typeof value + ':' + JSON.stringify(value); }"
+         "  function materialize(source, eid) { return Object.assign(Object.create(null), source, { eid }); }"
          "  function notify(evt) { for (const fn of watchers) fn(evt); }"
-         "  function liveClaim(eid, attr) { let f = null; for (const c of claims) if (c.l === eid && c.p === attr && !c.sup) f = c; return f; }"
-         "  function tombstoned(eid) { return !!liveClaim(eid, '__tombstoned'); }"
-         "  function project(eid) { const e = { eid }; for (const c of claims) if (c.l === eid && !c.sup && !c.p.startsWith('__')) e[c.p] = c.r; return e; }"
-         "  function entityIds() { const seen = new Set(), out = []; for (const c of claims) if (!seen.has(c.l)) { seen.add(c.l); out.push(c.l); } return out; }"
+         "  function clearCommandError() {"
+         "    const alert = document.querySelector('[data-wake-command-error]');"
+         "    if (!alert) return;"
+         "    alert.hidden = true;"
+         "    alert.textContent = '';"
+         "  }"
+         "  function reportCommandError(_error) {"
+         "    let alert = document.querySelector('[data-wake-command-error]');"
+         "    if (!alert) {"
+         "      alert = document.createElement('div');"
+         "      alert.dataset.wakeCommandError = '';"
+         "      alert.setAttribute('role', 'alert');"
+         "      alert.style.position = 'fixed';"
+         "      alert.style.right = '1rem';"
+         "      alert.style.bottom = '1rem';"
+         "      alert.style.zIndex = '1000';"
+         "      alert.style.maxWidth = '24rem';"
+         "      alert.style.padding = '0.75rem 1rem';"
+         "      alert.style.border = '1px solid #b91c1c';"
+         "      alert.style.borderRadius = '0.375rem';"
+         "      alert.style.background = 'Canvas';"
+         "      alert.style.color = '#b91c1c';"
+         "      document.body.appendChild(alert);"
+         "    }"
+         "    alert.textContent = commandErrorMessage;"
+         "    alert.hidden = false;"
+         "  }"
          "  return {"
-         "    add(fields) { const eid = nextEid++; for (const k in fields) claims.push({ cid: nextCid++, l: eid, p: k, r: fields[k], sup: false }); const entity = project(eid); notify({ type: 'add', eid, entity }); return entity; },"
-         "    get(eid) { return (tombstoned(eid) || !entityIds().includes(eid)) ? undefined : project(eid); },"
-         "    update(eid, attr, value) { const old = liveClaim(eid, attr); if (old && equiv(old.r, value)) return false; if (old) old.sup = true; claims.push({ cid: nextCid++, l: eid, p: attr, r: value, sup: false }); notify({ type: 'update', eid, entity: project(eid), attr, old: old ? old.r : undefined, 'new': value }); return true; },"
-         "    all() { return entityIds().filter(e => !tombstoned(e)).map(project); },"
-         "    remove(eid) { claims.push({ cid: nextCid++, l: eid, p: '__tombstoned', r: true, sup: false }); notify({ type: 'remove', eid }); },"
-         "    addBack(entity) { const t = liveClaim(entity.eid, '__tombstoned'); if (t) t.sup = true; if (!entityIds().includes(entity.eid)) { for (const k in entity) if (k !== 'eid') claims.push({ cid: nextCid++, l: entity.eid, p: k, r: entity[k], sup: false }); if (entity.eid >= nextEid) nextEid = entity.eid + 1; } notify({ type: 'add', eid: entity.eid, entity: project(entity.eid) }); },"]
-        fk-lines
-        ["    watch(fn) { watchers.push(fn); },"
-         "    load(snap) { claims.length = 0; if (snap && Array.isArray(snap.claims)) { for (const c of snap.claims) claims.push({ ...c }); nextEid = snap.nextEid || 1; nextCid = snap.nextCid || 1; } else if (Array.isArray(snap)) { for (const it of snap) { for (const k in it) if (k !== 'eid') claims.push({ cid: nextCid++, l: it.eid, p: k, r: it[k], sup: false }); if (it.eid >= nextEid) nextEid = it.eid + 1; } } notify({ type: 'load' }); },"
-         "    snapshot() { return { claims: claims.map(c => ({ ...c })), nextEid, nextCid }; },"
-         "    history(eid, attr) { return claims.filter(c => c.l === eid && c.p === attr).map(c => ({ value: c.r, live: !c.sup })); }"
+         "    add(fields) {"
+         "      clearCommandError();"
+         (str "      return wakeFramCreate(" (q entity-name) ", fields);")
+         "    },"
+         "    get(eid) { return entities.get(eid); },"
+         "    update(eid, attr, value) {"
+         "      const entity = entities.get(eid);"
+         "      if (!entity || equiv(entity[attr], value)) return Promise.resolve(false);"
+         "      const identity = entity[identityField];"
+         "      if (identity == null) return Promise.resolve(false);"
+         "      clearCommandError();"
+         (str "      return wakeFramSet(" (q entity-name)
+              ", identity, attr, value).then(() => true);")
+         "    },"
+         "    commandFailed(error) { reportCommandError(error); },"
+         "    commandStarted() { clearCommandError(); },"
+         "    all() { return Array.from(entities.values()); },"]
+        [(if (> (count fk-methods) 0)
+           "    by(field, value) { return Array.from(entities.values()).filter(entity => equiv(entity[field], value)); },"
+           "")
+         "    watch(fn) { watchers.push(fn); },"
+         "    load(items) {"
+         "      const nextEntities = new Map();"
+         "      const nextIdentityIndex = new Map();"
+         "      for (const row of items) {"
+         "        const identity = row[identityField];"
+         "        if (identity == null) { console.error('FRAM row is missing identity field', identityField); continue; }"
+         "        const key = identityKey(identity);"
+         "        const cachedEid = identityIndex.get(key);"
+         "        const eid = cachedEid == null ? nextEid++ : cachedEid;"
+         "        nextIdentityIndex.set(key, eid);"
+         "        nextEntities.set(eid, materialize(row, eid));"
+         "      }"
+         "      entities.clear();"
+         "      for (const [eid, entity] of nextEntities) entities.set(eid, entity);"
+         "      identityIndex.clear();"
+         "      for (const [identity, eid] of nextIdentityIndex) identityIndex.set(identity, eid);"
+         "      notify({ type: 'load' });"
+         "    }"
          "  };"
          "})();"])
       "\n")))
 
+(defn gen-store-for
+  [ge: Any
+   fk-methods: Any
+   fram?: Bool] -> String
+  (if fram?
+    (gen-fram-store ge fk-methods)
+    (gen-store (.-store-name ge) fk-methods)))
+
+(defn gen-fram-connector
+  [entities: Any
+   all-entities: Any
+   publications: Any] -> String
+  (let [bindings (.join
+        (mapv (fn [ge]
+            (let [identity-field (.-identity-field ge)]
+              (str "  [" (q (.-name ge)) ", { store: "
+                   (store-ref (.-store-name ge))
+                   ", identityField: "
+                   (if (nil? identity-field) "null" (q (.-name identity-field)))
+                   ", loadedVersion: '0' }]")))
+            entities)
+          ",\n")
+        field-metas (.join
+          (mapv (fn [ge]
+            (let [fields (.join
+                           (mapv
+                             (fn [field]
+                               (str "    [" (q (.-name field)) "]: "
+                                    (fram-field-meta-expr field all-entities)))
+                             (.-stored-fields ge))
+                           ",\n")]
+              (str "  [" (q (.-name ge)) "]: Object.assign(Object.create(null), {\n"
+                   fields "\n  })")))
+            entities)
+          ",\n")
+        publication-metas (.join
+          (mapv
+            (fn [publication]
+              (str "  [" (q (.-name publication)) "]: "
+                   (fram-publication-meta-expr publication)))
+            publications)
+          ",\n")]
+    (str #r#"const wakeFramFieldMeta = Object.assign(Object.create(null), {
+"#
+         field-metas
+         #r#"
+});
+
+function wakeFramCoerceScalar(raw, type) {
+  if (type === 'Bool' || type === 'Boolean') {
+    if (typeof raw === 'boolean') return raw;
+    const booleanText = String(raw == null ? '' : raw).trim().toLowerCase();
+    if (booleanText === 'true') return true;
+    if (booleanText === 'false') return false;
+    throw new Error(`Expected Bool input, received ${String(raw)}`);
+  }
+
+  const text = String(raw == null ? '' : raw).trim();
+  if (type === 'Int' || type === 'Integer') {
+    if (!/^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/.test(text)) {
+      throw new Error(`Expected exact Int input, received ${text}`);
+    }
+    return text;
+  }
+  if (type === 'Float' || type === 'Double' || type === 'Number') {
+    if (text === '') throw new Error('Expected numeric input');
+    const number = Number(text);
+    if (Object.is(raw, -0) || !Number.isFinite(number) || Object.is(number, -0)) {
+      throw new Error(`Expected JSON-exact numeric input, received ${text}`);
+    }
+    return number;
+  }
+  if (type === 'Instant') {
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      return {
+        epochSeconds: String(raw.epochSeconds).trim(),
+        nanos: String(raw.nanos).trim(),
+      };
+    }
+    const exact = /^(-?(?:0|[1-9][0-9]*)):(0|[1-9][0-9]*)$/.exec(text);
+    if (exact) return { epochSeconds: exact[1], nanos: exact[2] };
+    const millis = Date.parse(text);
+    if (!Number.isFinite(millis)) {
+      throw new Error(`Expected Instant as epochSeconds:nanos or ISO-8601, received ${text}`);
+    }
+    const epochSeconds = Math.floor(millis / 1000);
+    const nanos = (millis - epochSeconds * 1000) * 1000000;
+    return { epochSeconds: String(epochSeconds), nanos: String(nanos) };
+  }
+  return text;
+}
+
+function wakeFramCoerceValue(raw, meta) {
+  if (!meta) throw new Error('Wake generated no field metadata for this mutation');
+  if (meta.cardinality === 'multi') {
+    const pieces = Array.isArray(raw)
+      ? raw
+      : String(raw == null ? '' : raw).split(',').map(piece => piece.trim()).filter(piece => piece.length > 0);
+    return pieces.map(piece => wakeFramCoerceScalar(piece, meta.type));
+  }
+  return wakeFramCoerceScalar(raw, meta.type);
+}
+
+function wakeFramReadInput(input, meta) {
+  const raw = input.type === 'checkbox' ? input.checked : input.value;
+  return wakeFramCoerceValue(raw, meta);
+}
+
+function wakeFramInputValue(value, meta) {
+  if (Array.isArray(value)) {
+    return value.map(item => wakeFramInputValue(item, { ...meta, cardinality: 'single' })).join(', ');
+  }
+  if (meta && meta.type === 'Instant' && value && typeof value === 'object') {
+    return `${String(value.epochSeconds)}:${String(value.nanos)}`;
+  }
+  return value == null ? '' : String(value);
+}
+
+function wakeFramCoerceValues(entity, rawValues) {
+  const fields = wakeFramFieldMeta[entity];
+  if (!fields) throw new Error(`Wake generated no metadata for entity ${entity}`);
+  const values = Object.create(null);
+  for (const [field, raw] of Object.entries(rawValues)) {
+    values[field] = wakeFramCoerceValue(raw, fields[field]);
+  }
+  return values;
+}
+
+const wakeFramBindings = new Map([
+"#
+         bindings
+         #r#"
+]);
+const wakeFramPublications = Object.assign(Object.create(null), {
+"#
+         publication-metas
+         #r#"
+});
+const wakeFramHttpTimeoutMs = 10000;
+let wakeFramServedVersion = '0';
+let wakeFramPollTimer = null;
+let wakeFramPolling = false;
+
+function wakeFramCompareVersion(left, right) {
+  const a = String(left == null ? '0' : left).replace(/^0+(?=\d)/, '');
+  const b = String(right == null ? '0' : right).replace(/^0+(?=\d)/, '');
+  if (a.length !== b.length) return a.length < b.length ? -1 : 1;
+  return a === b ? 0 : (a < b ? -1 : 1);
+}
+
+function wakeFramAdvanceVersion(version) {
+  if (wakeFramCompareVersion(version, wakeFramServedVersion) > 0) {
+    wakeFramServedVersion = String(version);
+  }
+}
+
+async function wakeFramPost(path, body) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), wakeFramHttpTimeoutMs);
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`Wake gateway ${response.status}: ${detail}`);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function wakeFramReload(entity) {
+  const binding = wakeFramBindings.get(entity);
+  if (!binding) return;
+  const result = await wakeFramPost('/api/wake/query', { op: 'list', entity });
+  if (!result || !Array.isArray(result.rows) || result.servedVersion == null) {
+    throw new Error('Wake gateway returned an invalid list response');
+  }
+  const version = String(result.servedVersion);
+  if (wakeFramCompareVersion(version, binding.loadedVersion) >= 0) {
+    binding.store.load(result.rows);
+    binding.loadedVersion = version;
+  }
+  return version;
+}
+
+async function wakeFramReloadAll() {
+  const versions = await Promise.all(
+    Array.from(wakeFramBindings.keys(), wakeFramReload),
+  );
+  if (versions.length === 0) return null;
+  return versions.reduce((oldest, version) =>
+    wakeFramCompareVersion(version, oldest) < 0 ? version : oldest
+  );
+}
+
+async function wakeFramRefreshAfterCommand(entities) {
+  try {
+    await Promise.all(entities.map(wakeFramReload));
+  } catch (error) {
+    console.warn('FRAM command committed; refresh deferred to change polling:', error);
+    if (!wakeFramPolling) wakeFramSchedulePoll(0);
+  }
+}
+
+async function wakeFramCreate(entity, values) {
+  const coercedValues = wakeFramCoerceValues(entity, values);
+  const result = await wakeFramPost('/api/wake/command', {
+    op: 'create', entity, values: coercedValues,
+  });
+  if (!result || result.servedVersion == null) {
+    throw new Error('Wake gateway returned an invalid create response');
+  }
+  await wakeFramRefreshAfterCommand([entity]);
+  return result;
+}
+
+async function wakeFramSet(entity, identity, field, value) {
+  const fields = wakeFramFieldMeta[entity];
+  const coercedValue = wakeFramCoerceValue(value, fields && fields[field]);
+  const result = await wakeFramPost('/api/wake/command', {
+    op: 'set', entity, identity, field, value: coercedValue,
+  });
+  if (!result || result.servedVersion == null) {
+    throw new Error('Wake gateway returned an invalid set response');
+  }
+  await wakeFramRefreshAfterCommand([entity]);
+  return result;
+}
+
+async function wakeFramPublish(name, row) {
+  const publication = wakeFramPublications[name];
+  if (!publication) throw new Error(`Wake generated no publication policy named ${name}`);
+  const ownerBinding = wakeFramBindings.get(publication.owner.entity);
+  const revisionBinding = wakeFramBindings.get(publication.revision.entity);
+  if (!ownerBinding || !revisionBinding) {
+    throw new Error(`Wake generated incomplete publication bindings for ${name}`);
+  }
+  const owner = row[publication.revision.ownerField];
+  const revision = row[revisionBinding.identityField];
+  if (owner == null || revision == null) {
+    throw new Error(`Publication ${name} row is missing its owner or identity`);
+  }
+
+  await wakeFramReload(publication.owner.entity);
+  const ownerRow = ownerBinding.store.all().find(candidate =>
+    equiv(candidate[ownerBinding.identityField], owner)
+  );
+  if (!ownerRow) throw new Error(`Publication ${name} owner is not loaded`);
+  const currentPointer = ownerRow[publication.owner.pointer];
+  const result = await wakeFramPost('/api/wake/command', {
+    op: 'publish',
+    publication: name,
+    owner,
+    revision,
+    expectedPointer: currentPointer == null ? null : currentPointer,
+  });
+  if (!result || result.servedVersion == null) {
+    throw new Error('Wake gateway returned an invalid publish response');
+  }
+  await wakeFramRefreshAfterCommand([
+    publication.owner.entity,
+    publication.revision.entity,
+  ]);
+  return result;
+}
+
+function wakeFramAttachPublicationActions(entityName, row, inst, store) {
+  const actions = document.createElement('div');
+  actions.className = 'flex items-center justify-end gap-2 px-2';
+  for (const [name, publication] of Object.entries(wakeFramPublications)) {
+    if (publication.revision.entity !== entityName
+        || row[publication.revision.stateField] !== publication.states.draft) continue;
+    const revisionBinding = wakeFramBindings.get(publication.revision.entity);
+    if (!revisionBinding) continue;
+    const revision = row[revisionBinding.identityField];
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'px-3 py-1 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50';
+    button.textContent = 'Publish';
+    button.setAttribute('aria-label', `Publish ${String(revision)}`);
+    button.dataset.wakePublication = name;
+    let pending = false;
+    let accepted = false;
+    button.addEventListener('click', async event => {
+      event.stopPropagation();
+      if (pending) return;
+      pending = true;
+      button.disabled = true;
+      store.commandStarted();
+      try {
+        await wakeFramPublish(name, row);
+        accepted = true;
+      } catch (error) {
+        store.commandFailed(error);
+      } finally {
+        pending = false;
+        if (!accepted && button.isConnected) button.disabled = false;
+      }
+    });
+    actions.appendChild(button);
+  }
+  if (actions.childElementCount > 0) inst.el.appendChild(actions);
+}
+
+function wakeFramSchedulePoll(delayMs = 1000) {
+  if (wakeFramPollTimer != null) clearTimeout(wakeFramPollTimer);
+  wakeFramPollTimer = setTimeout(wakeFramPollChanges, delayMs);
+}
+
+async function wakeFramPollChanges() {
+  if (wakeFramPolling) return;
+  wakeFramPolling = true;
+  if (wakeFramPollTimer != null) clearTimeout(wakeFramPollTimer);
+  wakeFramPollTimer = null;
+  const sinceVersion = wakeFramServedVersion;
+  try {
+    const result = await wakeFramPost('/api/wake/changes', {
+      sinceVersion,
+    });
+    if (!result || result.servedVersion == null
+        || (result.resync !== true && !Array.isArray(result.changes))) {
+      throw new Error('Wake gateway returned an invalid changes response');
+    }
+    if (result.resync === true) {
+      const loadedVersion = await wakeFramReloadAll();
+      wakeFramAdvanceVersion(
+        loadedVersion == null ? result.servedVersion : loadedVersion,
+      );
+    } else {
+      const affected = new Set();
+      for (const change of result.changes) {
+        if (change && wakeFramBindings.has(change.entity)) affected.add(change.entity);
+      }
+      await Promise.all(Array.from(affected, wakeFramReload));
+      wakeFramAdvanceVersion(result.servedVersion);
+    }
+  } catch (err) {
+    wakeFramServedVersion = sinceVersion;
+    console.error('FRAM change poll failed:', err);
+  } finally {
+    wakeFramPolling = false;
+    wakeFramSchedulePoll();
+  }
+}
+
+async function wakeFramStart() {
+  try {
+    const loadedVersion = await wakeFramReloadAll();
+    if (loadedVersion != null) wakeFramServedVersion = loadedVersion;
+  } catch (err) {
+    console.error('FRAM initial load failed:', err);
+  } finally {
+    wakeFramSchedulePoll();
+  }
+}
+"#)))
+
 ;; --- Detail panel ---
 
-(defn gen-detail [en: String store-name: String overview-fields: Any
-                  derived-attrs: Any related-info: Any field-info: Any] :- String
+(defn gen-detail
+  [en: String
+   store-name: String
+   overview-fields: Any
+   derived-attrs: Any
+   related-info: Any
+   field-info: Any
+   g: Any
+   identity-name: Any
+   fram?: Bool
+   allow-delete: Bool] -> String
   (let [tab-active-cls "px-4 py-2 text-sm font-medium border-b-2 border-primary text-foreground"
         tab-inactive-cls "px-4 py-2 text-sm font-medium text-muted-foreground"
         delete-svg "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M3 6h18\"></path><path d=\"M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6\"></path><path d=\"M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2\"></path></svg>"
         close-svg "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><line x1=\"18\" y1=\"6\" x2=\"6\" y2=\"18\"></line><line x1=\"6\" y1=\"6\" x2=\"18\" y2=\"18\"></line></svg>"
         container-ref (id->ref (str "ld-" en "-detail"))
+        selected-reference
+        (if (nil? identity-name)
+          "selectedContact"
+          (str store-name ".get(selectedContact)?.[" (q identity-name) "]"))
 
         ;; Delete cascade lines
-        delete-lines (.join
-          (mapv (fn [ri]
-            (str "    for (const r of " (.-store ri) ".by" (titlecase (.-fk-field ri)) "(selectedContact)) " (.-store ri) ".remove(r.eid);"))
-            related-info)
-          "\n")
+        delete-lines
+        (if allow-delete
+          (.join
+            (mapv (fn [ri]
+              (let [rel-store (store-ref (.-store ri))]
+                (str "    for (const r of " rel-store ".by("
+                     (q (.-fk-field ri)) ", selectedContact)) "
+                     rel-store ".remove(r.eid);")))
+              related-info)
+            "\n")
+          "")
 
         ;; Tab bar construction
         tab-bar-lines (str
@@ -338,26 +907,28 @@
           "  tabBar.appendChild(detailNodes.tabOverview);\n"
           (.join
             (mapv (fn [ri]
-              (let [key (.-key ri)]
-                (str "  detailNodes.tab_" key " = document.createElement('button');\n"
-                     "  detailNodes.tab_" key ".textContent = " (q (titlecase key)) ";\n"
-                     "  detailNodes.tab_" key ".className = '" tab-inactive-cls "';\n"
-                     "  detailNodes.tab_" key ".addEventListener('click', () => { activeTab = " (q key) "; renderDetail(); });\n"
-                     "  tabBar.appendChild(detailNodes.tab_" key ");")))
+              (let [key (.-key ri)
+                    key-ref (id->ref key)]
+                (str "  detailNodes.tab_" key-ref " = document.createElement('button');\n"
+                     "  detailNodes.tab_" key-ref ".textContent = " (q (titlecase key)) ";\n"
+                     "  detailNodes.tab_" key-ref ".className = '" tab-inactive-cls "';\n"
+                     "  detailNodes.tab_" key-ref ".addEventListener('click', () => { activeTab = " (q key) "; renderDetail(); });\n"
+                     "  tabBar.appendChild(detailNodes.tab_" key-ref ");")))
               related-info)
             "\n"))
 
         ;; Overview field grid
         field-grid-lines (.join
           (mapv (fn [f]
-            (str "  const " f "Label = document.createElement('span');\n"
-                 "  " f "Label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
-                 "  " f "Label.textContent = " (q (titlecase f)) ";\n"
-                 "  grid.appendChild(" f "Label);\n"
-                 "  detailNodes.field_" f " = document.createElement('span');\n"
-                 "  detailNodes.field_" f ".className = 'text-sm';\n"
-                 "  grid.appendChild(detailNodes.field_" f ");\n"
-                 "  makeEditable(detailNodes.field_" f ", " (q f) ");"))
+            (let [field-ref (id->ref f)]
+              (str "  const " field-ref "Label = document.createElement('span');\n"
+                   "  " field-ref "Label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
+                   "  " field-ref "Label.textContent = " (q (titlecase f)) ";\n"
+                   "  grid.appendChild(" field-ref "Label);\n"
+                   "  detailNodes.field_" field-ref " = document.createElement('span');\n"
+                   "  detailNodes.field_" field-ref ".className = 'text-sm';\n"
+                   "  grid.appendChild(detailNodes.field_" field-ref ");\n"
+                   "  makeEditable(detailNodes.field_" field-ref ", " (q f) ");")))
             overview-fields)
           "\n")
 
@@ -376,52 +947,146 @@
             derived-attrs)
           "\n")
 
-        ;; Related tab content areas (typed AST)
+        ;; Related tab content areas
         related-content-lines (.join
           (mapv (fn [ri]
             (let [key (.-key ri)
+                  key-ref (id->ref key)
                   rel-en (.-entity ri)
-                  rel-store (.-store ri)
+                  rel-store (store-ref (.-store ri))
                   fk-field (.-fk-field ri)
-                  dn (->JsIdent "detailNodes")
-                  content (->JsMember dn (str key "Content"))
-                  header (->JsMember dn (str key "Header"))
-                  lst (->JsMember dn (str key "List"))
-                  input (->JsMember dn (str key "Input"))
-                  form-row (->JsIdent (str key "FormRow"))
-                  add-btn (->JsIdent (str key "AddBtn"))
-                  wrapper (->JsMember dn "wrapper")]
-              (emit-stmts
-                [(dom-set-prop dn (str key "Content") (dom-create "div"))
-                 (dom-set-prop content "className" (->JsLiteral "p-4 flex-1 overflow-y-auto flex flex-col"))
-                 (dom-set-prop content "style.display" (->JsLiteral "none"))
-                 (dom-set-prop dn (str key "Header") (dom-create "h3"))
-                 (dom-set-prop header "className" (->JsLiteral "text-sm font-medium mb-2"))
-                 (dom-append content header)
-                 (dom-set-prop dn (str key "List") (dom-create "div"))
-                 (dom-set-prop lst "className" (->JsLiteral "flex-1 space-y-2 mb-3"))
-                 (dom-append content lst)
-                 (->JsConst (str key "FormRow") (dom-create "div"))
-                 (dom-set-prop form-row "className" (->JsLiteral "flex gap-2"))
-                 (dom-set-prop dn (str key "Input") (dom-create "textarea"))
-                 (dom-set-prop input "className" (->JsLiteral "flex-1 px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm resize-none"))
-                 (dom-set-prop input "placeholder" (->JsLiteral (str "Add a " rel-en "...")))
-                 (dom-set-prop input "rows" (->JsRawExpr "2"))
-                 (dom-append form-row input)
-                 (->JsConst (str key "AddBtn") (dom-create "button"))
-                 (dom-set-prop add-btn "className" (->JsLiteral "px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 self-end"))
-                 (dom-set-prop add-btn "textContent" (->JsLiteral "Add"))
-                 (dom-add-listener add-btn "click"
-                   (->JsArrowBlock []
-                     [(->JsConst "content" (->JsRawExpr (str "detailNodes." key "Input.value.trim()")))
-                      (->JsRawStmt (str "if (!content || !selectedContact) return;"))
-                      (->JsExprStmt (->JsCall (->JsMember (->JsIdent rel-store) "add")
-                        [(->JsRawExpr (str "{ content, " fk-field ": selectedContact, 'created-at': new Date().toISOString() }"))]))
-                      (dom-set-prop input "value" (->JsLiteral ""))]))
-                 (dom-append form-row add-btn)
-                 (dom-append content form-row)
-                 (dom-append wrapper content)]
-                1)))
+                  rel-ge (graph-entity-named (.-entities g) rel-en)
+                  add-fields
+                  (if fram?
+                    (fram-related-add-fields g rel-ge fk-field)
+                    [])
+                  identity-field (if (nil? rel-ge) nil (.-identity-field rel-ge))
+                  related-identity-name
+                  (if (nil? identity-field) "" (.-name identity-field))
+                  content-prop (str key-ref "Content")
+                  header-prop (str key-ref "Header")
+                  list-prop (str key-ref "List")
+                  input-prop (str key-ref "Input")
+                  form-ref (id->ref (str "related/" key "/form"))
+                  button-ref (id->ref (str "related/" key "/add"))
+                  fram-inputs
+                  (.join
+                    (mapv
+                      (fn [field]
+                        (let [field-name (.-name field)
+                              input-ref
+                              (id->ref
+                                (str "related/" key "/" field-name "/input"))
+                              label-ref (str input-ref "$label")
+                              checkbox? (field-checkbox? field)]
+                          (str "  const " label-ref
+                               " = document.createElement('label');\n"
+                               "  " label-ref ".className = 'text-xs font-medium uppercase text-muted-foreground';\n"
+                               "  " label-ref ".textContent = "
+                               (q (titlecase field-name)) ";\n"
+                               "  " form-ref ".appendChild(" label-ref ");\n"
+                               "  const " input-ref
+                               " = document.createElement('input');\n"
+                               (if checkbox?
+                                 (str "  " input-ref ".type = 'checkbox';\n")
+                                 (str "  " input-ref ".placeholder = "
+                                      (q (titlecase field-name)) ";\n"))
+                               "  " input-ref ".className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm';\n"
+                               "  " form-ref ".appendChild(" input-ref ");\n")))
+                      add-fields)
+                    "")
+                  fram-values
+                  (.join
+                    (mapv
+                      (fn [field]
+                        (let [field-name (.-name field)
+                              input-ref
+                              (id->ref
+                                (str "related/" key "/" field-name "/input"))]
+                          (str "      values[" (q field-name)
+                               "] = wakeFramReadInput(" input-ref
+                               ", wakeFramFieldMeta[" (q rel-en) "]["
+                               (q field-name) "]);\n")))
+                      add-fields)
+                    "")
+                  fram-clears
+                  (.join
+                    (mapv
+                      (fn [field]
+                        (let [input-ref
+                              (id->ref
+                                (str "related/" key "/"
+                                     (.-name field) "/input"))]
+                          (if (field-checkbox? field)
+                            (str "      " input-ref ".checked = false;\n")
+                            (str "      " input-ref ".value = '';\n"))))
+                      add-fields)
+                    "")]
+              (str
+                "  detailNodes." content-prop " = document.createElement('div');\n"
+                "  detailNodes." content-prop ".className = 'p-4 flex-1 overflow-y-auto flex flex-col';\n"
+                "  detailNodes." content-prop ".style.display = 'none';\n"
+                "  detailNodes." header-prop " = document.createElement('h3');\n"
+                "  detailNodes." header-prop ".className = 'text-sm font-medium mb-2';\n"
+                "  detailNodes." content-prop ".appendChild(detailNodes."
+                header-prop ");\n"
+                "  detailNodes." list-prop " = document.createElement('div');\n"
+                "  detailNodes." list-prop ".className = 'flex-1 space-y-2 mb-3';\n"
+                "  detailNodes." content-prop ".appendChild(detailNodes."
+                list-prop ");\n"
+                "  const " form-ref " = document.createElement('div');\n"
+                "  " form-ref ".className = 'flex flex-col gap-2';\n"
+                (if fram?
+                  (str
+                    fram-inputs
+                    "  const " button-ref " = document.createElement('button');\n"
+                    "  " button-ref ".type = 'button';\n"
+                    "  " button-ref ".className = 'px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 self-end';\n"
+                    "  " button-ref ".textContent = 'Add';\n"
+                    "  " button-ref ".addEventListener('click', async () => {\n"
+                    "    if (!selectedContact) return;\n"
+                    "    " button-ref ".disabled = true;\n"
+                    "    try {\n"
+                    "      const values = Object.create(null);\n"
+                    fram-values
+                    "      values[" (q fk-field) "] = " selected-reference ";\n"
+                    "      if (String(values[" (q related-identity-name)
+                    "] == null ? '' : values[" (q related-identity-name)
+                    "]).trim() === '') return;\n"
+                    "      await " rel-store ".add(values);\n"
+                    fram-clears
+                    "    } catch (error) {\n"
+                    "      " rel-store ".commandFailed(error);\n"
+                    "    } finally {\n"
+                    "      " button-ref ".disabled = false;\n"
+                    "    }\n"
+                    "  });\n")
+                  (str
+                    "  detailNodes." input-prop
+                    " = document.createElement('textarea');\n"
+                    "  detailNodes." input-prop
+                    ".className = 'flex-1 px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm resize-none';\n"
+                    "  detailNodes." input-prop ".placeholder = "
+                    (q (str "Add a " rel-en "...")) ";\n"
+                    "  detailNodes." input-prop ".rows = 2;\n"
+                    "  " form-ref ".appendChild(detailNodes." input-prop ");\n"
+                    "  const " button-ref " = document.createElement('button');\n"
+                    "  " button-ref ".type = 'button';\n"
+                    "  " button-ref ".className = 'px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 self-end';\n"
+                    "  " button-ref ".textContent = 'Add';\n"
+                    "  " button-ref ".addEventListener('click', () => {\n"
+                    "    const content = detailNodes." input-prop
+                    ".value.trim();\n"
+                    "    if (!content || !selectedContact) return;\n"
+                    "    " rel-store ".add({ [" (q "content") "]: content, ["
+                    (q fk-field) "]: selectedContact, [" (q "created-at")
+                    "]: new Date().toISOString() });\n"
+                    "    detailNodes." input-prop ".value = '';\n"
+                    "  });\n"))
+                "  " form-ref ".appendChild(" button-ref ");\n"
+                "  detailNodes." content-prop ".appendChild(" form-ref ");\n"
+                "  detailNodes.wrapper.appendChild(detailNodes."
+                content-prop ");")))
             related-info)
           "\n")
 
@@ -429,21 +1094,31 @@
         render-related-fns (.join
           (mapv (fn [ri]
             (let [key (.-key ri)
-                  rel-store (.-store ri)
+                  key-ref (id->ref key)
+                  rel-store (store-ref (.-store ri))
                   fk-field (.-fk-field ri)
                   display (or (.-display ri) [])
-                  render-fn (str "render" (titlecase key))]
+                  list-prop (str key-ref "List")
+                  header-prop (str key-ref "Header")
+                  render-fn (id->ref (str "render-related/" key))]
               (str "function " render-fn "() {\n"
-                   "  detailNodes." key "List.innerHTML = '';\n"
+                   "  detailNodes." list-prop ".innerHTML = '';\n"
                    "  if (!selectedContact) return;\n"
-                   "  detailNodes." key "Header.textContent = '" (titlecase key) " for ' + (" store-name ".get(selectedContact)?.name || '');\n"
-                   "  const items = " rel-store ".by" (titlecase fk-field) "(selectedContact)\n"
-                   "    .sort((a, b) => (b['created-at'] || '').localeCompare(a['created-at'] || ''));\n"
+                   "  detailNodes." header-prop ".textContent = "
+                   (q (str (titlecase key) " for ")) " + (" store-name
+                   ".get(selectedContact)?.[" (q "name") "] || '');\n"
+                   "  const items = " rel-store ".by(" (q fk-field) ", "
+                   selected-reference ")"
+                   (if fram?
+                     ";\n"
+                     (str ".sort((a, b) => (b[" (q "created-at")
+                          "] || '').localeCompare(a[" (q "created-at")
+                          "] || ''));\n"))
                    "  if (items.length === 0) {\n"
                    "    const empty = document.createElement('div');\n"
                    "    empty.className = 'text-sm text-muted-foreground';\n"
-                   "    empty.textContent = 'No " key " yet';\n"
-                   "    detailNodes." key "List.appendChild(empty);\n"
+                   "    empty.textContent = " (q (str "No " key " yet")) ";\n"
+                   "    detailNodes." list-prop ".appendChild(empty);\n"
                    "    return;\n"
                    "  }\n"
                    "  for (const item of items) {\n"
@@ -458,17 +1133,21 @@
                              cls (if (= col "content") "text-sm" "text-xs text-muted-foreground mt-1 block")]
                          (str "    const " cref "El = document.createElement('" tag "');\n"
                               "    " cref "El.className = '" cls "';\n"
-                              "    " cref "El.textContent = item['" col "'] || '';\n"
+                              "    " cref "El.textContent = item[" (q col) "] || '';\n"
                               "    elBody.appendChild(" cref "El);")))
                        display)
                      "\n")
                    "\n    el.appendChild(elBody);\n"
-                   "    const delBtn = document.createElement('button');\n"
-                   "    delBtn.className = 'text-muted-foreground hover:text-red-600 text-sm px-1 flex-shrink-0';\n"
-                   "    delBtn.textContent = '\\u00d7';\n"
-                   "    delBtn.addEventListener('click', () => " rel-store ".remove(item.eid));\n"
-                   "    el.appendChild(delBtn);\n"
-                   "    detailNodes." key "List.appendChild(el);\n"
+                   (if allow-delete
+                     (str
+                       "    const delBtn = document.createElement('button');\n"
+                       "    delBtn.className = 'text-muted-foreground hover:text-red-600 text-sm px-1 flex-shrink-0';\n"
+                       "    delBtn.textContent = '\\u00d7';\n"
+                       "    delBtn.addEventListener('click', () => " rel-store
+                       ".remove(item.eid));\n"
+                       "    el.appendChild(delBtn);\n")
+                     "")
+                   "    detailNodes." list-prop ".appendChild(el);\n"
                    "  }\n"
                    "}\n")))
             related-info)
@@ -476,7 +1155,9 @@
 
         ;; renderDetail function
         clear-fields (.join
-          (mapv (fn [f] (str "    detailNodes.field_" f ".textContent = '';"))
+          (mapv (fn [f]
+                  (str "    detailNodes.field_" (id->ref f)
+                       ".textContent = '';"))
                 overview-fields)
           "\n")
         clear-derived (.join
@@ -485,7 +1166,9 @@
             derived-attrs)
           "\n")
         set-fields (.join
-          (mapv (fn [f] (str "  detailNodes.field_" f ".textContent = entity." f " || '';"))
+          (mapv (fn [f]
+                  (str "  detailNodes.field_" (id->ref f)
+                       ".textContent = entity[" (q f) "] || '';"))
                 overview-fields)
           "\n")
         set-derived (.join
@@ -493,6 +1176,8 @@
             (str "  detailNodes.field_" (id->ref (.-name da)) ".textContent = " (compile-derived-expr (.-expr da) nil) ";"))
             derived-attrs)
           "\n")
+        title-field
+        (if (> (count overview-fields) 0) (nth overview-fields 0) "name")
         subtitle-field (if (> (count overview-fields) 1) (nth overview-fields 1) nil)
         tab-active-update (str
           "  detailNodes.tabOverview.className = activeTab === 'overview'\n"
@@ -500,8 +1185,9 @@
           "    : '" tab-inactive-cls "';\n"
           (.join
             (mapv (fn [ri]
-              (let [key (.-key ri)]
-                (str "  detailNodes.tab_" key ".className = activeTab === " (q key) "\n"
+              (let [key (.-key ri)
+                    key-ref (id->ref key)]
+                (str "  detailNodes.tab_" key-ref ".className = activeTab === " (q key) "\n"
                      "    ? '" tab-active-cls "'\n"
                      "    : '" tab-inactive-cls "';")))
               related-info)
@@ -510,13 +1196,17 @@
           "  detailNodes.overviewContent.style.display = activeTab !== 'overview' ? 'none' : '';\n"
           (.join
             (mapv (fn [ri]
-              (str "  detailNodes." (.-key ri) "Content.style.display = activeTab !== " (q (.-key ri)) " ? 'none' : '';"))
+              (let [key (.-key ri)]
+                (str "  detailNodes." (id->ref key)
+                     "Content.style.display = activeTab !== " (q key)
+                     " ? 'none' : '';")))
               related-info)
             "\n"))
         tab-render (.join
           (mapv (fn [ri]
             (let [key (.-key ri)]
-              (str "  if (activeTab === " (q key) ") render" (titlecase key) "();")))
+              (str "  if (activeTab === " (q key) ") "
+                   (id->ref (str "render-related/" key)) "();")))
             related-info)
           "\n")]
 
@@ -527,7 +1217,7 @@
       "  selectedContact = eid;\n"
       "  renderDetail();\n"
       "}\n\n"
-      "const detailNodes = {};\n\n"
+      "const detailNodes = Object.create(null);\n\n"
 
       ;; makeEditable — type-aware inline editing
       ;; fieldTypes maps attr names to { kind, options }
@@ -538,7 +1228,10 @@
       "    if (!selectedContact) return;\n"
       "    let done = false;\n"
       "    const ft = fieldTypes[attr];\n"
-      "    const kind = ft ? ft.kind : 'text';\n"
+      (if fram?
+        (str "    const fieldMeta = wakeFramFieldMeta[" (q en) "][attr];\n"
+             "    const kind = fieldMeta.cardinality === 'multi' ? 'text' : (ft ? ft.kind : 'text');\n")
+        "    const kind = ft ? ft.kind : 'text';\n")
       "    let input;\n"
       "    if (kind === 'select') {\n"
       "      input = document.createElement('select');\n"
@@ -555,18 +1248,43 @@
       "    } else {\n"
       "      input = document.createElement('input');\n"
       "      input.type = kind;\n"
-      "      input.value = el.textContent;\n"
+      (if fram?
+        (str "      input.value = wakeFramInputValue(" store-name
+             ".get(selectedContact)?.[attr], fieldMeta);\n")
+        "      input.value = el.textContent;\n")
       "    }\n"
       "    input.className = 'text-sm w-full px-1 py-0 border border-input rounded bg-background text-foreground outline-none';\n"
       "    el.replaceWith(input);\n"
       "    input.focus();\n"
-      "    function commit() {\n"
-      "      if (done) return;\n"
-      "      done = true;\n"
-      "      const val = kind === 'checkbox' ? String(input.checked) : input.value.trim();\n"
-      "      input.replaceWith(el);\n"
-      "      " store-name ".update(selectedContact, attr, val);\n"
-      "    }\n"
+      (if fram?
+        (str
+          "    let saving = false;\n"
+          "    async function commit() {\n"
+          "      if (done || saving) return;\n"
+          "      saving = true;\n"
+          "      input.disabled = true;\n"
+          "      try {\n"
+          "        const val = wakeFramReadInput(input, fieldMeta);\n"
+          "        await " store-name ".update(selectedContact, attr, val);\n"
+          "        done = true;\n"
+          "        input.replaceWith(el);\n"
+          "      } catch (error) {\n"
+          "        " store-name ".commandFailed(error);\n"
+          "        input.disabled = false;\n"
+          "        saving = false;\n"
+          "        input.focus();\n"
+          "        return;\n"
+          "      }\n"
+          "      saving = false;\n"
+          "    }\n")
+        (str
+          "    function commit() {\n"
+          "      if (done) return;\n"
+          "      done = true;\n"
+          "      const val = kind === 'checkbox' ? String(input.checked) : input.value.trim();\n"
+          "      input.replaceWith(el);\n"
+          "      " store-name ".update(selectedContact, attr, val);\n"
+          "    }\n"))
       "    if (kind === 'select') {\n"
       "      input.addEventListener('change', commit);\n"
       "      input.addEventListener('blur', commit);\n"
@@ -574,7 +1292,9 @@
       "      input.addEventListener('blur', commit);\n"
       "      input.addEventListener('keydown', (e) => {\n"
       "        if (e.key === 'Enter') { e.preventDefault(); commit(); }\n"
-      "        if (e.key === 'Escape') { done = true; input.replaceWith(el); }\n"
+      (if fram?
+        "        if (e.key === 'Escape' && !saving) { done = true; input.replaceWith(el); }\n"
+        "        if (e.key === 'Escape') { done = true; input.replaceWith(el); }\n")
       "      });\n"
       "    }\n"
       "  });\n"
@@ -601,21 +1321,24 @@
       "  headerLeft.appendChild(detailNodes.subtitle);\n"
       "  const headerRight = document.createElement('div');\n"
       "  headerRight.className = 'flex items-center gap-1';\n"
-      "  const deleteBtn = document.createElement('button');\n"
-      "  deleteBtn.className = 'p-1 rounded hover:bg-red-100 text-muted-foreground hover:text-red-600 transition-colors';\n"
-      "  deleteBtn.innerHTML = '" delete-svg "';\n"
-      "  deleteBtn.addEventListener('click', () => {\n"
-      "    if (!selectedContact) return;\n"
-      "    beginTransaction();\n"
-      delete-lines "\n"
-      "    " store-name ".remove(selectedContact);\n"
-      "    commitTransaction();\n"
-      "  });\n"
+      (if allow-delete
+        (str
+          "  const deleteBtn = document.createElement('button');\n"
+          "  deleteBtn.className = 'p-1 rounded hover:bg-red-100 text-muted-foreground hover:text-red-600 transition-colors';\n"
+          "  deleteBtn.innerHTML = '" delete-svg "';\n"
+          "  deleteBtn.addEventListener('click', () => {\n"
+          "    if (!selectedContact) return;\n"
+          "    beginTransaction();\n"
+          delete-lines "\n"
+          "    " store-name ".remove(selectedContact);\n"
+          "    commitTransaction();\n"
+          "  });\n")
+        "")
       "  const closeBtn = document.createElement('button');\n"
       "  closeBtn.className = 'p-1 rounded hover:bg-muted';\n"
       "  closeBtn.innerHTML = '" close-svg "';\n"
       "  closeBtn.addEventListener('click', () => selectContact(null));\n"
-      "  headerRight.appendChild(deleteBtn);\n"
+      (if allow-delete "  headerRight.appendChild(deleteBtn);\n" "")
       "  headerRight.appendChild(closeBtn);\n"
       "  header.appendChild(headerLeft);\n"
       "  header.appendChild(headerRight);\n"
@@ -660,9 +1383,11 @@
       "  }\n"
       "  detailNodes.emptyState.style.display = 'none';\n"
       "  detailNodes.wrapper.style.display = '';\n\n"
-      "  detailNodes.title.textContent = entity.name || '';\n"
+      "  detailNodes.title.textContent = entity[" (q title-field) "] || '';\n"
       (if (not (nil? subtitle-field))
-        (str "  detailNodes.subtitle.textContent = entity." subtitle-field " || '';\n")
+        (str "  detailNodes.subtitle.textContent = entity["
+             (q (or subtitle-field ""))
+             "] || '';\n")
         "")
       "\n"
       set-fields "\n"
@@ -676,19 +1401,23 @@
 
 ;; --- List view ---
 
-(defn gen-list-fns [en: String store-name: String columns: Any
-                    search-cols: Any derived-attrs: Any] :- String
+(defn gen-list-fns
+  [en: String
+   store-name: String
+   columns: Any
+   search-cols: Any
+   derived-attrs: Any
+   attach-publications?: Bool] -> String
   (let [list-ref (id->ref (str "ld-" en "-list"))
         search-ref (id->ref (str "ld-" en "-search"))
-        ;; All cell names: regular columns + derived field refs
-        all-cells (into (vec columns) (mapv (fn [da] (id->ref (.-name da))) derived-attrs))
         ;; Column cells in addRow
         col-cells (.join
           (mapv (fn [col]
-            (str "  const " col "Cell = document.createElement('span');\n"
-                 "  " col "Cell.className = 'text-sm truncate flex-1';\n"
-                 "  " col "Cell.textContent = entity." col " || '';\n"
-                 "  inner.appendChild(" col "Cell);"))
+            (let [col-ref (id->ref col)]
+              (str "  const " col-ref "Cell = document.createElement('span');\n"
+                   "  " col-ref "Cell.className = 'text-sm truncate flex-1';\n"
+                   "  " col-ref "Cell.textContent = entity[" (q col) "] || '';\n"
+                   "  inner.appendChild(" col-ref "Cell);")))
             columns)
           "\n")
         ;; Derived cells in addRow
@@ -703,9 +1432,26 @@
             derived-attrs)
           "\n")
         ;; Search text expression
-        search-text-expr (str "[" (.join (mapv (fn [c] (str "entity." c " || ''")) search-cols) ", ") "].join(' ').toLowerCase()")
+        search-text-expr
+        (str "["
+             (.join
+               (mapv (fn [c] (str "entity[" (q c) "] || ''")) search-cols)
+               ", ")
+             "].join(' ').toLowerCase()")
         ;; Cells object entries
-        cells-entries (.join (mapv (fn [c] (str c ": " c "Cell")) all-cells) ", ")]
+        column-cell-entries
+        (mapv
+          (fn [col]
+            (str "[" (q col) "]: " (id->ref col) "Cell"))
+          columns)
+        derived-cell-entries
+        (mapv
+          (fn [da]
+            (str "[" (q (.-name da)) "]: "
+                 (id->ref (.-name da)) "Cell"))
+          derived-attrs)
+        cells-entries
+        (.join (into column-cell-entries derived-cell-entries) ", ")]
 
     (str
       "const rowEls = new Map();\n\n"
@@ -720,11 +1466,16 @@
       "  row.appendChild(inner);\n"
       "  row.addEventListener('click', () => selectContact(entity.eid));\n"
       "  " list-ref ".appendChild(row);\n"
-      "  rowEls.set(entity.eid, {\n"
+      "  const rowEntry = {\n"
       "    el: row,\n"
       "    searchText: " search-text-expr ",\n"
-      "    cells: { " cells-entries " }\n"
-      "  });\n"
+      "    cells: Object.assign(Object.create(null), { " cells-entries " })\n"
+      "  };\n"
+      "  rowEls.set(entity.eid, rowEntry);\n"
+      (if attach-publications?
+        (str "  wakeFramAttachPublicationActions(" (q en)
+             ", entity, rowEntry, " store-name ");\n")
+        "")
       "}\n\n"
 
       "function removeRow(eid) {\n"
@@ -735,7 +1486,8 @@
       "function rebuildList() {\n"
       "  " list-ref ".innerHTML = '';\n"
       "  rowEls.clear();\n"
-      "  const sorted = " store-name ".all().slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));\n"
+      "  const sorted = " store-name ".all().slice().sort((a, b) => (a["
+      (q "name") "] || '').localeCompare(b[" (q "name") "] || ''));\n"
       "  for (const entity of sorted) addRow(entity);\n"
       "  filterRows();\n"
       "}\n\n"
@@ -749,7 +1501,7 @@
 
 ;; --- Stats ---
 
-(defn gen-stats [en: String store-name: String] :- String
+(defn gen-stats [en: String store-name: String] -> String
   (let [stats-ref (id->ref (str "ld-" en "-stats"))
         count-var (str (id->ref en) "Count")]
     (str "let " count-var " = 0;\n"
@@ -760,7 +1512,11 @@
 
 ;; --- Form handler ---
 
-(defn gen-form-handler [en: String form: Any] :- String
+(defn gen-form-handler
+  [en: String
+   form: Any
+   ge: Any
+   fram?: Bool] -> String
   (let [form-name (.-name form)
         fields (.-fields form)
         field-info (.-field-info form)
@@ -771,11 +1527,14 @@
             (let [ref (id->ref (str "form-" form-name "-" f))
                   fi (field-info-for field-info f)
                   kind (if (nil? fi) "text" (.-kind fi))]
-              (cond
-                (= kind "checkbox")
-                  (str "  const " ref "_val = " ref ".checked;")
-                :else
-                  (str "  const " ref "_val = " ref ".value.trim();"))))
+              (if fram?
+                (str "  const " ref "_val = wakeFramReadInput(" ref
+                     ", wakeFramFieldMeta[" (q en) "][" (q f) "]);")
+                (cond
+                  (= kind "checkbox")
+                    (str "  const " ref "_val = " ref ".checked;")
+                  :else
+                    (str "  const " ref "_val = " ref ".value.trim();")))))
             fields)
           "\n")
         ;; First field validation
@@ -785,8 +1544,8 @@
           (mapv (fn [f]
             (let [ref (id->ref (str "form-" form-name "-" f))]
               (if (and (= f "status") (not (nil? status-default)))
-                (str f ": " ref "_val || " (q status-default))
-                (str f ": " ref "_val"))))
+                (str "[" (q f) "]: " ref "_val || " (q status-default))
+                (str "[" (q f) "]: " ref "_val"))))
             fields)
           ", ")
         ;; Clear fields — type-aware
@@ -804,21 +1563,44 @@
                   (str "  " ref ".value = '';"))))
             fields)
           "\n")
-        status-in-form (some (fn [f] (= f "status")) fields)]
-    (str "function handleSubmit(e) {\n"
-         "  e.preventDefault();\n"
-         val-decls "\n"
-         "  if (!" first-ref "_val) return;\n"
-         "  " (str en "s") ".add({ " add-fields
-         (if (and (not (nil? status-default)) (not status-in-form))
-           (str ", status: " (q status-default)) "")
-         " });\n"
-         clear-lines "\n"
-         "}\n")))
+        status-in-form (some (fn [f] (= f "status")) fields)
+        store-name (store-ref (.-store-name ge))
+        status-field (if (and (not (nil? status-default))
+                              (not status-in-form))
+                       (str ", [" (q "status") "]: " (q status-default))
+                       "")
+        first-check (if (and fram?
+                             (field-checkbox?
+                               (graph-field-named ge (nth fields 0))))
+                      ""
+                      (str "  if (!" first-ref "_val) return;\n"))]
+    (if fram?
+      (str "async function handleSubmit(e) {\n"
+           "  e.preventDefault();\n"
+           "  const submitButton = e.submitter;\n"
+           "  if (submitButton) submitButton.disabled = true;\n"
+           "  try {\n"
+           val-decls "\n"
+           first-check
+           "    await " store-name ".add({ " add-fields status-field " });\n"
+           clear-lines "\n"
+           "  } catch (error) {\n"
+           "    " store-name ".commandFailed(error);\n"
+           "  } finally {\n"
+           "    if (submitButton) submitButton.disabled = false;\n"
+           "  }\n"
+           "}\n")
+      (str "function handleSubmit(e) {\n"
+           "  e.preventDefault();\n"
+           val-decls "\n"
+           first-check
+           "  " store-name ".add({ " add-fields status-field " });\n"
+           clear-lines "\n"
+           "}\n"))))
 
 ;; --- Persistence ---
 
-(defn gen-persistence [persist-key: Any all-stores: Any] :- String
+(defn gen-persistence [persist-key: Any all-stores: Any] -> String
   (let [snapshot-entries (.join
           (mapv (fn [s] (str "      " s ": " s ".snapshot()")) all-stores)
           ",\n")
@@ -845,168 +1627,27 @@
          "  } catch(_) {}\n"
          "}\n")))
 
-;; --- Live external feed (read-only mirror, real-time per-row push) ---
-;; Binds a store to an external HTTP endpoint returning a JSON array, kept live by the daemon
-;; /live commit-feed WebSocket. Rows are DIFFED into the store by the entity's identity field:
-;; each row that changed fires store.update(eid, attr, v) per field (change-gated — equal values
-;; are no-ops), new rows store.add(), vanished rows store.remove(). No whole-store load(), so the
-;; DOM is touched only where data actually moved and transient view state (selection) survives.
-;;
-;; The /live WS pushes raw {op,l,p,r} commits; we treat each as a "something changed" signal and
-;; coalesce a re-pull of the aggregated rows (the bridge owns claims->rows aggregation). A slow
-;; backstop poll covers a dropped commit. Identity index is feed-runtime-local: it does NOT
-;; re-key the store internals (that's the held stable-identity-keying work).
-(def feed-runtime-src #r#"const _feedIndex = new Map(); // identity value -> stable eid
-let _feedTimer = null;
-let _feedWS = null;
-let _feedPending = null;
-
-// Diff incoming rows into the store by identity field; per-row update/add/remove (change-gated).
-// Returns the identity values (uuids) that actually moved — handed to feed.onUpdate subscribers.
-function applyFeedRows(rows) {
-  const arr = Array.isArray(rows) ? rows : [];
-  if (!_feedIdField) {
-    // No identity field declared: fall back to whole-store replace.
-    _feedStore.load(arr.map((row, i) => ({ ...row, eid: i + 1 })));
-    return;
-  }
-  const seen = new Set();
-  const changed = [];
-  for (const row of arr) {
-    const key = String(row[_feedIdField]);
-    seen.add(key);
-    let eid = _feedIndex.get(key);
-    if (eid == null) {
-      const ent = _feedStore.add({ ...row });
-      _feedIndex.set(key, ent.eid);
-      changed.push(key);                                   // new agent
-    } else {
-      let moved = false;
-      for (const k in row) { if (k !== 'eid' && _feedStore.update(eid, k, row[k])) moved = true; }
-      if (moved) changed.push(key);                        // some field actually moved (not gated away)
-    }
-  }
-  for (const [key, eid] of Array.from(_feedIndex.entries())) {
-    if (!seen.has(key)) { _feedStore.remove(eid); _feedIndex.delete(key); changed.push(key); }  // vanished
-  }
-  if (changed.length) _emitFeedUpdate(changed);
-}
-
-async function loadFromFeed() {
-  try {
-    const r = await fetch(_feedUrl);
-    if (!r.ok) return;
-    applyFeedRows(await r.json());
-  } catch (err) { console.error('feed load failed:', err); }
-}
-
-// Derive the /live WS url from the feed http url: same host, ws(s) scheme, sibling /live path.
-function feedWsUrl() {
-  try {
-    const u = new URL(_feedUrl, location.href);
-    u.protocol = (u.protocol === 'https:') ? 'wss:' : 'ws:';
-    const p = u.pathname;
-    const slash = p.lastIndexOf('/');
-    u.pathname = (slash >= 0 ? p.slice(0, slash) : '') + '/live';
-    return u.toString();
-  } catch (_) { return null; }
-}
-
-function openFeedWS() {
-  const wsUrl = feedWsUrl();
-  if (!wsUrl) return;
-  try {
-    const ws = new WebSocket(wsUrl);
-    _feedWS = ws;
-    ws.onmessage = () => {
-      if (_feedPending) return; // coalesce a burst of commits into one refetch
-      _feedPending = setTimeout(() => { _feedPending = null; loadFromFeed(); }, 150);
-    };
-    ws.onclose = () => { _feedWS = null; setTimeout(openFeedWS, 2000); };
-    ws.onerror = () => { try { ws.close(); } catch (_) {} };
-  } catch (_) { setTimeout(openFeedWS, 2000); }
-}
-
-function startFeed() {
-  loadFromFeed();                                  // initial snapshot
-  openFeedWS();                                    // real-time push
-  _feedTimer = setInterval(loadFromFeed, 15000);   // slow backstop for any dropped commit
-}
-
-// --- window.wake: the cross-surface bus (SEAM with the shell). The shell owns the outer
-// layout and reads our stores/selection/feed by contract. Selection speaks IDENTITY (uuid);
-// we map uuid->eid at our boundary so neither side leaks its internal id. ---
-const _feedSubs = new Set();
-let _selectedUuid = null;
-
-function _emitFeedUpdate(changed) {
-  const payload = { name: _feedStoreName, changed };     // { name, changed:[uuid,...] } — the delta we already diffed
-  for (const cb of _feedSubs) { try { cb(payload); } catch (err) { console.error('wake feed subscriber threw:', err); } }
-}
-
-(function installWakeBus() {
-  const wake = (window.wake = window.wake || {});
-  wake.stores = wake.stores || {};
-  wake.stores[_feedStoreName] = _feedStore;
-  wake.selection = wake.selection || {
-    // uuid -> eid at our boundary. No-op (false) if the agent isn't indexed yet; never throws.
-    set(uuid) {
-      if (uuid == null) { _selectedUuid = null; return false; }
-      const key = String(uuid);
-      if (!_feedIndex.has(key)) return false;
-      _selectedUuid = key;
-      return true;
-    },
-    get() { return _selectedUuid; },                       // null cleanly when nothing is selected
-  };
-  wake.feed = wake.feed || {};
-  wake.feed.name = _feedStoreName;
-  wake.feed.onUpdate = (cb) => { if (typeof cb === 'function') _feedSubs.add(cb); return () => _feedSubs.delete(cb); };
-  // Ready signal: resolve a promise AND fire an event — a subscriber loading before OR after
-  // us both win, with no guarding for undefined.
-  window.wakeReady = Promise.resolve(wake);
-  try { window.dispatchEvent(new CustomEvent('wake:ready', { detail: wake })); } catch (_) {}
-})();
-
-// Bridge the view's internal eid → bus identity. The view calls this on every selectItem;
-// we resolve the entity's identity field and push it to the shared selection (custom panes
-// read wake.selection.get()). eid===null clears. No id field ⇒ no-op (bus stays uuid-clean).
-function _wakePushSelection(eid) {
-  if (!window.wake || !window.wake.selection) return;
-  if (eid == null) { window.wake.selection.set(null); return; }
-  const ent = _feedStore.get ? _feedStore.get(eid) : null;
-  const idv = (ent && _feedIdField) ? ent[_feedIdField] : null;
-  window.wake.selection.set(idv == null ? null : idv);
-}
-"#)
-
-(defn gen-feed-persistence [url: Any store-name: String id-field: Any] :- String
-  (str "const _feedUrl = " (q url) ";\n"
-       "const _feedStore = " store-name ";\n"
-       "const _feedStoreName = " (q store-name) ";\n"
-       "const _feedIdField = " (if (nil? id-field) "null" (q id-field)) ";\n"
-       feed-runtime-src))
-
 ;; --- Theme: (theme :colors (background "oklch(...)" ...)) sets CSS custom properties on
 ;; :root so the utility classes (text-foreground, bg-background, …) resolve. Emitted as an
 ;; injected <style> in init so a no-build deploy (wake app dropped into a static host) is
 ;; self-contained — the var values ride in the JS, the utility→var mapping rides in dist.css.
 ;; (Was parsed-and-threaded but never emitted — a silent no-op; this closes that.) ---
-(defn gen-theme-style [theme: Any] :- String
+(defn gen-theme-style [theme: Any] -> String
   (if (nil? theme) ""
     (let [colors (.-colors theme)
           decls (.join
-                  (mapv (fn [k] (str "    --" k ": " (get colors k) ";\\n")) (keys colors))
-                  "")]
+                  (mapv (fn [k] (str "    --" k ": " (get colors k) ";\n")) (keys colors))
+                  "")
+          css (str ":root {\n" decls "}")]
       (str "  { const _themeStyle = document.createElement('style');\n"
-           "    _themeStyle.textContent = ':root {\\n" decls "}';\n"
+           "    _themeStyle.textContent = " (q css) ";\n"
            "    document.head.appendChild(_themeStyle); }\n"))))
 
 ;; --- Escape-hatch panels: mount shell-owned custom panes (Cytoscape/stream) into named
 ;; containers carved from the wake view. The pane fn receives { el, wake } so it shares the
-;; same feed (feed.onUpdate) + selection as the entity-view. mount-fn is a dotted path
+;; same updates and selection as the entity view. mount-fn is a dotted path
 ;; resolved off window at runtime; a missing fn warns and no-ops (never throws). ---
-(defn gen-panels-mount [panels: Any parent-var: String] :- String
+(defn gen-panels-mount [panels: Any parent-var: String] -> String
   (if (empty? panels) ""
     (str
       "\n  // ── Escape-hatch panels (shell-owned custom panes; share window.wake) ──────\n"
@@ -1027,10 +1668,21 @@ function _wakePushSelection(eid) {
 
 ;; --- Compiled per-attribute update paths ---
 
-(defn gen-update-fns [columns: Any search-cols: Any overview-fields: Any
-                      subtitle-field: Any persist-key: Any related-tab-keys: Any
-                      derived-attrs: Any store-name: String] :- String
-  (let [search-text-expr (str "[" (.join (mapv (fn [c] (str "entity." c " || ''")) search-cols) ", ") "].join(' ').toLowerCase()")
+(defn gen-update-fns
+  [columns: Any
+   search-cols: Any
+   overview-fields: Any
+   subtitle-field: Any
+   persist-key: Any
+   related-tab-keys: Any
+   derived-attrs: Any
+   store-name: String] -> String
+  (let [search-text-expr
+        (str "["
+             (.join
+               (mapv (fn [c] (str "entity[" (q c) "] || ''")) search-cols)
+               ", ")
+             "].join(' ').toLowerCase()")
         attr-fns (.join
           (mapv (fn [col]
             (let [is-search (.includes search-cols col)
@@ -1046,10 +1698,12 @@ function _wakePushSelection(eid) {
                   ;; Row-level derived recomputation
                   row-derived (.join
                     (mapv (fn [da]
-                      (let [dname (id->ref (.-name da))
+                      (let [dname (.-name da)
                             expr (.-expr da)
                             subst (assoc {} col "value")]
-                        (str "      rowEntry.cells." dname ".textContent = " (compile-derived-expr expr subst) ";")))
+                        (str "      rowEntry.cells[" (q dname)
+                             "].textContent = "
+                             (compile-derived-expr expr subst) ";")))
                       affected-derived)
                     "\n")
                   ;; Detail-level derived recomputation
@@ -1062,23 +1716,29 @@ function _wakePushSelection(eid) {
                       affected-derived)
                     "\n")]
 
-              (str "  " col "(eid, value) {\n"
+              (str "  [" (q col) "](eid, value) {\n"
                    "    const rowEntry = rowEls.get(eid);\n"
                    (if needs-entity (str "    const entity = " store-name ".get(eid);\n") "")
                    "    if (rowEntry) {\n"
-                   "      rowEntry.cells." col ".textContent = value;\n"
+                   "      rowEntry.cells[" (q col) "].textContent = value;\n"
                    (if is-search (str "      rowEntry.searchText = " search-text-expr ";\n") "")
                    (if (> (count affected-derived) 0) (str row-derived "\n") "")
                    "    }\n"
                    (if needs-detail
                      (str "    if (selectedContact === eid) {\n"
-                          (if is-overview (str "      detailNodes.field_" col ".textContent = value;\n") "")
+                          (if is-overview
+                            (str "      detailNodes.field_" (id->ref col)
+                                 ".textContent = value;\n")
+                            "")
                           (if is-title "      detailNodes.title.textContent = value;\n" "")
                           (if is-subtitle "      detailNodes.subtitle.textContent = value;\n" "")
                           (if (and is-title (> (count related-tab-keys) 0))
                             (.join
                               (mapv (fn [key]
-                                (str "      detailNodes." key "Header.textContent = '" (titlecase key) " for ' + value;"))
+                                (str "      detailNodes." (id->ref key)
+                                     "Header.textContent = "
+                                     (q (str (titlecase key) " for "))
+                                     " + value;"))
                                 related-tab-keys)
                               "\n")
                             "")
@@ -1091,11 +1751,12 @@ function _wakePushSelection(eid) {
                    "  }")))
             columns)
           ",\n")]
-    (str "const updateAttr = {\n" attr-fns "\n};\n")))
+    (str "const updateAttr = Object.assign(Object.create(null), {\n"
+         attr-fns "\n});\n")))
 
 ;; --- Undo/Redo ---
 
-(defn gen-undo-redo [] :- String
+(defn gen-undo-redo [] -> String
   (.join
     ["const undoStack = [];"
      "const redoStack = [];"
@@ -1159,11 +1820,11 @@ function _wakePushSelection(eid) {
 
 ;; --- Layout (DOM construction for init) ---
 
-(defn field-info-for [fi-list: Any fname: String] :- Any
+(defn field-info-for [fi-list: Any fname: String] -> Any
   (first (filterv (fn [fi] (= (.-name fi) fname)) fi-list)))
 
-(defn gen-field-types-map [fi-list: Any] :- String
-  (if (or (nil? fi-list) (= (count fi-list) 0)) "{}"
+(defn gen-field-types-map [fi-list: Any] -> String
+  (if (or (nil? fi-list) (= (count fi-list) 0)) "Object.create(null)"
     (let [entries (filterv (fn [fi] (not (= (.-kind fi) "text"))) fi-list)
           parts (mapv (fn [fi]
             (let [name (.-name fi)
@@ -1171,11 +1832,18 @@ function _wakePushSelection(eid) {
                   opts (.-options fi)
                   opts-str (if (= (count opts) 0) "[]"
                     (str "[" (.join (mapv (fn [o] (q o)) opts) ", ") "]"))]
-              (str (q name) ": { kind: " (q kind) ", options: " opts-str " }")))
+              (str "[" (q name) "]: { kind: " (q kind)
+                   ", options: " opts-str " }")))
             entries)]
-      (str "{ " (.join parts ", ") " }"))))
+      (str "Object.assign(Object.create(null), { "
+           (.join parts ", ") " })"))))
 
-(defn gen-layout [en: String form: Any title: String] :- Any
+(defn gen-layout
+  [en: String
+   form: Any
+   title: String
+   ge: Any
+   fram?: Bool] -> Any
   (let [form-name (.-name form)
         fields (.-fields form)
         required (.-required form)
@@ -1276,7 +1944,12 @@ function _wakePushSelection(eid) {
               is-req (.includes required field)
               fid (str "form-" form-name "-" field)
               fi (field-info-for field-info field)
-              kind (if (nil? fi) "text" (.-kind fi))
+              graph-field (graph-field-named ge field)
+              base-kind (if (nil? fi) "text" (.-kind fi))
+              kind (if (and fram? (not (nil? graph-field))
+                            (= (.-cardinality graph-field) "multi"))
+                     "text"
+                     base-kind)
               options (if (nil? fi) [] (.-options fi))
               d (+ c 1)
               l (+ c 2)
@@ -1329,33 +2002,46 @@ function _wakePushSelection(eid) {
 
 ;; --- Ref declarations ---
 
-(defn gen-ref-decls [refs: Any] :- String
+(defn gen-ref-decls [refs: Any] -> String
   (.join (mapv (fn [r] (str "let " (id->ref (.-id r)) ";")) refs) "\n"))
 
-(defn gen-ref-assigns [refs: Any] :- String
+(defn gen-ref-assigns [refs: Any] -> String
   (.join (mapv (fn [r] (str "  " (id->ref (.-id r)) " = " (.-vname r) ";")) refs) "\n"))
 
 ;; --- Init function ---
 
-(defn gen-init-fn [en: String form-name: String store-name: String
-                   related-info: Any persist-key: Any layout-result: Any] :- String
+(defn gen-init-fn
+  [en: String
+   form-name: String
+   store-name: String
+   related-info: Any
+   persist-key: Any
+   layout-result: Any
+   enable-undo: Bool
+   fram?: Bool] -> String
   (let [form-ref (id->ref (str "form-" form-name))
         search-ref (id->ref (str "ld-" en "-search"))
         ref-assigns (gen-ref-assigns (.-refs layout-result))
         related-watchers (.join
           (mapv (fn [ri]
-            (let [rel-store (.-store ri)
+            (let [rel-store (store-ref (.-store ri))
                   key (.-key ri)
-                  render-fn (str "render" (titlecase key))]
+                  render-fn (id->ref (str "render-related/" key))]
               (str "  " rel-store ".watch((evt) => {\n"
                    "    if (evt.type === 'add' || evt.type === 'load' || evt.type === 'remove') " render-fn "();\n"
                    "    if (evt.type === 'add') {\n"
-                   "      recordUndo({ type: 'add', store: " rel-store ", eid: evt.eid, entity: evt.entity });\n"
+                   (if enable-undo
+                     (str "      recordUndo({ type: 'add', store: " rel-store
+                          ", eid: evt.eid, entity: evt.entity });\n")
+                     "")
                    (cond (not (nil? persist-key)) "      saveDb();\n"
                          :else "")
                    "    }\n"
                    "    if (evt.type === 'remove') {\n"
-                   "      recordUndo({ type: 'remove', store: " rel-store ", eid: evt.eid, entity: evt.entity });\n"
+                   (if enable-undo
+                     (str "      recordUndo({ type: 'remove', store: " rel-store
+                          ", eid: evt.eid, entity: evt.entity });\n")
+                     "")
                    (cond (not (nil? persist-key)) "      saveDb();\n"
                          :else "")
                    "    }\n"
@@ -1381,7 +2067,10 @@ function _wakePushSelection(eid) {
       "      filterRows();\n"
       "      " (id->ref en) "Count++;\n"
       "      updateStats();\n"
-      "      recordUndo({ type: 'add', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
+      (if enable-undo
+        (str "      recordUndo({ type: 'add', store: " store-name
+             ", eid: evt.eid, entity: evt.entity });\n")
+        "")
       (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
       "    }\n"
@@ -1394,13 +2083,19 @@ function _wakePushSelection(eid) {
       "    if (evt.type === 'update') {\n"
       "      const fn = updateAttr[evt.attr];\n"
       "      if (fn) fn(evt.eid, evt.new || '');\n"
-      "      recordUndo({ type: 'update', store: " store-name ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"
+      (if enable-undo
+        (str "      recordUndo({ type: 'update', store: " store-name
+             ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n")
+        "")
       "    }\n"
       "    if (evt.type === 'remove') {\n"
       "      removeRow(evt.eid);\n"
       "      " (id->ref en) "Count--;\n"
       "      updateStats();\n"
-      "      recordUndo({ type: 'remove', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
+      (if enable-undo
+        (str "      recordUndo({ type: 'remove', store: " store-name
+             ", eid: evt.eid, entity: evt.entity });\n")
+        "")
       "      if (selectedContact === evt.eid) selectContact(null);\n"
       (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
@@ -1408,12 +2103,15 @@ function _wakePushSelection(eid) {
       "  });\n"
       "\n"
       related-watchers "\n"
-      "  document.addEventListener('keydown', (e) => {\n"
-      "    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }\n"
-      "    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }\n"
-      "  });\n"
-      "\n"
+      (if enable-undo
+        (str
+          "  document.addEventListener('keydown', (e) => {\n"
+          "    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }\n"
+          "    if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }\n"
+          "  });\n\n")
+        "")
       (cond (not (nil? persist-key)) "  restoreDb();\n"
+            fram? "  void wakeFramStart();\n"
             :else "")
       "  updateStats();\n"
       "  renderDetail();\n"
@@ -1421,43 +2119,53 @@ function _wakePushSelection(eid) {
 
 ;; === Component-based codegen ===
 
-;; An IrAction → a JS statement.
-;;  (tell pred val)     → REMOTE claim write: POST /api/tell {graph,id,pred,obj}.
-;;                        The daemon commits → /live push → feed re-fetch → re-render.
-;;                        Uses props.id (the claim ref) + window.WAKE_GRAPH. No store needed.
-;;  (assert/set pred v) → LOCAL store mutation (update = supersede on a claim store).
-;;  (retract)           → LOCAL store.remove (tombstone).
-;; tell is the claims-native round-trip; assert/set/retract are local-optimistic.
-(defn compile-action [action: Any store-name: String] :- String
+;; An IrAction becomes a mutation against the selected entity store. FRAM
+;; stores translate assert/set to closed gateway commands; retract is local-only.
+(defn compile-action
+  [action: Any
+   store-name: String
+   allow-delete: Bool] -> String
   (if (nil? action) ""
     (let [verb (.-verb action)
           args (.-args action)
           argval (fn [a]
-                   (if (= (get a "kind") "literal") (q (get a "value"))
-                     (str "props." (get a "name"))))
-          local? (or (= store-name "") (nil? store-name))]
+                   (cond
+                     (= (get a "kind") "literal") (q (get a "value"))
+                     (= (get a "kind") "tag")
+                       (q (graph/strip-colon (get a "name")))
+                     :else (str "props[" (q (get a "name")) "]")))
+          dynamic-store? (or (= store-name "") (nil? store-name))
+          store-expr (if dynamic-store? "store" store-name)]
       (cond
-        (= verb "tell")
+        (or (= verb "assert") (= verb "set"))
           (if (>= (count args) 2)
-            (str "fetch('/api/tell',{method:'POST',headers:{'Content-Type':'application/json'},"
-                 "body:JSON.stringify({graph:(window.WAKE_GRAPH||'board'),id:props.id,pred:"
-                 (q (get (nth args 0) "name")) ",obj:" (argval (nth args 1)) "})});")
+            (str "if (" store-expr ") "
+                 (if allow-delete "" "await ")
+                 store-expr ".update(props.eid, "
+                 (q (get (nth args 0) "name")) ", "
+                 (argval (nth args 1)) ");")
             "")
-        (and (not local?) (or (= verb "assert") (= verb "set")))
-          (if (>= (count args) 2)
-            (str store-name ".update(props.eid, " (q (get (nth args 0) "name")) ", " (argval (nth args 1)) ");")
-            "")
-        (and (not local?) (= verb "retract"))
-          (str store-name ".remove(props.eid);")
+        (and allow-delete (= verb "retract"))
+          (str "if (" store-expr ") " store-expr ".remove(props.eid);")
         :else ""))))
 
-(defn gen-when-block! [node: Any counter: Any parent-var: String props: Any store-name: String] :- Any
+(defn gen-when-block!
+  [node: Any
+   counter: Any
+   parent-var: String
+   props: Any
+   store-name: String
+   allow-delete: Bool] -> Any
   (let [prop (.-prop node)
         wc (get counter "n")
         when-var (str "when_" wc)
         anchor-var (str "whenAnchor_" wc)]
     (set! (.-n counter) (+ wc 1))
-    (let [child-results (mapv (fn [el] (gen-element! el counter props store-name)) (.-children node))
+    (let [child-results
+          (mapv
+            (fn [el]
+              (gen-element! el counter props store-name allow-delete))
+            (.-children node))
           child-code (.join (mapv (fn [cr] (.-code cr)) child-results) "")
           child-appends (.join
             (mapv (fn [cr] (str "      " parent-var ".insertBefore(" (.-vname cr) ", " anchor-var ");\n"))
@@ -1477,11 +2185,16 @@ function _wakePushSelection(eid) {
              "      " when-var " = [];\n"
              "    }\n"
              "  }\n"
-             "  " when-var "_update(props." prop ");\n")
+             "  " when-var "_update(props[" (q prop) "]);\n")
         ""
         [(->Binding prop (str when-var "_update") "_when")]))))
 
-(defn gen-element! [el: Any counter: Any props: Any store-name: String] :- Any
+(defn gen-element!
+  [el: Any
+   counter: Any
+   props: Any
+   store-name: String
+   allow-delete: Bool] -> Any
   (if (not (nil? (.-prop el)))
     nil
     (let [c (get counter "n")
@@ -1498,7 +2211,8 @@ function _wakePushSelection(eid) {
                       (str "  " var-name ".className = " (q (get cls-attr "value")) ";\n"))
             text-line (if (nil? text-attr) ""
                        (if (= (get text-attr "type") "bind")
-                         (str "  " var-name ".textContent = props." (get text-attr "prop") " || '';\n")
+                         (str "  " var-name ".textContent = props["
+                              (q (get text-attr "prop")) "] || '';\n")
                          (str "  " var-name ".textContent = " (q (get text-attr "value")) ";\n")))
             placeholder-line (if (nil? placeholder-attr) ""
                               (str "  " var-name ".placeholder = " (q (get placeholder-attr "value")) ";\n"))
@@ -1506,9 +2220,25 @@ function _wakePushSelection(eid) {
                        (str "  " var-name ".type = " (q (get type-attr "value")) ";\n"))
             action-lines (.join
               (mapv (fn [k]
-                      (let [a (get attrs k)]
-                        (str "  " var-name ".addEventListener(" (q (get a "event"))
-                             ", (ev) => { ev.preventDefault(); " (compile-action (get a "action") store-name) " });\n")))
+                      (let [a (get attrs k)
+                            action-code (compile-action
+                                          (get a "action")
+                                          store-name
+                                          allow-delete)
+                            dynamic-store? (or (= store-name "")
+                                               (nil? store-name))
+                            store-expr (if dynamic-store? "store" store-name)]
+                        (if allow-delete
+                          (str "  " var-name ".addEventListener("
+                               (q (get a "event"))
+                               ", (ev) => { ev.preventDefault(); "
+                               action-code " });\n")
+                          (str "  " var-name ".addEventListener("
+                               (q (get a "event"))
+                               ", async (ev) => { ev.preventDefault(); try { "
+                               action-code " } catch (error) { if ("
+                               store-expr ") " store-expr
+                               ".commandFailed(error); } });\n"))))
                 (filterv (fn [k] (= (get (get attrs k) "type") "action")) (keys attrs)))
               "")
             bindings (if (and (not (nil? text-attr)) (= (get text-attr "type") "bind"))
@@ -1516,12 +2246,21 @@ function _wakePushSelection(eid) {
                       [])
             when-children (filterv (fn [child] (not (nil? (.-prop child)))) children)
             element-children (filterv (fn [child] (nil? (.-prop child))) children)
-            child-results (mapv (fn [child] (gen-element! child counter props store-name)) element-children)
+            child-results
+            (mapv
+              (fn [child]
+                (gen-element! child counter props store-name allow-delete))
+              element-children)
             child-code (.join (mapv (fn [cr] (.-code cr)) child-results) "")
             child-appends (.join
               (mapv (fn [cr] (str "  " var-name ".appendChild(" (.-vname cr) ");\n"))
                 child-results) "")
-            when-results (mapv (fn [wc] (gen-when-block! wc counter var-name props store-name)) when-children)
+            when-results
+            (mapv
+              (fn [wc]
+                (gen-when-block!
+                  wc counter var-name props store-name allow-delete))
+              when-children)
             when-code (.join (mapv (fn [wr] (.-code wr)) when-results) "")
             child-bindings (reduce (fn [acc cr] (into acc (.-bindings cr))) bindings child-results)
             all-bindings (reduce (fn [acc wr] (into acc (.-bindings wr))) child-bindings when-results)]
@@ -1532,13 +2271,20 @@ function _wakePushSelection(eid) {
           var-name
           all-bindings)))))
 
-(defn gen-component-fn! [comp: Any store-name: String] :- String
+(defn gen-component-fn!
+  [comp: Any
+   store-name: String
+   allow-delete: Bool] -> String
   (let [name (.-name comp)
         props (.-props comp)
         body (.-body comp)
         fn-name (str (id->ref name) "_create")
         counter {"n" 0}
-        root-results (mapv (fn [el] (gen-element! el counter props store-name)) body)
+        root-results
+        (mapv
+          (fn [el]
+            (gen-element! el counter props store-name allow-delete))
+          body)
         root-code (.join (mapv (fn [r] (.-code r)) root-results) "")
         all-bindings (reduce (fn [acc r] (into acc (.-bindings r))) [] root-results)
         root-var (if (= (count root-results) 1)
@@ -1554,52 +2300,55 @@ function _wakePushSelection(eid) {
         update-fns (.join
           (mapv (fn [b]
             (if (= (.-dom-prop b) "_when")
-              (str "    " (.-prop b) "(v) { " (.-vname b) "(v); }")
-              (str "    " (.-prop b) "(v) { " (.-vname b) "." (.-dom-prop b) " = v; }")))
+              (str "    [" (q (.-prop b)) "](v) { " (.-vname b) "(v); }")
+              (str "    [" (q (.-prop b)) "](v) { " (.-vname b) "."
+                   (.-dom-prop b) " = v; }")))
             all-bindings)
           ",\n")
         text-bindings (filterv (fn [b] (not (= (.-dom-prop b) "_when"))) all-bindings)
         nodes-entries (.join
-          (mapv (fn [b] (str "    " (.-prop b) ": " (.-vname b))) text-bindings)
+          (mapv
+            (fn [b] (str "    [" (q (.-prop b)) "]: " (.-vname b)))
+            text-bindings)
           ",\n")]
-    (str "function " fn-name "(props) {\n"
+    (str "function " fn-name "(props, store) {\n"
          root-code
          wrapper-code
          "  return {\n"
          "    el: " root-var ",\n"
-         "    update: {\n" update-fns "\n    },\n"
-         "    nodes: {\n" nodes-entries "\n    },\n"
+         "    update: Object.assign(Object.create(null), {\n"
+         update-fns "\n    }),\n"
+         "    nodes: Object.assign(Object.create(null), {\n"
+         nodes-entries "\n    }),\n"
          "    destroy() { " root-var ".remove(); }\n"
          "  };\n"
          "}\n")))
 
-(defn gen-view-program! [prog: Any] :- String
+(defn gen-view-program! [prog: Any] -> String
   (let [g (graph/check-program prog)
         components (or (.-components prog) [])
         view (first (or (.-views prog) []))
         en (.-entity-name view)
         ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities g)))
-        store-name (.-store-name ge)
+        store-name (store-ref (.-store-name ge))
         comp-name (.-component view)
         comp (first (filterv (fn [c] (= (.-name c) comp-name)) components))
         add-fields (.-add-fields view)
+        has-form (> (count add-fields) 0)
         title (.-title view)
         panels (or (.-panels prog) [])
+        is-fram (fram-graph? g)
+        view-publications
+        (if is-fram
+          (filterv
+            (fn [publication]
+              (= (.-revision-entity publication) en))
+            (.-publications g))
+          [])
+        has-publications (> (count view-publications) 0)
         persist (.-persist g)
         raw-persist-key (if (nil? persist) nil (.-key persist))
-        persist-mode (if (nil? persist) nil (.-storage persist))
-        is-feed (= persist-mode "feed")
-        feed-url (if is-feed raw-persist-key nil)
-        ;; identity field for per-row feed diffing: prefer a field marked :unique identity,
-        ;; else the first unique field, else nil (runtime falls back to whole-store replace).
-        feed-uniques (if is-feed (.-unique-fields ge) [])
-        feed-id-field (let [ids (filterv (fn [f] (= (.-unique f) "identity")) feed-uniques)]
-                        (cond
-                          (not (empty? ids)) (.-name (first ids))
-                          (not (empty? feed-uniques)) (.-name (first feed-uniques))
-                          :else nil))
-        ;; nil out persist-key under feed so the localStorage saveDb/restoreDb branches go dark.
-        persist-key (if is-feed nil raw-persist-key)
+        persist-key (if is-fram nil raw-persist-key)
         src-name (.-ns g)
         fn-name (str (id->ref comp-name) "_create")
         has-select (not (nil? (.-select-component view)))
@@ -1609,18 +2358,49 @@ function _wakePushSelection(eid) {
         select-fn-name (if has-select (str (id->ref (.-name select-comp)) "_create") nil)
         form-fields-code (.join
           (mapv (fn [f]
-            (let [fid (str "form_" (id->ref f))]
+            (let [fid (str "form_" (id->ref f))
+                  field (graph-field-named ge f)
+                  checkbox? (and is-fram (field-checkbox? field))]
               (str "  const " fid "_label = document.createElement('label');\n"
                    "  " fid "_label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
                    "  " fid "_label.textContent = " (q (titlecase f)) ";\n"
                    "  formEl.appendChild(" fid "_label);\n"
                    "  const " fid " = document.createElement('input');\n"
+                   (if checkbox? (str "  " fid ".type = 'checkbox';\n") "")
                    "  " fid ".className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm';\n"
-                   "  " fid ".placeholder = " (q (titlecase f)) ";\n"
+                   (if checkbox? ""
+                     (str "  " fid ".placeholder = " (q (titlecase f)) ";\n"))
                    "  formEl.appendChild(" fid ");\n")))
             add-fields) "")
-        add-obj (.join (mapv (fn [f] (str (id->ref f) ": form_" (id->ref f) ".value.trim()")) add-fields) ", ")
-        clear-lines (.join (mapv (fn [f] (str "    form_" (id->ref f) ".value = '';")) add-fields) "\n")
+        add-obj (.join
+          (mapv (fn [f]
+            (let [fid (str "form_" (id->ref f))
+                  field (graph-field-named ge f)]
+              (str "[" (q f) "]: "
+                   (if is-fram
+                     (str "wakeFramReadInput(" fid ", wakeFramFieldMeta["
+                          (q en) "][" (q f) "])")
+                     (str fid ".value.trim()")))))
+            add-fields)
+          ", ")
+        clear-lines (.join
+          (mapv (fn [f]
+            (let [fid (str "form_" (id->ref f))
+                  field (graph-field-named ge f)]
+              (if (and is-fram (field-checkbox? field))
+                (str "    " fid ".checked = false;")
+                (str "    " fid ".value = '';"))))
+            add-fields)
+          "\n")
+        first-field (if has-form (nth add-fields 0) "")
+        first-fid (if has-form (str "form_" (id->ref first-field)) "")
+        first-checkbox?
+        (and has-form is-fram
+             (field-checkbox? (graph-field-named ge first-field)))
+        first-check
+        (if (or (not has-form) first-checkbox?) ""
+          (str "    const first = " first-fid ".value.trim();\n"
+               "    if (!first) return;\n"))
 
         init-open #r#"
           function init() {
@@ -1673,9 +2453,6 @@ function _wakePushSelection(eid) {
             let detailInst = null;
             function selectItem(eid) {
               selectedEid = eid;
-              // Push selection onto the shared bus (IDENTITY, not eid) so custom panes
-              // (Cytoscape/stream) highlight in lockstep. Guarded: no-op when no feed bus.
-              if (typeof _wakePushSelection === 'function') _wakePushSelection(eid);
               if (detailInst) { detailInst.destroy(); detailInst = null; }
               if (eid === null) { detailEmpty.style.display = ''; return; }
               detailEmpty.style.display = 'none';
@@ -1702,7 +2479,8 @@ function _wakePushSelection(eid) {
                      (str select-setup-top "\n"
                           "      const entity = " store-name ".get(eid);\n"
                           "      if (!entity) return;\n"
-                          "      detailInst = " select-fn-name "(entity);\n"
+                          "      detailInst = " select-fn-name
+                          "(entity, " store-name ");\n"
                           select-setup-bottom)
                      list-setup-no-select)
 
@@ -1722,7 +2500,7 @@ function _wakePushSelection(eid) {
 
     (str
       "// Generated by wake — semantic UI compiler\n"
-      "// Source: " src-name "\n"
+      "// Source: " (q src-name) "\n"
       "// This file is a build artifact. Edit the .wake source, not this file.\n\n"
       "(function() {\n"
       "'use strict';\n\n"
@@ -1731,41 +2509,73 @@ function _wakePushSelection(eid) {
       (gen-equiv-runtime) "\n"
 
       "// ── Store ──────────────────────────────────────────\n"
-      (if (= persist-mode "claims") (gen-store-claims store-name []) (gen-store store-name [])) "\n\n"
+      (if is-fram
+        (.join
+          (mapv
+            (fn [entity] (gen-store-for entity [] true))
+            (publication-entities g [ge]))
+          "\n\n")
+        (gen-store-for ge [] false))
+      "\n\n"
+
+      (if is-fram
+        (str "// ── FRAM gateway connector ────────────────────────────\n"
+             (gen-fram-connector
+               (publication-entities g [ge])
+               (.-entities g)
+               (.-publications g)) "\n")
+        "")
 
       "// ── Component ────────────────────────────────────────\n"
-      (gen-component-fn! comp store-name) "\n"
+      (gen-component-fn! comp store-name (not is-fram)) "\n"
 
       (if has-select
         (str "// ── Detail Component ─────────────────────────────────\n"
-             (gen-component-fn! select-comp store-name) "\n")
+             (gen-component-fn! select-comp store-name (not is-fram)) "\n")
         "")
 
-      "// ── Undo / Redo ─────────────────────────────────────\n"
-      (gen-undo-redo) "\n"
+      (if is-fram
+        ""
+        (str "// ── Undo / Redo ─────────────────────────────────────\n"
+             (gen-undo-redo) "\n"))
 
       (cond
         (not (nil? persist-key))
           (str "// ── Persistence ──────────────────────────────────────\n"
                (gen-persistence persist-key [store-name]) "\n")
-        is-feed
-          (str "// ── Live external feed ───────────────────────────────\n"
-               (gen-feed-persistence feed-url store-name feed-id-field) "\n")
         :else "")
 
       "// ── Init ─────────────────────────────────────────────\n"
       init-open "\n"
       (gen-theme-style (.-theme prog))
-      form-fields-code
-      submit-btn "\n"
-      "  formEl.addEventListener('submit', (e) => {\n"
-      "    e.preventDefault();\n"
-      "    const first = form_" (id->ref (nth add-fields 0)) ".value.trim();\n"
-      "    if (!first) return;\n"
-      "    " store-name ".add({ " add-obj " });\n"
-      clear-lines "\n"
-      "  });\n"
-      "  container.appendChild(formEl);\n\n"
+      (if has-form
+        (str
+          form-fields-code
+          submit-btn "\n"
+          (if is-fram
+            (str
+              "  formEl.addEventListener('submit', async (e) => {\n"
+              "    e.preventDefault();\n"
+              "    submitBtn.disabled = true;\n"
+              "    try {\n"
+              first-check
+              "      await " store-name ".add({ " add-obj " });\n"
+              clear-lines "\n"
+              "    } catch (error) {\n"
+              "      " store-name ".commandFailed(error);\n"
+              "    } finally {\n"
+              "      submitBtn.disabled = false;\n"
+              "    }\n"
+              "  });\n")
+            (str
+              "  formEl.addEventListener('submit', (e) => {\n"
+              "    e.preventDefault();\n"
+              first-check
+              "    " store-name ".add({ " add-obj " });\n"
+              clear-lines "\n"
+              "  });\n"))
+          "  container.appendChild(formEl);\n\n")
+        "")
 
       header-and-list "\n"
       "  titleEl.textContent = " (q title) ";\n"
@@ -1776,19 +2586,27 @@ function _wakePushSelection(eid) {
 
       "  " store-name ".watch((evt) => {\n"
       "    if (evt.type === 'add') {\n"
-      "      const inst = " fn-name "(evt.entity);\n"
+      "      const inst = " fn-name "(evt.entity, " store-name ");\n"
       "      inst.el.className = (inst.el.className || '') + ' cursor-pointer hover:bg-muted/50';\n"
+      (if has-publications
+        (str "      wakeFramAttachPublicationActions(" (q en)
+             ", evt.entity, inst, " store-name ");\n")
+        "")
       "      listEl.appendChild(inst.el);\n"
       "      instances.set(evt.eid, inst);\n"
       (if has-select "      inst.el.addEventListener('click', () => selectItem(evt.eid));\n" "")
       "      statsEl.textContent = 'Total: ' + instances.size;\n"
-      "      recordUndo({ type: 'add', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
+      (if is-fram ""
+        (str "      recordUndo({ type: 'add', store: " store-name
+             ", eid: evt.eid, entity: evt.entity });\n"))
       (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
       "    }\n"
       watcher-update "\n"
       (if has-select "      if (selectedEid === evt.eid && detailInst && detailInst.update[evt.attr]) detailInst.update[evt.attr](evt.new || '');\n" "")
-      "      recordUndo({ type: 'update', store: " store-name ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"
+      (if is-fram ""
+        (str "      recordUndo({ type: 'update', store: " store-name
+             ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"))
       (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
       "    }\n"
@@ -1797,7 +2615,9 @@ function _wakePushSelection(eid) {
       "      if (inst) { inst.destroy(); instances.delete(evt.eid); }\n"
       "      statsEl.textContent = 'Total: ' + instances.size;\n"
       (if has-select "      if (selectedEid === evt.eid) selectItem(null);\n" "")
-      "      recordUndo({ type: 'remove', store: " store-name ", eid: evt.eid, entity: evt.entity });\n"
+      (if is-fram ""
+        (str "      recordUndo({ type: 'remove', store: " store-name
+             ", eid: evt.eid, entity: evt.entity });\n"))
       (cond (not (nil? persist-key)) "      saveDb();\n"
             :else "")
       "    }\n"
@@ -1806,8 +2626,12 @@ function _wakePushSelection(eid) {
       "      instances.clear();\n"
       (if has-select "      if (selectedEid) selectItem(null);\n" "")
       "      for (const entity of " store-name ".all()) {\n"
-      "        const inst = " fn-name "(entity);\n"
+      "        const inst = " fn-name "(entity, " store-name ");\n"
       "        inst.el.className = (inst.el.className || '') + ' cursor-pointer hover:bg-muted/50';\n"
+      (if has-publications
+        (str "        wakeFramAttachPublicationActions(" (q en)
+             ", entity, inst, " store-name ");\n")
+        "")
       (if has-select "        inst.el.addEventListener('click', () => selectItem(entity.eid));\n" "")
       "        listEl.appendChild(inst.el);\n"
       "        instances.set(entity.eid, inst);\n"
@@ -1816,9 +2640,9 @@ function _wakePushSelection(eid) {
       "    }\n"
       "  });\n\n"
 
-      keyboard-handler "\n\n"
+      (if is-fram "" (str keyboard-handler "\n\n"))
       (cond (not (nil? persist-key)) "  restoreDb();\n"
-            is-feed "  startFeed();\n"
+            is-fram "  void wakeFramStart();\n"
             :else "")
       "}\n\n"
       "init();\n"
@@ -1826,7 +2650,15 @@ function _wakePushSelection(eid) {
 
 ;; === Multi-view routing codegen ===
 
-(defn gen-view-section [view: Any components: Any ge: Any store-name: String all-entities: Any all-views: Any] :- String
+(defn gen-view-section
+  [view: Any
+   components: Any
+   ge: Any
+   store-name: String
+   all-entities: Any
+   all-views: Any
+   publications: Any
+   fram?: Bool] -> String
   (let [comp-name (.-component view)
         fn-name (str (id->ref comp-name) "_create")
         add-fields (or (.-add-fields view) [])
@@ -1835,10 +2667,16 @@ function _wakePushSelection(eid) {
         has-select (not (nil? (.-select-component view)))
         select-fn-name (if has-select (str (id->ref (.-select-component view)) "_create") nil)
         has-form (> (count add-fields) 0)
+        view-publications
+        (if fram?
+          (filterv
+            (fn [publication]
+              (= (.-revision-entity publication) (.-name ge)))
+            publications)
+          [])
+        has-publications (> (count view-publications) 0)
         tabs (or (.-tabs view) [])
         has-tabs false
-
-        lookup-fields-meta nil
 
         view-filters (or (.-filters view) [])
         view-date-filters (or (.-date-filters view) [])
@@ -1847,23 +2685,41 @@ function _wakePushSelection(eid) {
         date-filter-fields-meta []
         has-date-filters (> (count date-filter-fields-meta) 0)
 
-        lookup-map-js ""
-
         nav-map-js ""
         form-fields (.join
           (mapv (fn [f]
-            (let [fid (str "form_" (id->ref f))]
+            (let [fid (str "form_" (id->ref f))
+                  field (graph-field-named ge f)
+                  checkbox? (and fram? (field-checkbox? field))]
               (str "    const " fid "_label = document.createElement('label');\n"
                    "    " fid "_label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
                    "    " fid "_label.textContent = " (q (titlecase f)) ";\n"
                    "    formEl.appendChild(" fid "_label);\n"
                    "    const " fid " = document.createElement('input');\n"
+                   (if checkbox? (str "    " fid ".type = 'checkbox';\n") "")
                    "    " fid ".className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm';\n"
-                   "    " fid ".placeholder = " (q (titlecase f)) ";\n"
+                   (if checkbox? ""
+                     (str "    " fid ".placeholder = " (q (titlecase f)) ";\n"))
                    "    formEl.appendChild(" fid ");\n")))
             add-fields) "")
-        add-obj (.join (mapv (fn [f] (str (id->ref f) ": form_" (id->ref f) ".value.trim()")) add-fields) ", ")
-        clear-lines (.join (mapv (fn [f] (str "      form_" (id->ref f) ".value = '';")) add-fields) "\n")
+        add-obj (.join
+          (mapv (fn [f]
+            (let [fid (str "form_" (id->ref f))]
+              (str "[" (q f) "]: "
+                   (if fram?
+                     (str "wakeFramReadInput(" fid ", wakeFramFieldMeta["
+                          (q (.-name ge)) "][" (q f) "])")
+                     (str fid ".value.trim()")))))
+            add-fields)
+          ", ")
+        clear-lines (.join
+          (mapv (fn [f]
+            (let [fid (str "form_" (id->ref f))]
+              (if (and fram? (field-checkbox? (graph-field-named ge f)))
+                (str "      " fid ".checked = false;")
+                (str "      " fid ".value = '';"))))
+            add-fields)
+          "\n")
 
         ;; Column header from row component's children
         comp (first (filterv (fn [c] (= (.-name c) comp-name)) components))
@@ -1892,7 +2748,7 @@ function _wakePushSelection(eid) {
                 :else "2fr")))
             col-children) " ")
         col-props (mapv (fn [ch] (get (get (.-attrs ch) "text") "prop")) col-children)
-        grid-tpl-sel grid-tpl
+        grid-tpl-sel (if has-publications (str grid-tpl " auto") grid-tpl)
 
         tab-stores []
 
@@ -1914,9 +2770,17 @@ function _wakePushSelection(eid) {
 
         select-all-cb ""
 
-        row-cb-add ""
+        row-cb-add
+        (if has-publications
+          (str "        wakeFramAttachPublicationActions("
+               (q (.-name ge)) ", evt.entity, inst, " store-name ");\n")
+          "")
 
-        row-cb-load ""
+        row-cb-load
+        (if has-publications
+          (str "          wakeFramAttachPublicationActions("
+               (q (.-name ge)) ", entity, inst, " store-name ");\n")
+          "")
 
         col-header-js (str
           "    const colHeader = document.createElement('div');\n"
@@ -1933,7 +2797,13 @@ function _wakePushSelection(eid) {
                    "    hdr_" ref ".dataset.label = " (q (titlecase prop)) ";\n"
                    ""
                    "    colHeader.appendChild(hdr_" ref ");\n")))
-            col-children) ""))
+            col-children) "")
+          (if has-publications
+            (str "    const hdr_actions = document.createElement('span');\n"
+                 "    hdr_actions.className = 'text-xs font-medium uppercase text-muted-foreground text-right';\n"
+                 "    hdr_actions.textContent = 'Actions';\n"
+                 "    colHeader.appendChild(hdr_actions);\n")
+            ""))
 
         view-open #r#"
   (function() {
@@ -1959,7 +2829,7 @@ function _wakePushSelection(eid) {
     formEl.style.display = 'none';
 "#
 
-        form-actions #r#"
+        form-actions (str #r#"
     const formActions = document.createElement('div');
     formActions.className = 'flex gap-2';
     const submitBtn = document.createElement('button');
@@ -1975,17 +2845,39 @@ function _wakePushSelection(eid) {
     formActions.appendChild(cancelBtn);
     formEl.appendChild(formActions);
     addToggle.addEventListener('click', () => { formEl.style.display = ''; addToggle.style.display = 'none'; });
+"#
+          (if fram?
+            #r#"
+    formEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      submitBtn.disabled = true;
+      try {
+"#
+            #r#"
     formEl.addEventListener('submit', (e) => {
       e.preventDefault();
-"#
+"#))
 
-        form-submit-tail #r#"
+        form-submit-tail (if fram?
+          (str #r#"
+      formEl.style.display = 'none';
+      addToggle.style.display = '';
+      } catch (error) {
+        "# store-name #r#".commandFailed(error);
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+    viewEl.appendChild(formEl);
+
+"#)
+          #r#"
       formEl.style.display = 'none';
       addToggle.style.display = '';
     });
     viewEl.appendChild(formEl);
 
-"#
+"#)
 
         filter-dropdowns-js ""
 
@@ -2068,7 +2960,6 @@ function _wakePushSelection(eid) {
 
         inline-edit-all (str
           "      rightPane.appendChild(detailInst.el);\n"
-          lookup-map-js
           nav-map-js
           "      for (const [attr, node] of Object.entries(detailInst.nodes)) {\n"
           (if (not (= nav-map-js ""))
@@ -2085,74 +2976,69 @@ function _wakePushSelection(eid) {
               "          if (node.parentNode) node.parentNode.insertBefore(_ni, node.nextSibling);\n"
               "        }\n")
             "")
+          (if fram?
+            (str "        const fieldMeta = wakeFramFieldMeta["
+                 (q (.-name ge)) "][attr];\n"
+                 "        if (!fieldMeta || fieldMeta.identity || fieldMeta.write !== 'set') continue;\n")
+            "")
           "        node.style.cursor = 'pointer';\n"
           "        node.addEventListener('click', () => {\n"
-          (if (some? lookup-fields-meta)
+          (if fram?
             (str
-              "          if (_lookups && _lookups[attr]) {\n"
-              "            const _sel = document.createElement('select');\n"
-              "            _sel.className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm w-full';\n"
-              "            node.replaceWith(_sel);\n"
-              "            const _eo = document.createElement('option');\n"
-              "            _eo.value = '';\n"
-              "            _eo.textContent = '\\u2014 select \\u2014';\n"
-              "            _sel.appendChild(_eo);\n"
-              "            fetch(window.location.origin + '/api/_lookup/' + _lookups[attr])\n"
-              "              .then(r => r.json())\n"
-              "              .then(opts => {\n"
-              "                const _cur = node.textContent;\n"
-              "                opts.forEach(o => {\n"
-              "                  const _o = document.createElement('option');\n"
-              "                  _o.value = o.id;\n"
-              "                  _o.textContent = o.name;\n"
-              "                  if (o.name === _cur) _o.selected = true;\n"
-              "                  _sel.appendChild(_o);\n"
-              "                });\n"
-              "                _sel.focus();\n"
-              "              });\n"
-              "            let _ld = false;\n"
-              "            const _lc = () => {\n"
-              "              if (_ld) return;\n"
-              "              _ld = true;\n"
-              "              const _so = _sel.options[_sel.selectedIndex];\n"
-              "              if (_so && _so.value) {\n"
-              "                node.textContent = _so.textContent;\n"
-              "                fetch(window.location.origin + '/api/" store-name "/' + selectedEid, {\n"
-              "                  method: 'PUT',\n"
-              "                  headers: { 'Content-Type': 'application/json' },\n"
-              "                  body: JSON.stringify({ [attr]: _so.value })\n"
-              "                });\n"
-              "                const _ent = " store-name ".get(selectedEid);\n"
-              "                if (_ent) _ent[attr] = _so.textContent;\n"
-              "              }\n"
-              "              _sel.replaceWith(node);\n"
-              "            };\n"
-              "            _sel.addEventListener('blur', () => setTimeout(_lc, 150));\n"
-              "            _sel.addEventListener('change', _lc);\n"
-              "            _sel.addEventListener('keydown', (e) => {\n"
-              "              if (e.key === 'Escape') { _ld = true; _sel.replaceWith(node); }\n"
-              "            });\n"
-              "          } else {\n")
-            "")
-          "          const input = document.createElement('input');\n"
-          "          input.value = " store-name ".get(selectedEid)?.[attr] || '';\n"
-          "          input.className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm w-full';\n"
-          "          node.replaceWith(input);\n"
-          "          input.focus();\n"
-          "          input.select();\n"
+              "          const checkbox = fieldMeta.cardinality === 'single' && (fieldMeta.type === 'Bool' || fieldMeta.type === 'Boolean');\n"
+              "          const input = document.createElement('input');\n"
+              "          const currentValue = " store-name ".get(selectedEid)?.[attr];\n"
+              "          if (checkbox) { input.type = 'checkbox'; input.checked = currentValue === true; }\n"
+              "          else input.value = wakeFramInputValue(currentValue, fieldMeta);\n"
+              "          input.className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm w-full';\n"
+              "          node.replaceWith(input);\n"
+              "          input.focus();\n"
+              "          if (!checkbox) input.select();\n")
+            (str
+              "          const input = document.createElement('input');\n"
+              "          input.value = " store-name ".get(selectedEid)?.[attr] || '';\n"
+              "          input.className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm w-full';\n"
+              "          node.replaceWith(input);\n"
+              "          input.focus();\n"
+              "          input.select();\n"))
           "          let done = false;\n"
-          "          const commit = () => {\n"
-          "            if (done) return;\n"
-          "            done = true;\n"
-          "            input.replaceWith(node);\n"
-          "            " store-name ".update(selectedEid, attr, input.value.trim());\n"
-          "          };\n"
+          (if fram?
+            (str
+              "          let saving = false;\n"
+              "          const commit = async () => {\n"
+              "            if (done || saving) return;\n"
+              "            saving = true;\n"
+              "            input.disabled = true;\n"
+              "            try {\n"
+              "              const value = wakeFramReadInput(input, fieldMeta);\n"
+              "              await " store-name
+              ".update(selectedEid, attr, value);\n"
+              "              done = true;\n"
+              "              input.replaceWith(node);\n"
+              "            } catch (error) {\n"
+              "              " store-name ".commandFailed(error);\n"
+              "              input.disabled = false;\n"
+              "              saving = false;\n"
+              "              input.focus();\n"
+              "              return;\n"
+              "            }\n"
+              "            saving = false;\n"
+              "          };\n")
+            (str
+              "          const commit = () => {\n"
+              "            if (done) return;\n"
+              "            done = true;\n"
+              "            input.replaceWith(node);\n"
+              "            " store-name
+              ".update(selectedEid, attr, input.value.trim());\n"
+              "          };\n"))
           "          input.addEventListener('blur', commit);\n"
           "          input.addEventListener('keydown', (e) => {\n"
           "            if (e.key === 'Enter') { e.preventDefault(); commit(); }\n"
-          "            if (e.key === 'Escape') { done = true; input.replaceWith(node); }\n"
+          (if fram?
+            "            if (e.key === 'Escape' && !saving) { done = true; input.replaceWith(node); }\n"
+            "            if (e.key === 'Escape') { done = true; input.replaceWith(node); }\n")
           "          });\n"
-          (if (some? lookup-fields-meta) "          }\n" "")
           "        });\n"
           "      }\n")
 
@@ -2238,12 +3124,19 @@ function _wakePushSelection(eid) {
 
       ;; Collapsible form
       (if has-form
-        (str form-chrome form-fields form-actions
-          "      const first = form_" (id->ref (nth add-fields 0)) ".value.trim();\n"
-          "      if (!first) return;\n"
-          "      " store-name ".add({ " add-obj " });\n"
-          clear-lines "\n"
-          form-submit-tail)
+        (let [first-field (nth add-fields 0)
+              first-fid (str "form_" (id->ref first-field))
+              first-checkbox?
+              (and fram?
+                   (field-checkbox? (graph-field-named ge first-field)))]
+          (str form-chrome form-fields form-actions
+            (if first-checkbox? ""
+              (str "      const first = " first-fid ".value.trim();\n"
+                   "      if (!first) return;\n"))
+            "      " (if fram? "await " "") store-name
+            ".add({ " add-obj " });\n"
+            clear-lines "\n"
+            form-submit-tail))
         "")
 
       ;; Search + filter
@@ -2260,7 +3153,7 @@ function _wakePushSelection(eid) {
         (str split-pane-setup
           "      const entity = " store-name ".get(eid);\n"
           "      if (!entity) return;\n"
-          "      detailInst = " select-fn-name "(entity);\n"
+          "      detailInst = " select-fn-name "(entity, " store-name ");\n"
           inline-edit-all
           tab-code
           select-item-close)
@@ -2271,7 +3164,7 @@ function _wakePushSelection(eid) {
       watcher-add
       "    " store-name ".watch((evt) => {\n"
       "      if (evt.type === 'add') {\n"
-      "        const inst = " fn-name "(evt.entity);\n"
+      "        const inst = " fn-name "(evt.entity, " store-name ");\n"
       watcher-add-tail
       row-cb-add
       (if has-select "        inst.el.addEventListener('click', () => selectItem(evt.eid));\n" "")
@@ -2282,7 +3175,7 @@ function _wakePushSelection(eid) {
       watcher-load
       (if has-select "        if (selectedEid) selectItem(null);\n" "")
       "        for (const entity of " store-name ".all()) {\n"
-      "          const inst = " fn-name "(entity);\n"
+      "          const inst = " fn-name "(entity, " store-name ");\n"
       watcher-load-body
       row-cb-load
       (if has-select "          inst.el.addEventListener('click', () => selectItem(entity.eid));\n" "")
@@ -2292,7 +3185,7 @@ function _wakePushSelection(eid) {
       "    main.appendChild(viewEl);\n"
       view-close)))
 
-(defn gen-routed-program [prog: Any] :- String
+(defn gen-routed-program [prog: Any] -> String
   (let [g (graph/check-program prog)
         components (or (.-components prog) [])
         views (or (.-views prog) [])
@@ -2300,9 +3193,10 @@ function _wakePushSelection(eid) {
         panels (or (.-panels prog) [])
         routes (.-routes router)
         default-route (.-default-route router)
+        is-fram (fram-graph? g)
         persist (.-persist g)
-        persist-key (if (nil? persist) nil (.-key persist))
-        persist-mode (if (nil? persist) nil (.-storage persist))
+        raw-persist-key (if (nil? persist) nil (.-key persist))
+        persist-key (if is-fram nil raw-persist-key)
         src-name (.-ns g)
         layout (.-layout g)
         layout-title (if (and (some? layout) (some? (.-title layout)))
@@ -2312,7 +3206,7 @@ function _wakePushSelection(eid) {
                      (.-groups layout)
                      nil)
 
-        unique-entities (reduce
+        view-entities (reduce
           (fn [acc v]
             (let [en (.-entity-name v)]
               (if (some? (first (filterv (fn [e] (= (.-name e) en)) acc)))
@@ -2320,7 +3214,8 @@ function _wakePushSelection(eid) {
                 (let [ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities g)))]
                   (conj acc ge)))))
           [] views)
-        all-stores (mapv (fn [e] (.-store-name e)) unique-entities)
+        unique-entities (publication-entities g view-entities)
+        all-stores (mapv (fn [e] (store-ref (.-store-name e))) unique-entities)
 
         unique-comp-names (reduce
           (fn [acc v]
@@ -2354,29 +3249,36 @@ function _wakePushSelection(eid) {
           (mapv (fn [v]
             (let [en (.-entity-name v)
                   ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities g)))
-                  store-name (.-store-name ge)]
-              (gen-view-section v components ge store-name (.-entities g) views)))
+                  store-name (store-ref (.-store-name ge))]
+              (gen-view-section
+                v components ge store-name (.-entities g) views
+                (.-publications g) is-fram)))
             views) "\n")
 
-        undo-watchers (.join
-          (mapv (fn [sn]
-            (let [save (cond (not (nil? persist-key)) "    saveDb();\n"
-                             :else "")]
-              (str sn ".watch((evt) => {\n"
-                   "  if (evt.type === 'add') {\n"
-                   "    recordUndo({ type: 'add', store: " sn ", eid: evt.eid, entity: evt.entity });\n"
-                   save
-                   "  }\n"
-                   "  if (evt.type === 'update') {\n"
-                   "    recordUndo({ type: 'update', store: " sn ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"
-                   save
-                   "  }\n"
-                   "  if (evt.type === 'remove') {\n"
-                   "    recordUndo({ type: 'remove', store: " sn ", eid: evt.eid, entity: evt.entity });\n"
-                   save
-                   "  }\n"
-                   "});\n")))
-            all-stores) "\n")
+        undo-watchers
+        (if is-fram ""
+          (.join
+            (mapv (fn [sn]
+              (let [save (cond (not (nil? persist-key)) "    saveDb();\n"
+                               :else "")]
+                (str sn ".watch((evt) => {\n"
+                     "  if (evt.type === 'add') {\n"
+                     "    recordUndo({ type: 'add', store: " sn
+                     ", eid: evt.eid, entity: evt.entity });\n"
+                     save
+                     "  }\n"
+                     "  if (evt.type === 'update') {\n"
+                     "    recordUndo({ type: 'update', store: " sn
+                     ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"
+                     save
+                     "  }\n"
+                     "  if (evt.type === 'remove') {\n"
+                     "    recordUndo({ type: 'remove', store: " sn
+                     ", eid: evt.eid, entity: evt.entity });\n"
+                     save
+                     "  }\n"
+                     "});\n")))
+              all-stores) "\n"))
 
         navigate-fn #r#"
   let currentView = '';
@@ -2395,7 +3297,7 @@ function _wakePushSelection(eid) {
 
     (str
       "// Generated by wake — semantic UI compiler\n"
-      "// Source: " src-name "\n"
+      "// Source: " (q src-name) "\n"
       "// This file is a build artifact. Edit the .wake source, not this file.\n\n"
       "(function() {\n"
       "'use strict';\n\n"
@@ -2404,18 +3306,30 @@ function _wakePushSelection(eid) {
       (gen-equiv-runtime) "\n"
 
       "// ── Stores ────────────────────────────────────────\n"
-      (.join (mapv (fn [e] (gen-store (.-store-name e) [])) unique-entities) "\n\n")
+      (.join
+        (mapv (fn [e] (gen-store-for e [] is-fram)) unique-entities)
+        "\n\n")
       "\n\n"
+
+      (if is-fram
+        (str "// ── FRAM gateway connector ────────────────────────────\n"
+             (gen-fram-connector
+               unique-entities (.-entities g) (.-publications g)) "\n")
+        "")
 
       "// ── Components ──────────────────────────────────────\n"
       (.join
         (mapv (fn [cn]
-          (gen-component-fn! (first (filterv (fn [c] (= (.-name c) cn)) components)) ""))
+          (gen-component-fn!
+            (first (filterv (fn [c] (= (.-name c) cn)) components))
+            ""
+            (not is-fram)))
           unique-comp-names) "\n")
       "\n"
 
-      "// ── Undo / Redo ─────────────────────────────────────\n"
-      (gen-undo-redo) "\n"
+      (if is-fram ""
+        (str "// ── Undo / Redo ─────────────────────────────────────\n"
+             (gen-undo-redo) "\n"))
 
       (cond
         (not (nil? persist-key))
@@ -2423,8 +3337,9 @@ function _wakePushSelection(eid) {
                (gen-persistence persist-key all-stores) "\n")
         :else "")
 
-      "// ── Undo watchers ───────────────────────────────────\n"
-      undo-watchers "\n"
+      (if is-fram ""
+        (str "// ── Undo watchers ───────────────────────────────────\n"
+             undo-watchers "\n"))
 
       "// ── Init ─────────────────────────────────────────────\n"
       "function init() {\n"
@@ -2444,7 +3359,7 @@ function _wakePushSelection(eid) {
   sidebar.appendChild(sidebarHeader);
   const sidebarContent = document.createElement('div');
   sidebarContent.className = 'sidebar-content';
-  const navButtons = {};
+  const navButtons = Object.create(null);
 "#
       "\n" nav-buttons "\n"
       #r#"
@@ -2479,7 +3394,7 @@ function _wakePushSelection(eid) {
 
   const main = document.createElement('main');
   main.className = 'sidebar-main';
-  const viewContainers = {};
+  const viewContainers = Object.create(null);
 "#
       "\n" view-sections "\n\n"
       #r#"
@@ -2495,14 +3410,15 @@ function _wakePushSelection(eid) {
     const h = location.hash.slice(1);
     if (h && viewContainers[h]) navigate(h);
   });
-
+"#
+      (if is-fram "" #r#"
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
   });
-
-"#
+"#)
       (cond (not (nil? persist-key)) "  restoreDb();\n"
+            is-fram "  void wakeFramStart();\n"
             :else "")
       "}\n\n"
       "init();\n"
@@ -2510,7 +3426,7 @@ function _wakePushSelection(eid) {
 
 ;; --- Main entry point ---
 
-(defn gen-program! [prog: Any] :- String
+(defn gen-program! [prog: Any] -> String
   (if (and (not (nil? (.-views prog))) (> (count (.-views prog)) 0))
     (if (not (nil? (.-router prog)))
       (gen-routed-program prog)
@@ -2525,7 +3441,9 @@ function _wakePushSelection(eid) {
 
         ;; Read from UI graph — no CRM-specific derivation here
         en (.-entity ug)
-        store-name (.-store-name ug)
+        primary-ge
+        (first (filterv (fn [e] (= (.-name e) en)) (.-entities g)))
+        store-name (store-ref (.-store-name ug))
         columns (.-columns ug)
         search-cols (.-search-cols ug)
         overview-fields (.-overview-fields ug)
@@ -2536,20 +3454,52 @@ function _wakePushSelection(eid) {
         derived-attrs (.-derived ug)
 
         ;; Persist
+        is-fram (fram-graph? g)
         persist (.-persist ug)
-        persist-key (if (nil? persist) nil (.-key persist))
-        persist-mode (if (nil? persist) nil (.-storage persist))
-        all-stores (into [store-name] (mapv (fn [ri] (.-store ri)) related-info))
+        raw-persist-key (if (nil? persist) nil (.-key persist))
+        persist-key (if is-fram nil raw-persist-key)
+        all-stores
+        (into [store-name]
+          (mapv (fn [ri] (store-ref (.-store ri))) related-info))
+        related-entities
+        (mapv
+          (fn [ri]
+            (first
+              (filterv
+                (fn [e] (= (.-name e) (.-entity ri)))
+                (.-entities g))))
+          related-info)
+        generated-entities (into [primary-ge] related-entities)
+        publication-generated-entities
+        (publication-entities g generated-entities)
+        primary-has-publications
+        (and is-fram
+             (> (count
+                  (filterv
+                    (fn [publication]
+                      (= (.-revision-entity publication) en))
+                    (.-publications g)))
+                0))
+        publication-extra-entities
+        (filterv
+          (fn [entity]
+            (nil?
+              (first
+                (filterv
+                  (fn [generated]
+                    (= (.-name generated) (.-name entity)))
+                  generated-entities))))
+          publication-generated-entities)
 
         subtitle-field (if (> (count overview-fields) 1) (nth overview-fields 1) nil)
 
-        layout-result (gen-layout en (.-form ug) title)
+        layout-result (gen-layout en (.-form ug) title primary-ge is-fram)
 
         src-name (.-ns g)]
 
     (str
       "// Generated by wake — semantic UI compiler\n"
-      "// Source: " src-name "\n"
+      "// Source: " (q src-name) "\n"
       "// This file is a build artifact. Edit the .wake source, not this file.\n\n"
       "(function() {\n"
       "'use strict';\n\n"
@@ -2559,13 +3509,34 @@ function _wakePushSelection(eid) {
 
       ;; Stores
       "// ── Stores ─────────────────────────────────────────\n"
-      (gen-store store-name []) "\n"
+      (gen-store-for primary-ge [] is-fram) "\n"
       "\n"
       (.join
         (mapv (fn [ri]
-          (gen-store (.-store ri) [(.-fk-field ri)]))
+          (let [related-ge
+                (first
+                  (filterv
+                    (fn [e] (= (.-name e) (.-entity ri)))
+                    (.-entities g)))]
+            (gen-store-for related-ge [(.-fk-field ri)] is-fram)))
           related-info)
         "\n")
+      (if is-fram
+        (str "\n"
+             (.join
+               (mapv
+                 (fn [entity] (gen-store-for entity [] true))
+                 publication-extra-entities)
+               "\n"))
+        "")
+
+      (if is-fram
+        (str "\n// ── FRAM gateway connector ────────────────────────────\n"
+             (gen-fram-connector
+               publication-generated-entities
+               (.-entities g)
+               (.-publications g)) "\n")
+        "")
 
       ;; Ref declarations
       "\n// ── DOM refs ──────────────────────────────────────\n"
@@ -2573,11 +3544,23 @@ function _wakePushSelection(eid) {
 
       ;; Detail panel
       "// ── Detail panel ────────────────────────────────────\n"
-      (gen-detail en store-name overview-fields derived-attrs related-info (.-all-field-info ug)) "\n"
+      (gen-detail
+        en
+        store-name
+        overview-fields
+        derived-attrs
+        related-info
+        (.-all-field-info ug)
+        g
+        (if is-fram (entity-identity-name primary-ge) nil)
+        is-fram
+        (not is-fram)) "\n"
 
       ;; List view
       "\n// ── List view ──────────────────────────────────────\n"
-      (gen-list-fns en store-name columns search-cols derived-attrs) "\n"
+      (gen-list-fns
+        en store-name columns search-cols derived-attrs
+        primary-has-publications) "\n"
 
       ;; Stats
       "\n// ── Stats ────────────────────────────────────────────\n"
@@ -2585,7 +3568,7 @@ function _wakePushSelection(eid) {
 
       ;; Form
       "\n// ── Form ─────────────────────────────────────────────\n"
-      (gen-form-handler en (.-form ug)) "\n"
+      (gen-form-handler en (.-form ug) primary-ge is-fram) "\n"
 
       ;; Persistence
       (cond
@@ -2599,14 +3582,22 @@ function _wakePushSelection(eid) {
       (gen-update-fns columns search-cols overview-fields subtitle-field
                       persist-key related-tab-keys derived-attrs store-name) "\n"
 
-      ;; Undo/redo
-      "\n// ── Undo / Redo ─────────────────────────────────────\n"
-      (gen-undo-redo) "\n"
+      ;; Undo/redo is local because FRAM commands are authoritative.
+      (if is-fram ""
+        (str "\n// ── Undo / Redo ─────────────────────────────────────\n"
+             (gen-undo-redo) "\n"))
 
       ;; Init
       "// ── Init ─────────────────────────────────────────────\n"
-      (gen-init-fn en (.-name (.-form ug)) store-name related-info persist-key layout-result) "\n"
+      (gen-init-fn
+        en
+        (.-name (.-form ug))
+        store-name
+        related-info
+        persist-key
+        layout-result
+        (not is-fram)
+        is-fram) "\n"
 
       "init();\n"
       "})();\n"))))
-

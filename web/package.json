@@ -1,20 +1,19 @@
 {
   "name": "wake",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
   "scripts": {
-    "build": "bin/wake-compile demo/crm-v2.wake public-js/app.js",
-    "test": "npx playwright test tests/crm-js.spec.ts"
+    "build": "bin/wake-compile --all demo/wiki.wake out/wiki",
+    "test": "node --test runtime/fram-gateway.test.mjs runtime/fram-http.test.mjs tests/codegen-escaping.test.mjs tests/command-ux.test.mjs tests/compiler-contracts.test.mjs tests/fram-graph.test.mjs tests/fram-plan.test.mjs tests/wiki-fram.test.mjs",
+    "test:browser": "bash bin/wake-browser-test"
   },
   "keywords": [],
   "author": "",
   "license": "MIT OR Apache-2.0",
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
-    "@types/node": "^25.8.0",
-    "typescript": "^6.0.3"
-  },
-  "dependencies": {
-    "better-sqlite3": "^12.10.0"
+    "@playwright/test": "1.62.1",
+    "@types/node": "25.9.5",
+    "typescript": "6.0.3"
   }
 }

@@ -1,0 +1,65 @@
+(ns wake.wiki)
+(backend :fram)
+
+(defstate RevisionStatus
+  [:draft -> :canonical :obsolete]
+  [:canonical -> :obsolete]
+  [:obsolete ->])
+
+(entity page
+  (slug : String :identity)
+  (title : String)
+  (canonical-revision : Ref :to revision :write :command))
+
+(entity revision
+  (id : String :identity)
+  (page : Ref :to page :write :create)
+  (body : String :write :create)
+  (status : RevisionStatus :write :command)
+  (links-to : Ref :to page :many :write :create))
+
+(publication canonical
+  :owner page
+  :pointer canonical-revision
+  :revision revision
+  :owner-field page
+  :state-field status
+  :draft :draft
+  :published :canonical
+  :retired :obsolete)
+
+(component page-row
+  :props [slug title canonical-revision]
+  (div :class "px-4 py-3 border-b border-border"
+    (h2 :class "text-base font-semibold" :text title)
+    (p :class "text-sm text-muted-foreground" :text slug)
+    (when canonical-revision
+      (p :class "mt-1 text-xs text-muted-foreground"
+        :text canonical-revision))))
+
+(component revision-row
+  :props [id page body status links-to]
+  (div :class "px-4 py-3 border-b border-border"
+    (div :class "flex items-center gap-3"
+      (span :class "font-mono text-xs" :text id)
+      (span :class "text-xs text-muted-foreground" :text status))
+    (p :class "mt-2 text-sm" :text body)
+    (p :class "mt-2 text-xs text-muted-foreground" :text page)
+    (when links-to
+      (p :class "mt-1 text-xs text-muted-foreground" :text links-to))))
+
+(view pages
+  :entity page
+  :each page-row
+  :add-form [slug title]
+  :title "Wiki pages")
+
+(view revisions
+  :entity revision
+  :each revision-row
+  :add-form [id page body links-to]
+  :title "Revision history")
+
+(routes :default pages
+  [pages pages]
+  [revisions revisions])

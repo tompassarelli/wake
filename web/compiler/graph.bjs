@@ -9,117 +9,322 @@
 
 ;; --- Graph records ---
 
-(defrecord GField [name: String type: String
-                   unique: String? dflt: Any
-                   derived: Bool ref: Bool
-                   deps: (Vec String) expr: Any
-                   column: String
-                   lookup-table: String? lookup-display: String?
-                   sql-expr: String?
-                   filter-sql: String? filter-lookup-table: String?
-                   filter-lookup-id: String? filter-lookup-display: String?])
+(defrecord GField
+  [name: String
+   type: String
+   identity: Bool
+   cardinality: String
+   value-kind: String
+   target-entity: String?
+   write-policy: String
+   derived: Bool
+   deps: (Vec String)
+   expr: Any])
 
-(defrecord GEntity [name: String fields: (Vec GField)
-                    stored-fields: (Vec GField)
-                    derived-fields: (Vec GField)
-                    ref-fields: (Vec GField)
-                    unique-fields: (Vec GField)
-                    store-name: String
-                    table-name: String
-                    pk-column: String
-                    where-clause: String?])
+(defrecord GEntity
+  [name: String
+   fields: (Vec GField)
+   stored-fields: (Vec GField)
+   derived-fields: (Vec GField)
+   ref-fields: (Vec GField)
+   identity-field: GField?
+   store-name: String])
 
-(defrecord FkEdge [from-entity: String from-field: String
-                   to-entity: String cascade-delete: Bool])
+(defrecord FkEdge
+  [from-entity: String
+   from-field: String
+   to-entity: String])
 
-(defrecord StateMachine [entity: String field: String
-                         state-type: String
-                         transitions: (Map String (Vec String))
-                         initial: String])
+(defrecord StateMachine
+  [entity: String
+   field: String
+   state-type: String
+   transitions: (Map String (Vec String))
+   initial: String])
 
-(defrecord CheckedGraph [ns: String
-                         entities: (Vec GEntity)
-                         fk-edges: (Vec FkEdge)
-                         state-machines: (Vec StateMachine)
-                         persist: IrPersist?
-                         defstates: (Vec IrDefstate)
-                         list-details: (Vec IrListDetail)
-                         forms: (Vec IrSmartForm)
-                         theme: IrTheme?
-                         components: (Vec IrComponent)
-                         views: (Vec IrView)
-                         router: IrRouter?
-                         auth: IrAuth?
-                         layout: IrLayout?])
+(defrecord PublicationPolicy
+  [name: String
+   owner-entity: String
+   pointer-field: String
+   revision-entity: String
+   owner-field: String
+   state-field: String
+   draft-state: String
+   published-state: String
+   retired-state: String])
+
+(defrecord CheckedGraph
+  [ns: String
+   backend: IrBackend?
+   entities: (Vec GEntity)
+   fk-edges: (Vec FkEdge)
+   state-machines: (Vec StateMachine)
+   publications: (Vec PublicationPolicy)
+   persist: IrPersist?
+   defstates: (Vec IrDefstate)
+   list-details: (Vec IrListDetail)
+   forms: (Vec IrSmartForm)
+   theme: IrTheme?
+   components: (Vec IrComponent)
+   views: (Vec IrView)
+   router: IrRouter?
+   layout: IrLayout?])
 
 ;; --- Shared utilities ---
 
-(defn strip-colon [s: String] :- String
+(defn strip-colon [s: String] -> String
   (if (.startsWith s ":") (subs s 1) s))
 
-(defn capitalize [s: String] :- String
+(defn capitalize [s: String] -> String
   (str (.toUpperCase (subs s 0 1)) (subs s 1)))
 
-(defn titlecase [s: String] :- String
+(defn titlecase [s: String] -> String
   (str (.toUpperCase (subs s 0 1)) (subs s 1)))
 
 ;; --- Field analysis ---
 
-(defn analyze-field [attr: IrAttr] :- GField
+(defn graph-error [message: String] -> Any
+  (throw (ex-info (str "wake: " message) {})))
+
+(def reserved-generated-names: (Vec String)
+  ["__proto__" "prototype" "constructor"])
+
+(defn validate-generated-name [kind: String name: String] -> Any
+  (if (.includes reserved-generated-names (strip-colon name))
+    (graph-error
+      (str kind " name '" name
+           "' is reserved for generated JavaScript"))
+    nil))
+
+(defn validate-generated-names
+  [prog: IrProgram
+   entities: (Vec GEntity)
+   defstates: (Vec IrDefstate)] -> Any
+  (doseq [entity entities]
+    (validate-generated-name "entity" (.-name entity))
+    (doseq [field (.-fields entity)]
+      (validate-generated-name "field" (.-name field))))
+  (doseq [defstate defstates]
+    (validate-generated-name "state type" (.-name defstate))
+    (doseq [state (keys (.-transitions defstate))]
+      (validate-generated-name "state" state)))
+  (doseq [component (or (.-components prog) [])]
+    (validate-generated-name "component" (.-name component))
+    (doseq [prop (.-props component)]
+      (validate-generated-name "component prop" prop)))
+  (doseq [view (or (.-views prog) [])]
+    (validate-generated-name "view" (.-name view)))
+  (doseq [publication (or (.-publications prog) [])]
+    (validate-generated-name "publication" (.-name publication)))
+  (doseq [form (or (.-forms prog) [])]
+    (validate-generated-name "form" (.-name form)))
+  (doseq [panel (or (.-panels prog) [])]
+    (validate-generated-name "panel" (.-name panel)))
+  (let [router (.-router prog)]
+    (if (some? router)
+      (do
+        (validate-generated-name "default route" (.-default-route router))
+        (doseq [route (.-routes router)]
+          (validate-generated-name "route" (.-path route))
+          (validate-generated-name "route view" (.-view-name route))))
+      nil)))
+
+(defn analyze-field [attr: IrAttr] -> GField
   (let [name (.-name attr)
         type (.-type attr)
-        opts (.-opts attr)]
-    (->GField name type
-              (get opts "unique")
-              (get opts "default")
-              (= type "Derived")
-              (= type "Ref")
-              (if (= type "Derived") (or (get opts "deps") []) [])
-              (if (= type "Derived") (get opts "expr") nil)
-              (or (get opts "column") name)
-              (get opts "lookup-table")
-              (get opts "lookup-display")
-              (get opts "sql-expr")
-              (get opts "filter-sql")
-              (get opts "filter-lookup-table")
-              (get opts "filter-lookup-id")
-              (get opts "filter-lookup-display"))))
+        opts (.-opts attr)
+        identity (= true (get opts "identity"))
+        cardinality (if (= true (get opts "many")) "multi" "single")
+        value-kind (if (= type "Ref") "ref" "literal")
+        target-entity (get opts "target-entity")
+        write-policy (or (get opts "write") "set")
+        derived (= type "Derived")]
+    (if (and derived (= cardinality "multi"))
+      (graph-error (str "Derived field '" name "' cannot declare :many"))
+      nil)
+    (if (and (not (= type "Ref")) (some? target-entity))
+      (graph-error (str "only Ref field '" name "' may declare :to"))
+      nil)
+    (if (and identity
+             (or derived
+                 (not (= cardinality "single"))
+                 (not (= value-kind "literal"))))
+      (graph-error
+        (str "identity field '" name
+             "' must be stored, single-cardinality, and literal"))
+      nil)
+    (if (and identity (some? (get opts "write")))
+      (graph-error
+        (str "identity field '" name "' is immutable and cannot declare :write"))
+      nil)
+    (->GField
+      name
+      type
+      identity
+      cardinality
+      value-kind
+      target-entity
+      write-policy
+      derived
+      (if derived (or (get opts "deps") []) [])
+      (if derived (get opts "expr") nil))))
 
 ;; --- Entity analysis ---
 
-(defn analyze-entity [entity: IrEntity] :- GEntity
+(defn analyze-entity [entity: IrEntity] -> GEntity
   (let [name (.-name entity)
-        opts (or (.-opts entity) {})
         fields (mapv analyze-field (.-attrs entity))
         stored-fields (filterv (fn [f] (not (.-derived f))) fields)
         derived-fields (filterv (fn [f] (.-derived f)) fields)
-        ref-fields (filterv (fn [f] (.-ref f)) fields)
-        unique-fields (filterv (fn [f] (some? (.-unique f))) fields)
-        table-name (or (get opts "table") name)
-        pk-column (or (get opts "id") "eid")
-        where-clause (get opts "where")]
-    (->GEntity name fields stored-fields derived-fields
-               ref-fields unique-fields (str name "s")
-               table-name pk-column where-clause)))
+        ref-fields (filterv (fn [f] (= (.-type f) "Ref")) fields)
+        identity-fields (filterv (fn [f] (.-identity f)) stored-fields)
+        identity-field (if (= (count identity-fields) 1)
+                         (first identity-fields)
+                         nil)]
+    (->GEntity name fields stored-fields derived-fields ref-fields
+               identity-field (str name "s"))))
 
 ;; --- FK edge resolution ---
 
-(defn resolve-fk-edges [entities: (Vec GEntity)] :- (Vec FkEdge)
-  (reduce
-    (fn [edges entity]
-      (let [refs (.-ref-fields entity)]
+(defn resolve-fk-edges [entities: (Vec GEntity)] -> (Vec FkEdge)
+  (let [entity-names (mapv (fn [entity] (.-name entity)) entities)]
+    (reduce
+      (fn [edges entity]
         (reduce
           (fn [acc ref-field]
-            (conj acc (->FkEdge (.-name entity)
-                                (.-name ref-field)
-                                (.-name ref-field)
-                                true)))
-          edges refs)))
-    [] entities))
+            (let [target (.-target-entity ref-field)]
+              (if (nil? target)
+                (graph-error
+                  (str "Ref field '" (.-name entity) "."
+                       (.-name ref-field) "' requires :to ENTITY"))
+                nil)
+              (if (not (.includes entity-names target))
+                (graph-error
+                  (str "Ref field '" (.-name entity) "."
+                       (.-name ref-field) "' targets unknown entity '"
+                       target "'"))
+                nil)
+              (conj acc
+                    (->FkEdge (.-name entity)
+                              (.-name ref-field)
+                              (or target "")))))
+          edges
+          (.-ref-fields entity)))
+      []
+      entities)))
+
+;; --- Backend invariants ---
+
+(defn fram-literal-type? [type: String] -> Bool
+  (or (= type "String")
+      (= type "Int")
+      (= type "Integer")
+      (= type "Float")
+      (= type "Double")
+      (= type "Number")
+      (= type "Bool")
+      (= type "Boolean")
+      (= type "Keyword")
+      (= type "Instant")))
+
+(defn fram-stored-field-type?
+  [field: GField
+   defstates: (Vec IrDefstate)] -> Bool
+  (let [type (.-type field)]
+    (or (fram-literal-type? type)
+        (= type "Ref")
+        (some?
+          (first
+            (filterv (fn [state] (= (.-name state) type)) defstates))))))
+
+(defn validate-backend [prog: IrProgram entities: (Vec GEntity)] -> Any
+  (let [backend (.-backend prog)
+        defstates (or (.-defstates prog) [])]
+    (if (and (some? backend) (not (= (.-kind backend) "fram")))
+      (graph-error (str "unsupported backend '" (.-kind backend) "'"))
+      nil)
+    (if (and (some? backend) (some? (.-persist prog)))
+      (graph-error "FRAM-backed applications cannot declare local persistence")
+      nil)
+    (if (some? backend)
+      (doseq [entity entities]
+        (let [identity-fields
+              (filterv (fn [field] (.-identity field))
+                       (.-stored-fields entity))]
+          (doseq [field (.-stored-fields entity)]
+            (if (not (fram-stored-field-type? field defstates))
+              (graph-error
+                (str "FRAM-backed field '" (.-name entity) "."
+                     (.-name field) "' has unsupported type '"
+                     (.-type field) "'"))
+              nil))
+          (if (= (count identity-fields) 0)
+            (graph-error
+              (str "FRAM-backed entity '" (.-name entity)
+                   "' requires exactly one :identity field"))
+            nil)
+          (if (> (count identity-fields) 1)
+            (graph-error
+              (str "FRAM-backed entity '" (.-name entity)
+                   "' has multiple :identity fields"))
+            nil)))
+      nil)))
 
 ;; --- State machine resolution ---
 
-(defn resolve-state-machines [entities: (Vec GEntity) defstates: (Vec IrDefstate)] :- (Vec StateMachine)
+(defn validate-defstate [defstate: IrDefstate] -> Any
+  (let [name (.-name defstate)
+        transitions (.-transitions defstate)
+        source-names (keys transitions)
+        states (mapv strip-colon source-names)
+        initial (strip-colon (.-initial defstate))]
+    (if (= (count states) 0)
+      (graph-error (str "defstate '" name "' must declare at least one state"))
+      nil)
+    (reduce
+      (fn [seen state]
+        (if (= state "")
+          (graph-error (str "defstate '" name "' declares an empty state"))
+          nil)
+        (if (.includes seen state)
+          (graph-error
+            (str "defstate '" name "' declares state '" state
+                 "' more than once after keyword normalization"))
+          (conj seen state)))
+      []
+      states)
+    (if (not (.includes states initial))
+      (graph-error
+        (str "defstate '" name "' initial state '" initial
+             "' is not declared"))
+      nil)
+    (doseq [source-name source-names]
+      (let [source (strip-colon source-name)
+            targets (or (get transitions source-name) [])
+            normalized-targets (mapv strip-colon targets)]
+        (reduce
+          (fn [seen target]
+            (if (.includes seen target)
+              (graph-error
+                (str "defstate '" name "' transition from '" source
+                     "' repeats target '" target "'"))
+              (conj seen target)))
+          []
+          normalized-targets)
+        (doseq [target normalized-targets]
+          (if (not (.includes states target))
+            (graph-error
+              (str "defstate '" name "' transition from '" source
+                   "' targets undeclared state '" target "'"))
+            nil))))))
+
+(defn validate-defstates [defstates: (Vec IrDefstate)] -> Any
+  (doseq [defstate defstates]
+    (validate-defstate defstate)))
+
+(defn resolve-state-machines
+  [entities: (Vec GEntity)
+   defstates: (Vec IrDefstate)] -> (Vec StateMachine)
   (reduce
     (fn [machines entity]
       (let [status-fields (filterv
@@ -132,6 +337,11 @@
         (reduce
           (fn [acc sf]
             (let [ds (first (filterv (fn [d] (= (.-name d) (.-type sf))) defstates))]
+              (if (not (= (.-cardinality sf) "single"))
+                (graph-error
+                  (str "state field '" (.-name entity) "." (.-name sf)
+                       "' must be single-cardinality"))
+                nil)
               (conj acc (->StateMachine (.-name entity)
                                         (.-name sf)
                                         (.-type sf)
@@ -140,25 +350,268 @@
           machines status-fields)))
     [] entities))
 
+;; --- Publication policy resolution ---
+
+(defn entity-named [entities: (Vec GEntity) name: String] -> GEntity?
+  (first (filterv (fn [entity] (= (.-name entity) name)) entities)))
+
+(defn field-named [entity: GEntity name: String] -> GField?
+  (first (filterv (fn [field] (= (.-name field) name)) (.-fields entity))))
+
+(defn validate-create-fields
+  [label: String
+   entity-name: String
+   field-names: (Vec String)
+   entities: (Vec GEntity)] -> Any
+  (let [entity (entity-named entities entity-name)]
+    (if (nil? entity)
+      (graph-error
+        (str label " names unknown entity '" entity-name "'"))
+      nil)
+    (let [resolved (or entity (first entities))
+          identity (.-identity-field resolved)]
+      (if (or (nil? identity)
+              (not (.includes field-names (.-name identity))))
+        (graph-error
+          (str label " must include identity field '" entity-name "."
+               (if (nil? identity) "<missing>" (.-name identity)) "'"))
+        nil)
+      (doseq [field-name field-names]
+        (let [field (field-named resolved field-name)]
+          (if (nil? field)
+            (graph-error
+              (str label " names unknown field '" entity-name "."
+                   field-name "'"))
+            nil)
+          (if (and (some? field) (= (.-write-policy field) "command"))
+            (graph-error
+              (str label " cannot include command-only field '" entity-name "."
+                   field-name "'"))
+            nil))))))
+
+(defn validate-fram-create-forms
+  [prog: IrProgram
+   entities: (Vec GEntity)] -> Any
+  (if (some? (.-backend prog))
+    (do
+      (doseq [view (or (.-views prog) [])]
+        (let [fields (or (.-add-fields view) [])]
+          (if (> (count fields) 0)
+            (validate-create-fields
+              (str "view '" (.-name view) "' add form")
+              (.-entity-name view)
+              fields
+              entities)
+            nil)))
+      (doseq [form (or (.-forms prog) [])]
+        (validate-create-fields
+          (str "form '" (.-name form) "'")
+          (.-entity-name form)
+          (or (.-fields form) [])
+          entities)))
+    nil))
+
+(defn machine-named
+  [machines: (Vec StateMachine)
+   entity-name: String
+   field-name: String] -> StateMachine?
+  (first
+    (filterv
+      (fn [machine]
+        (and (= (.-entity machine) entity-name)
+             (= (.-field machine) field-name)))
+      machines)))
+
+(defn require-write-policy
+  [entity-name: String
+   field: GField
+   expected: String] -> Any
+  (if (not (= (.-write-policy field) expected))
+    (graph-error
+      (str "publication field '" entity-name "." (.-name field)
+           "' must declare :write :" expected))
+    nil))
+
+(defn validate-publication-states
+  [publication-name: String
+   machine: StateMachine
+   draft-state: String
+   published-state: String
+   retired-state: String] -> Any
+  (let [transitions (.-transitions machine)
+        states [draft-state published-state retired-state]]
+    (if (not (= (count (distinct states)) 3))
+      (graph-error
+        (str "publication '" publication-name
+             "' draft, published, and retired states must be distinct"))
+      nil)
+    (doseq [state states]
+      (if (nil? (get transitions state))
+        (graph-error
+          (str "publication '" publication-name "' names unknown state " state))
+        nil))
+    (if (not (= (.-initial machine) draft-state))
+      (graph-error
+        (str "publication '" publication-name
+             "' draft state must be the state machine initial state"))
+      nil)
+    (if (not (.includes (or (get transitions draft-state) []) published-state))
+      (graph-error
+        (str "publication '" publication-name
+             "' requires its draft -> published transition"))
+      nil)
+    (if (not (.includes (or (get transitions published-state) []) retired-state))
+      (graph-error
+        (str "publication '" publication-name
+             "' requires its published -> retired transition"))
+      nil)))
+
+(defn resolve-publication
+  [source: IrPublication
+   entities: (Vec GEntity)
+   machines: (Vec StateMachine)] -> PublicationPolicy
+  (let [name (.-name source)
+        owner-name (.-owner-entity source)
+        revision-name (.-revision-entity source)
+        owner (entity-named entities owner-name)
+        revision (entity-named entities revision-name)]
+    (if (nil? owner)
+      (graph-error
+        (str "publication '" name "' names unknown owner entity '"
+             owner-name "'"))
+      nil)
+    (if (nil? revision)
+      (graph-error
+        (str "publication '" name "' names unknown revision entity '"
+             revision-name "'"))
+      nil)
+    (let [resolved-owner (or owner (first entities))
+          resolved-revision (or revision (first entities))
+          pointer (field-named resolved-owner (.-pointer-field source))
+          owner-field (field-named resolved-revision (.-owner-field source))
+          state-field (field-named resolved-revision (.-state-field source))]
+      (if (nil? pointer)
+        (graph-error
+          (str "publication '" name "' names unknown pointer field '"
+               owner-name "." (.-pointer-field source) "'"))
+        nil)
+      (if (nil? owner-field)
+        (graph-error
+          (str "publication '" name "' names unknown revision owner field '"
+               revision-name "." (.-owner-field source) "'"))
+        nil)
+      (if (nil? state-field)
+        (graph-error
+          (str "publication '" name "' names unknown revision state field '"
+               revision-name "." (.-state-field source) "'"))
+        nil)
+      (let [resolved-pointer (or pointer (first (.-fields resolved-owner)))
+            resolved-owner-field
+            (or owner-field (first (.-fields resolved-revision)))
+            resolved-state-field
+            (or state-field (first (.-fields resolved-revision)))
+            machine
+            (machine-named
+              machines revision-name (.-state-field source))]
+        (if (or (not (= (.-value-kind resolved-pointer) "ref"))
+                (not (= (.-cardinality resolved-pointer) "single"))
+                (not (= (.-target-entity resolved-pointer) revision-name)))
+          (graph-error
+            (str "publication pointer '" owner-name "."
+                 (.-pointer-field source)
+                 "' must be a single Ref to '" revision-name "'"))
+          nil)
+        (if (or (not (= (.-value-kind resolved-owner-field) "ref"))
+                (not (= (.-cardinality resolved-owner-field) "single"))
+                (not (= (.-target-entity resolved-owner-field) owner-name)))
+          (graph-error
+            (str "publication owner field '" revision-name "."
+                 (.-owner-field source)
+                 "' must be a single Ref to '" owner-name "'"))
+          nil)
+        (if (or (not (= (.-value-kind resolved-state-field) "literal"))
+                (not (= (.-cardinality resolved-state-field) "single")))
+          (graph-error
+            (str "publication state field '" revision-name "."
+                 (.-state-field source) "' must be a single literal"))
+          nil)
+        (require-write-policy owner-name resolved-pointer "command")
+        (require-write-policy revision-name resolved-owner-field "create")
+        (require-write-policy revision-name resolved-state-field "command")
+        (if (nil? machine)
+          (graph-error
+            (str "publication state field '" revision-name "."
+                 (.-state-field source) "' requires a state machine"))
+          nil)
+        (let [draft-state (.-draft-state source)
+              published-state (.-published-state source)
+              retired-state (.-retired-state source)]
+          (validate-publication-states
+            name (or machine (first machines))
+            draft-state published-state retired-state)
+          (->PublicationPolicy
+            name owner-name (.-pointer-field source)
+            revision-name (.-owner-field source) (.-state-field source)
+            (strip-colon draft-state)
+            (strip-colon published-state)
+            (strip-colon retired-state)))))))
+
+(defn resolve-publications
+  [prog: IrProgram
+   entities: (Vec GEntity)
+   machines: (Vec StateMachine)] -> (Vec PublicationPolicy)
+  (let [sources (or (.-publications prog) [])]
+    (if (and (> (count sources) 0) (nil? (.-backend prog)))
+      (graph-error "publication policies require (backend :fram)")
+      nil)
+    (reduce
+      (fn [seen source]
+        (let [name (.-name source)]
+          (if (.includes seen name)
+            (graph-error (str "duplicate publication '" name "'"))
+            (conj seen name))))
+      [] sources)
+    (let [policies
+          (mapv (fn [source] (resolve-publication source entities machines))
+                sources)]
+      (reduce
+        (fn [seen policy]
+          (let [target (str (.-owner-entity policy) "."
+                            (.-pointer-field policy))]
+            (if (.includes seen target)
+              (graph-error
+                (str "publication pointer '" target "' is declared twice"))
+              (conj seen target))))
+        [] policies)
+      policies)))
+
 
 ;; --- Main: build checked graph ---
 
-(defn check-program [prog: IrProgram] :- CheckedGraph
+(defn check-program [prog: IrProgram] -> CheckedGraph
   (let [entities (mapv analyze-entity (.-entities prog))
+        defstates (or (.-defstates prog) [])
+        validated-names (validate-generated-names prog entities defstates)
+        validated (validate-backend prog entities)
+        validated-create-forms (validate-fram-create-forms prog entities)
+        validated-defstates (validate-defstates defstates)
         fk-edges (resolve-fk-edges entities)
-        state-machines (resolve-state-machines entities (or (.-defstates prog) []))]
+        state-machines
+        (resolve-state-machines entities defstates)
+        publications (resolve-publications prog entities state-machines)]
     (->CheckedGraph
       (or (.-ns prog) "wake.app")
+      (.-backend prog)
       entities
       fk-edges
       state-machines
+      publications
       (.-persist prog)
-      (or (.-defstates prog) [])
+      defstates
       (or (.-list-details prog) [])
       (or (.-forms prog) [])
       (.-theme prog)
       (or (.-components prog) [])
       (or (.-views prog) [])
       (.-router prog)
-      (.-auth prog)
       (.-layout prog))))

@@ -8,36 +8,39 @@
 
 (defrecord ParseResult [type: String value: Any])
 
-(defn sym? [x: Any] :- Bool
+(defn sym? [x: Any] -> Bool
   (if (nil? x) false
     (= (.-_tag x) "Sym")))
 
-(defn kw? [x: Any] :- Bool
+(defn kw? [x: Any] -> Bool
   (if (nil? x) false
     (= (.-_tag x) "Kw")))
 
-(defn vec? [x: Any] :- Bool
+(defn vec? [x: Any] -> Bool
   (if (nil? x) false
     (= (.-_tag x) "SexprVec")))
 
-(defn sym-name [x: Any] :- String
+(defn sym-name [x: Any] -> String
   (.-name x))
 
-(defn kw-name [x: Any] :- String
+(defn kw-name [x: Any] -> String
   (.-name x))
 
-(defn vec-items [x: Any] :- Any
+(defn vec-items [x: Any] -> Any
   (.-items x))
 
-(defn sym= [x: Any s: String] :- Bool
+(defn sym= [x: Any s: String] -> Bool
   (if (sym? x) (= (sym-name x) s) false))
 
-(defn kw= [x: Any s: String] :- Bool
+(defn kw= [x: Any s: String] -> Bool
   (if (kw? x) (= (kw-name x) s) false))
 
 ;; --- Attribute parsing ---
 
-(defn extract-field-refs [expr: Any] :- Any
+(defn parse-error [message: String] -> Any
+  (throw (ex-info (str "wake: " message) {})))
+
+(defn extract-field-refs [expr: Any] -> Any
   (if (sym? expr)
     [(sym-name expr)]
     (if (vector? expr)
@@ -52,73 +55,110 @@
           [] items))
       [])))
 
-(defn parse-attr [form: Any] :- Any
-  (if (< (count form) 3) nil
+(defn canonical-field-option? [x: Any] -> Bool
+  (or (kw= x ":identity")
+      (kw= x ":many")
+      (kw= x ":to")
+      (kw= x ":write")))
+
+(defn parse-attr [form: Any] -> Any
+  (if (< (count form) 3)
+    (parse-error "field declaration requires a name and type")
     (let [name (sym-name (nth form 0))
-          colon (nth form 1)
           type-sym (nth form 2)]
       (if (sym= type-sym "Derived")
-        (let [expr (nth form 3 nil)
-              deps (if (nil? expr) [] (extract-field-refs expr))]
-          (ir/->IrAttr name "Derived" {"expr" expr "deps" deps}))
+        (let [invalid-option
+              (first (filterv canonical-field-option? (subvec form 3)))]
+          (if (some? invalid-option)
+            (parse-error
+              (str "Derived field '" name "' cannot declare "
+                   (kw-name invalid-option)))
+            nil)
+          (if (not (= (count form) 4))
+            (parse-error
+              (str "Derived field '" name
+                   "' requires exactly one expression"))
+            nil)
+          (let [expr (nth form 3)
+                deps (extract-field-refs expr)]
+            (ir/->IrAttr name "Derived" {"expr" expr "deps" deps})))
         (let [type-name (sym-name type-sym)]
           (loop [i 3 opts {}]
             (if (>= i (count form))
               (ir/->IrAttr name type-name opts)
-              (if (kw= (nth form i) ":unique")
-                (recur (+ i 2) (assoc opts "unique" (sym-name (nth form (+ i 1)))))
-                (if (kw= (nth form i) ":default")
-                  (recur (+ i 2) (assoc opts "default" (nth form (+ i 1))))
-                  (if (kw= (nth form i) ":column")
-                    (recur (+ i 2) (assoc opts "column" (nth form (+ i 1))))
-                    (if (kw= (nth form i) ":lookup")
-                      (recur (+ i 3) (assoc (assoc opts "lookup-table" (nth form (+ i 1))) "lookup-display" (nth form (+ i 2))))
-                      (if (kw= (nth form i) ":sql")
-                        (recur (+ i 2) (assoc opts "sql-expr" (nth form (+ i 1))))
-                        (if (kw= (nth form i) ":filter-sql")
-                          (recur (+ i 2) (assoc opts "filter-sql" (nth form (+ i 1))))
-                          (if (kw= (nth form i) ":filter-lookup")
-                            (recur (+ i 4) (assoc (assoc (assoc opts "filter-lookup-table" (nth form (+ i 1))) "filter-lookup-id" (nth form (+ i 2))) "filter-lookup-display" (nth form (+ i 3))))
-                            (recur (+ i 1) opts)))))))))))))))
+              (cond
+                (kw= (nth form i) ":identity")
+                  (recur (+ i 1) (assoc opts "identity" true))
+                (kw= (nth form i) ":many")
+                  (recur (+ i 1) (assoc opts "many" true))
+                (kw= (nth form i) ":to")
+                  (let [target (nth form (+ i 1) nil)]
+                    (recur (+ i 2)
+                           (assoc opts "target-entity"
+                                  (if (sym? target) (sym-name target) nil))))
+                (kw= (nth form i) ":write")
+                  (let [policy (nth form (+ i 1) nil)]
+                    (if (or (kw= policy ":create")
+                            (kw= policy ":set")
+                            (kw= policy ":command"))
+                      (recur
+                        (+ i 2)
+                        (assoc opts "write"
+                               (subs (kw-name policy) 1)))
+                      (parse-error
+                        (str "field '" name
+                             "' :write must be :create, :set, or :command"))))
+                :else
+                  (parse-error
+                    (str "unknown option on field '" name "': "
+                         (if (kw? (nth form i))
+                           (kw-name (nth form i))
+                           (nth form i))))))))))))
 
 ;; --- Entity parsing ---
 
-(defn parse-entity [form: Any] :- Any
+(defn parse-entity [form: Any] -> Any
   (let [name (sym-name (nth form 1))]
-    (loop [i 2 opts {} attr-forms []]
+    (loop [i 2 attr-forms []]
       (if (>= i (count form))
-        (ir/->IrEntity name (mapv parse-attr attr-forms) opts)
+        (let [attrs (mapv parse-attr attr-forms)
+              field-names (mapv (fn [attr] (.-name attr)) attrs)]
+          (reduce
+            (fn [seen field-name]
+              (if (.includes seen field-name)
+                (parse-error
+                  (str "duplicate field '" field-name
+                       "' in entity '" name "'"))
+                (conj seen field-name)))
+            []
+            field-names)
+          (ir/->IrEntity name attrs))
         (if (kw? (nth form i))
-          (cond
-            (kw= (nth form i) ":table")
-              (recur (+ i 2) (assoc opts "table" (nth form (+ i 1))) attr-forms)
-            (kw= (nth form i) ":id")
-              (recur (+ i 2) (assoc opts "id" (nth form (+ i 1))) attr-forms)
-            (kw= (nth form i) ":where")
-              (recur (+ i 2) (assoc opts "where" (nth form (+ i 1))) attr-forms)
-            :else (recur (+ i 1) opts attr-forms))
-          (recur (+ i 1) opts (conj attr-forms (nth form i))))))))
+          (parse-error
+            (str "entity '" name "' does not accept option "
+                 (kw-name (nth form i))))
+          (recur (+ i 1) (conj attr-forms (nth form i))))))))
+
+;; --- Backend parsing ---
+
+(defn parse-backend [form: Any] -> Any
+  (if (and (= (count form) 2) (kw= (nth form 1) ":fram"))
+    (ir/->IrBackend "fram")
+    (parse-error "backend must be declared as (backend :fram)")))
 
 ;; --- Persist parsing ---
 
-(defn parse-persist [form: Any] :- Any
-  (cond
-    (kw= (nth form 1) ":localStorage")
-      (ir/->IrPersist "localStorage" (nth form 2))
-    ;; (persist :claims "key") — opt-in CLAIM-BACKED store (ADR 0001): the app's data is
-    ;; an append-only claim log (update=supersede, history kept), persisted to localStorage.
-    (kw= (nth form 1) ":claims")
-      (ir/->IrPersist "claims" (nth form 2))
-    ;; (persist :feed "url") — LIVE EXTERNAL feed: store mirrors an external HTTP endpoint
-    ;; that returns a JSON array; poll + store.load() (push into the store). Read-only.
-    ;; The "key" slot carries the URL. Proves an wake store binds to a live external graph.
-    (kw= (nth form 1) ":feed")
-      (ir/->IrPersist "feed" (nth form 2))
-    :else nil))
+(defn parse-persist [form: Any] -> Any
+  (if (and (= (count form) 3)
+           (kw= (nth form 1) ":localStorage")
+           (string? (nth form 2)))
+    (ir/->IrPersist "localStorage" (nth form 2))
+    (parse-error
+      "persist is local-only and must be declared as (persist :localStorage \"key\")")))
 
 ;; --- Theme parsing ---
 
-(defn parse-theme [form: Any] :- Any
+(defn parse-theme [form: Any] -> Any
   (loop [i 1 colors {}]
     (if (>= i (count form))
       (ir/->IrTheme colors)
@@ -136,7 +176,7 @@
 
 ;; --- Theme parsing: (theme :colors (bg "..." fg "..." ...)) ---
 
-(defn parse-color-list [items: Any] :- Any
+(defn parse-color-list [items: Any] -> Any
   (loop [i 0 colors {}]
     (if (>= (+ i 1) (count items))
       colors
@@ -146,7 +186,7 @@
           (recur (+ i 1) colors))
         (recur (+ i 1) colors)))))
 
-(defn parse-theme-colors [form: Any] :- Any
+(defn parse-theme-colors [form: Any] -> Any
   (loop [i 1 colors {}]
     (if (>= i (count form))
       (ir/->IrTheme colors)
@@ -158,30 +198,132 @@
 
 ;; --- Defstate parsing ---
 
-(defn parse-defstate [form: Any] :- Any
+(defn parse-defstate-transition [defstate-name: String transition: Any] -> Any
+  (if (not (vec? transition))
+    (parse-error
+      (str "defstate '" defstate-name
+           "' transitions must be vectors of [STATE -> TARGET ...]"))
+    nil)
+  (let [items (vec-items transition)]
+    (if (< (count items) 2)
+      (parse-error
+        (str "defstate '" defstate-name
+             "' transitions must be [STATE -> TARGET ...]"))
+      nil)
+    (if (not (kw? (nth items 0 nil)))
+      (parse-error
+        (str "defstate '" defstate-name
+             "' transition states must be keywords"))
+      nil)
+    (if (not (sym= (nth items 1 nil) "->"))
+      (parse-error
+        (str "defstate '" defstate-name
+             "' transitions must use -> after the source state"))
+      nil)
+    (doseq [target (subvec items 2)]
+      (if (not (kw? target))
+        (parse-error
+          (str "defstate '" defstate-name
+               "' transition targets must be keywords"))
+        nil))
+    [(kw-name (nth items 0))
+     (mapv kw-name (subvec items 2))]))
+
+(defn parse-defstate [form: Any] -> Any
+  (if (not (sym? (nth form 1 nil)))
+    (parse-error "defstate requires a symbolic name")
+    nil)
   (let [name (sym-name (nth form 1))
-        transitions (subvec form 2)]
-    (let [initial (if (> (count transitions) 0)
-                   (let [first-t (vec-items (nth transitions 0))]
-                     (if (> (count first-t) 0)
-                       (sym-name (nth first-t 0))
-                       ""))
-                   "")
-          table (reduce
-                  (fn [acc t]
-                    (let [items (vec-items t)
-                          from (sym-name (nth items 0))
-                          tos (loop [j 2 result []]
-                                (if (>= j (count items))
-                                  result
-                                  (recur (+ j 1) (conj result (sym-name (nth items j))))))]
-                      (assoc acc from tos)))
-                  {} transitions)]
-      (ir/->IrDefstate name table initial))))
+        sources (subvec form 2)]
+    (if (= (count sources) 0)
+      (parse-error (str "defstate '" name "' must declare at least one state"))
+      nil)
+    (let [transitions
+          (mapv
+            (fn [source]
+              (parse-defstate-transition name source))
+            sources)]
+      (reduce
+        (fn [seen transition]
+          (let [source (nth transition 0)]
+            (if (.includes seen source)
+              (parse-error
+                (str "defstate '" name "' declares state '" source
+                     "' more than once"))
+              (conj seen source))))
+        []
+        transitions)
+      (ir/->IrDefstate
+        name
+        (Object/fromEntries transitions)
+        (nth (first transitions) 0)))))
+
+;; --- Publication parsing ---
+
+(defn publication-option? [name: String] -> Bool
+  (.includes
+    [":owner" ":pointer" ":revision" ":owner-field" ":state-field"
+     ":draft" ":published" ":retired"]
+    name))
+
+(defn publication-symbol-option? [name: String] -> Bool
+  (.includes
+    [":owner" ":pointer" ":revision" ":owner-field" ":state-field"]
+    name))
+
+(defn parse-publication [form: Any] -> Any
+  (if (or (< (count form) 2) (not (sym? (nth form 1 nil))))
+    (parse-error "publication requires a symbolic name")
+    nil)
+  (let [name (sym-name (nth form 1))]
+    (loop [i 2 opts {}]
+      (if (>= i (count form))
+        (let [required
+              [":owner" ":pointer" ":revision" ":owner-field" ":state-field"
+               ":draft" ":published" ":retired"]]
+          (doseq [key required]
+            (if (nil? (get opts key))
+              (parse-error
+                (str "publication '" name "' requires " key))
+              nil))
+          (ir/->IrPublication
+            name
+            (get opts ":owner")
+            (get opts ":pointer")
+            (get opts ":revision")
+            (get opts ":owner-field")
+            (get opts ":state-field")
+            (get opts ":draft")
+            (get opts ":published")
+            (get opts ":retired")))
+        (let [option (nth form i nil)
+              value (nth form (+ i 1) nil)
+              option-name (if (kw? option) (kw-name option) "")]
+          (if (not (publication-option? option-name))
+            (parse-error
+              (str "unknown option on publication '" name "': "
+                   (if (kw? option) option-name option)))
+            nil)
+          (if (some? (get opts option-name))
+            (parse-error
+              (str "duplicate option " option-name
+                   " on publication '" name "'"))
+            nil)
+          (if (publication-symbol-option? option-name)
+            (if (sym? value)
+              (recur (+ i 2) (assoc opts option-name (sym-name value)))
+              (parse-error
+                (str option-name " on publication '" name
+                     "' requires a symbol")))
+            (if (kw? value)
+              (recur (+ i 2) (assoc opts option-name (kw-name value)))
+              (parse-error
+                (str option-name " on publication '" name
+                     "' requires a keyword")))))))))
 
 ;; --- Detail tab parsing ---
 
-(defn parse-detail-tab [form: Any] :- Any
+(defn parse-detail-tab [form: Any] -> Any
   (let [label (nth form 1)
         body (nth form 2)]
     (if (sym= (nth body 0) "fields")
@@ -199,22 +341,22 @@
                   (recur (+ i 1) query display))))))
         nil))))
 
-(defn parse-tabs [form: Any] :- Any
+(defn parse-tabs [form: Any] -> Any
   (mapv parse-detail-tab (subvec form 1)))
 
 ;; --- List-detail parsing ---
 
-(defn titlecase [s: String] :- String
+(defn titlecase [s: String] -> String
   (if (= (count s) 0) s
     (str (.toUpperCase (subs s 0 1)) (subs s 1))))
 
-(defn parse-list-detail [form: Any] :- Any
+(defn parse-list-detail [form: Any] -> Any
   (let [entity-name (sym-name (nth form 1))]
-    (loop [i :- Int 2
-           title :- String? nil
-           columns :- (Vec String) []
-           search :- (Vec String) []
-           detail :- (Vec IrDetailTab) []]
+    (loop [i: Int 2
+           title: String? nil
+           columns: (Vec String) []
+           search: (Vec String) []
+           detail: (Vec IrDetailTab) []]
       (if (>= i (count form))
         (ir/->IrListDetail entity-name
                            (if (nil? title) (titlecase entity-name) (str title))
@@ -232,9 +374,9 @@
 
 ;; --- Smart form parsing ---
 
-(defn parse-smart-form [form: Any] :- Any
+(defn parse-smart-form [form: Any] -> Any
   (let [name (sym-name (nth form 1))]
-    (loop [i :- Int 2 entity :- String? nil fields :- (Vec String) [] required :- (Vec String) [] label :- String "Submit" on-success :- String ":clear"]
+    (loop [i: Int 2 entity: String? nil fields: (Vec String) [] required: (Vec String) [] label: String "Submit" on-success: String ":clear"]
       (if (>= i (count form))
         (ir/->IrSmartForm name (or entity "") fields required label on-success)
         (cond
@@ -252,7 +394,7 @@
 
 ;; --- Element tree parsing (component bodies) ---
 
-(defn html-tag? [name: String] :- Bool
+(defn html-tag? [name: String] -> Bool
   (let [tags ["div" "span" "p" "h1" "h2" "h3" "h4" "h5" "h6"
               "button" "input" "form" "label" "textarea" "select" "option"
               "ul" "ol" "li" "a" "img" "section" "header" "footer" "nav" "main"
@@ -261,7 +403,7 @@
 
 ;; An action form, e.g. (assert status "done") or (select uuid) — verb + args.
 ;; Args: symbols => prop/field refs, keywords => tags, else literals.
-(defn parse-action [form: Any] :- Any
+(defn parse-action [form: Any] -> Any
   (if (not (vector? form)) nil
     (let [verb (sym-name (nth form 0))
           args (mapv (fn [a]
@@ -271,7 +413,7 @@
                      (subvec form 1))]
       (ir/->IrAction verb args))))
 
-(defn parse-element [form: Any] :- Any
+(defn parse-element [form: Any] -> Any
   (if (not (vector? form)) nil
     (if (= (count form) 0) nil
       (let [head (nth form 0)]
@@ -308,9 +450,9 @@
 
 ;; --- Component parsing ---
 
-(defn parse-component [form: Any] :- Any
+(defn parse-component [form: Any] -> Any
   (let [name (sym-name (nth form 1))]
-    (loop [i :- Int 2 props :- (Vec String) [] body :- (Vec IrElement) []]
+    (loop [i: Int 2 props: (Vec String) [] body: (Vec IrElement) []]
       (if (>= i (count form))
         (ir/->IrComponent name props body)
         (if (kw= (nth form i) ":props")
@@ -322,13 +464,13 @@
 
 ;; --- View parsing ---
 
-(defn parse-tab [form: Any] :- Any
+(defn parse-tab [form: Any] -> Any
   (let [label (nth form 1)
         entity-name (sym-name (nth form 2))
-        fk-column (nth form 3)]
-    (loop [i :- Int 4 filter :- String? nil fields :- (Vec String) []]
+        ref-field (nth form 3)]
+    (loop [i: Int 4 filter: String? nil fields: (Vec String) []]
       (if (>= i (count form))
-        (ir/->IrRelatedTab label entity-name fk-column filter fields)
+        (ir/->IrRelatedTab label entity-name ref-field filter fields)
         (cond
           (kw= (nth form i) ":filter")
             (recur (+ i 2) (nth form (+ i 1)) fields)
@@ -336,9 +478,9 @@
             (recur (+ i 2) filter (mapv sym-name (vec-items (nth form (+ i 1)))))
           :else (recur (+ i 1) filter fields))))))
 
-(defn parse-view [form: Any] :- Any
+(defn parse-view [form: Any] -> Any
   (let [name (sym-name (nth form 1))]
-    (loop [i :- Int 2 entity :- String? nil component :- String? nil add-fields :- (Vec String) [] title :- String? nil select :- String? nil tabs :- (Vec IrRelatedTab) [] filters :- (Vec String) [] date-filters :- (Vec String) []]
+    (loop [i: Int 2 entity: String? nil component: String? nil add-fields: (Vec String) [] title: String? nil select: String? nil tabs: (Vec IrRelatedTab) [] filters: (Vec String) [] date-filters: (Vec String) []]
       (if (>= i (count form))
         (ir/->IrView name (or entity "") (or component "") add-fields (or title (titlecase (or entity name))) select tabs filters date-filters)
         (cond
@@ -357,7 +499,7 @@
           (kw= (nth form i) ":date-filters")
             (recur (+ i 2) entity component add-fields title select tabs filters (mapv sym-name (vec-items (nth form (+ i 1)))))
           (kw= (nth form i) ":tabs")
-            (let [parsed-tabs (loop [j :- Int (+ i 1) result :- (Vec IrRelatedTab) []]
+            (let [parsed-tabs (loop [j: Int (+ i 1) result: (Vec IrRelatedTab) []]
                     (if (or (>= j (count form))
                             (not (and (js/Array.isArray (nth form j))
                                       (> (count (nth form j)) 0)
@@ -370,8 +512,8 @@
 
 ;; --- Router parsing ---
 
-(defn parse-routes [form: Any] :- Any
-  (loop [i :- Int 1 dflt :- String? nil routes :- (Vec IrRoute) []]
+(defn parse-routes [form: Any] -> Any
+  (loop [i: Int 1 dflt: String? nil routes: (Vec IrRoute) []]
     (if (>= i (count form))
       (ir/->IrRouter (or dflt (if (> (count routes) 0) (.-view-name (nth routes 0)) "main")) routes)
       (if (kw= (nth form i) ":default")
@@ -383,36 +525,16 @@
             (recur (+ i 1) dflt (conj routes (ir/->IrRoute path view))))
           (recur (+ i 1) dflt routes))))))
 
-;; --- Auth parsing ---
-
-(defn parse-auth [form: Any] :- Any
-  (loop [i :- Int 1 entity :- String? nil login :- String? nil password :- String? nil session :- String "cookie" protect :- (Vec String) []]
-    (if (>= i (count form))
-      (ir/->IrAuth (or entity "user") (or login "email") (or password "password") session protect)
-      (cond
-        (kw= (nth form i) ":entity")
-          (recur (+ i 2) (sym-name (nth form (+ i 1))) login password session protect)
-        (kw= (nth form i) ":login-field")
-          (recur (+ i 2) entity (sym-name (nth form (+ i 1))) password session protect)
-        (kw= (nth form i) ":password-field")
-          (recur (+ i 2) entity login (sym-name (nth form (+ i 1))) session protect)
-        (kw= (nth form i) ":session")
-          (recur (+ i 2) entity login password (sym-name (nth form (+ i 1))) protect)
-        (kw= (nth form i) ":protect")
-          (let [items (vec-items (nth form (+ i 1)))]
-            (recur (+ i 2) entity login password session (mapv sym-name items)))
-        :else (recur (+ i 1) entity login password session protect)))))
-
 ;; --- Layout parsing ---
 
-(defn parse-nav-group [form: Any] :- Any
+(defn parse-nav-group [form: Any] -> Any
   (let [label (nth form 1)
         items (mapv sym-name (vec-items (nth form 2)))]
     (ir/->IrNavGroup label items)))
 
-(defn parse-layout [form: Any] :- Any
+(defn parse-layout [form: Any] -> Any
   (let [style (kw-name (nth form 1))]
-    (loop [i :- Int 2 title :- String? nil groups :- (Vec IrNavGroup) []]
+    (loop [i: Int 2 title: String? nil groups: (Vec IrNavGroup) []]
       (if (>= i (count form))
         (ir/->IrLayout (if (.startsWith style ":") (subs style 1) style) title groups)
         (cond
@@ -427,8 +549,8 @@
 
 ;; --- Panel parsing ---
 ;; (panel agent-graph :mount "north.mountGraph")
-;; A named region the shell fills with its own JS, sharing feed+selection via window.wake.
-(defn parse-panel [form: Any] :- Any
+;; A named region the shell fills with its own JS, sharing updates+selection via window.wake.
+(defn parse-panel [form: Any] -> Any
   (let [name (sym-name (nth form 1))]
     (loop [i 2 mount-fn nil]
       (if (>= i (count form))
@@ -439,7 +561,7 @@
 
 ;; --- Top-level dispatcher ---
 
-(defn parse-form [form: Any] :- Any
+(defn parse-form [form: Any] -> Any
   (if (not (vector? form)) nil
     (if (= (count form) 0) nil
       (let [head (nth form 0)]
@@ -447,58 +569,75 @@
           (let [name (sym-name head)]
             (cond
               (= name "entity")      (->ParseResult "entity" (parse-entity form))
+              (= name "backend")     (->ParseResult "backend" (parse-backend form))
               (= name "persist")     (->ParseResult "persist" (parse-persist form))
               (= name "theme")       (->ParseResult "theme" (parse-theme-colors form))
               (= name "defstate")    (->ParseResult "defstate" (parse-defstate form))
+              (= name "publication") (->ParseResult "publication" (parse-publication form))
               (= name "list-detail") (->ParseResult "list-detail" (parse-list-detail form))
               (= name "form")        (->ParseResult "form" (parse-smart-form form))
               (= name "component")   (->ParseResult "component" (parse-component form))
               (= name "view")        (->ParseResult "view" (parse-view form))
               (= name "routes")      (->ParseResult "routes" (parse-routes form))
-              (= name "auth")        (->ParseResult "auth" (parse-auth form))
               (= name "layout")      (->ParseResult "layout" (parse-layout form))
               (= name "panel")       (->ParseResult "panel" (parse-panel form))
               (= name "ns")          (->ParseResult "ns" (sym-name (nth form 1)))
               (= name "require")     nil
-              :else (do (.error js/console (str "wake: unknown form (" name " ...)")) nil))))))))
+              :else (parse-error (str "unknown top-level form (" name " ...)")))))))))
 
 ;; --- Entry point ---
 
-(defn validate-program [ns-name: Any entities: Any defstates: Any] :- Any
-  (if (nil? ns-name) (.error js/console "wake: missing (ns ...) declaration") nil)
-  (if (= (count entities) 0) (.error js/console "wake: no entity declarations found") nil)
-  (let [entity-names (mapv (fn [e] (.-name e)) entities)
-        seen (reduce (fn [acc n]
-          (if (.includes acc n)
-            (do (.error js/console (str "wake: duplicate entity '" n "'")) acc)
-            (conj acc n)))
-          [] entity-names)
-        state-names (mapv (fn [d] (.-name d)) defstates)
-        seen-states (reduce (fn [acc n]
-          (if (.includes acc n)
-            (do (.error js/console (str "wake: duplicate defstate '" n "'")) acc)
-            (conj acc n)))
-          [] state-names)]
-    nil))
+(defn validate-program
+  [ns-name: Any
+   backends: Any
+   persists: Any
+   entities: Any
+   defstates: Any] -> Any
+  (if (nil? ns-name) (parse-error "missing (ns ...) declaration") nil)
+  (if (> (count backends) 1)
+    (parse-error "multiple backend declarations") nil)
+  (if (> (count persists) 1)
+    (parse-error "multiple persist declarations") nil)
+  (if (= (count entities) 0)
+    (parse-error "no entity declarations found") nil)
+  (reduce
+    (fn [seen entity-name]
+      (if (.includes seen entity-name)
+        (parse-error (str "duplicate entity '" entity-name "'"))
+        (conj seen entity-name)))
+    []
+    (mapv (fn [entity] (.-name entity)) entities))
+  (reduce
+    (fn [seen state-name]
+      (if (.includes seen state-name)
+        (parse-error (str "duplicate defstate '" state-name "'"))
+        (conj seen state-name)))
+    []
+    (mapv (fn [state] (.-name state)) defstates))
+  nil)
 
-(defn parse-program [src: String] :- Any
-  (let [forms (sexpr/parse-all src)
-        parsed (filterv some? (mapv parse-form forms))]
+(defn parse-program [src: String] -> Any
+  (let [top-forms (sexpr/parse-all src)
+        parsed (filterv some? (mapv parse-form top-forms))]
     (let [ns-form   (first (filterv (fn [p] (= (.-type p) "ns")) parsed))
+          backends  (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "backend")) parsed))
           entities  (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "entity")) parsed))
-          persist   (first (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "persist")) parsed)))
+          persists  (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "persist")) parsed))
           defstates (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "defstate")) parsed))
+          publications (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "publication")) parsed))
           lds       (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "list-detail")) parsed))
-          forms     (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "form")) parsed))
+          smart-forms (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "form")) parsed))
           theme     (first (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "theme")) parsed)))
           components (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "component")) parsed))
           views     (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "view")) parsed))
           router    (first (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "routes")) parsed)))
-          auth      (first (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "auth")) parsed)))
           layout    (first (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "layout")) parsed)))
           panels    (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "panel")) parsed))
-          ns-name   (if (nil? ns-form) nil (.-value ns-form))]
-      (validate-program ns-name entities defstates)
+          ns-name   (if (nil? ns-form) nil (.-value ns-form))
+          backend   (first backends)
+          persist   (first persists)]
+      (validate-program ns-name backends persists entities defstates)
       (ir/->IrProgram
         (or ns-name "wake.app")
-        entities persist defstates lds forms theme components views router auth layout panels))))
+        backend entities persist defstates publications lds smart-forms theme components views
+        router layout panels))))

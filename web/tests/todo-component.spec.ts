@@ -1,15 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { loadBrowserFixture, readBrowserFixture } from "./browser-fixture";
 
-const html = readFileSync(join(__dirname, "..", "public-js", "index.html"), "utf-8");
-const js = readFileSync(join("/tmp", "wake-todo-run", "app.js"), "utf-8");
-
-const bareHtml = html.replace('<script src="app.js"></script>', "");
+const js = readBrowserFixture("todo");
 
 async function loadApp(page: any) {
-  await page.setContent(bareHtml);
-  await page.evaluate(js);
+  await loadBrowserFixture(page, js);
 }
 
 test.describe("Component-based view: compiled update paths across component boundaries", () => {

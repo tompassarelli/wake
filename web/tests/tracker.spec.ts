@@ -1,15 +1,10 @@
 import { test, expect } from "@playwright/test";
-import { readFileSync } from "fs";
-import { join } from "path";
+import { loadBrowserFixture, readBrowserFixture } from "./browser-fixture";
 
-const html = readFileSync(join(__dirname, "..", "public-js", "index.html"), "utf-8");
-const js = readFileSync(join("/tmp", "wake-tracker-run", "app.js"), "utf-8");
-
-const bareHtml = html.replace('<script src="app.js"></script>', "");
+const js = readBrowserFixture("tracker");
 
 async function loadApp(page: any) {
-  await page.setContent(bareHtml);
-  await page.evaluate(js);
+  await loadBrowserFixture(page, js);
 }
 
 async function addTask(page: any, title: string, done?: string) {
@@ -88,13 +83,13 @@ test.describe("Selection: click-to-select detail panel", () => {
 });
 
 test.describe("Routing: hash-based navigation", () => {
-  test("renders nav bar with view buttons", async ({ page }) => {
+  test("renders sidebar with view buttons", async ({ page }) => {
     await loadApp(page);
-    const nav = page.locator("nav");
-    await expect(nav).toBeVisible();
-    await expect(nav.locator("button")).toHaveCount(2);
-    await expect(nav.locator("button").first()).toHaveText("Tasks");
-    await expect(nav.locator("button").last()).toHaveText("Board");
+    const navigation = page.locator(".sidebar-content");
+    await expect(navigation).toBeVisible();
+    await expect(navigation.locator("button")).toHaveCount(2);
+    await expect(navigation.locator("button").first()).toHaveText("Tasks");
+    await expect(navigation.locator("button").last()).toHaveText("Board");
   });
 
   test("default view is tasks", async ({ page }) => {
@@ -106,7 +101,7 @@ test.describe("Routing: hash-based navigation", () => {
 
   test("navigating to board shows board view", async ({ page }) => {
     await loadApp(page);
-    await page.click("nav button:has-text('Board')");
+    await page.click(".sidebar-content button:has-text('Board')");
     const titles = page.locator("h1");
     const boardTitle = titles.filter({ hasText: "Board" });
     await expect(boardTitle).toBeVisible();
@@ -115,15 +110,15 @@ test.describe("Routing: hash-based navigation", () => {
   test("adding task in tasks view appears in board view", async ({ page }) => {
     await loadApp(page);
     await addTask(page, "Cross-view task");
-    await page.click("nav button:has-text('Board')");
+    await page.click(".sidebar-content button:has-text('Board')");
     await expect(page.getByText("Cross-view task").last()).toBeVisible();
   });
 
   test("navigating back preserves state", async ({ page }) => {
     await loadApp(page);
     await addTask(page, "Persistent");
-    await page.click("nav button:has-text('Board')");
-    await page.click("nav button:has-text('Tasks')");
+    await page.click(".sidebar-content button:has-text('Board')");
+    await page.click(".sidebar-content button:has-text('Tasks')");
     await expect(page.locator(".flex-1.text-sm").filter({ hasText: "Persistent" })).toBeVisible();
   });
 });
@@ -151,8 +146,8 @@ test.describe("Integration: when + selection + routing together", () => {
     await loadApp(page);
     await addTask(page, "Error check", "yes");
     await page.click(".cursor-pointer");
-    await page.click("nav button:has-text('Board')");
-    await page.click("nav button:has-text('Tasks')");
+    await page.click(".sidebar-content button:has-text('Board')");
+    await page.click(".sidebar-content button:has-text('Tasks')");
     await page.keyboard.press("Control+z");
     await page.keyboard.press("Control+Shift+z");
     expect(errors).toEqual([]);

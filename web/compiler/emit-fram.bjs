@@ -1,0 +1,127 @@
+#lang beagle/js
+(ns wake.emit-fram)
+(require wake.graph :as graph)
+
+;; A subject template has one substitution hole: the checked identity field.
+;; Its recursive scope is load-bearing: the app name keeps same-named schemas
+;; from sharing subjects or predicates in one FRAM database.
+
+(defn keyword-term [spelling: String] -> Any
+  ["keyword" spelling])
+
+(defn triple-term
+  [t1: Any
+   t2: Any
+   t3: Any] -> Any
+  ["triple" t1 t2 t3])
+
+(defn app-scope-term [app-name: String value: Any] -> Any
+  (triple-term
+    (keyword-term "wake/app")
+    (keyword-term app-name)
+    value))
+
+(defn subject-template
+  [app-name: String
+   entity-name: String
+   identity-name: String] -> Any
+  (app-scope-term
+    app-name
+    (triple-term
+      (keyword-term "entity")
+      (keyword-term entity-name)
+      {:field identity-name})))
+
+(defn predicate-term
+  [app-name: String
+   entity-name: String
+   field-name: String] -> Any
+  (app-scope-term
+    app-name
+    (triple-term
+      (keyword-term "field")
+      (keyword-term entity-name)
+      (keyword-term field-name))))
+
+(defn field-plan
+  [app-name: String
+   entity-name: String
+   field: Any] -> Any
+  (let [plan {:name (.-name field)
+              :type (.-type field)
+              :cardinality (.-cardinality field)
+              :valueKind (.-value-kind field)
+              :write (.-write-policy field)
+              :predicateTerm
+              (predicate-term app-name entity-name (.-name field))}]
+    (if (identical? (.-value-kind field) "ref")
+      (assoc plan :targetEntity (.-target-entity field))
+      plan)))
+
+(defn identity-plan
+  [app-name: String
+   entity-name: String
+   field: Any] -> Any
+  {:field (.-name field)
+   :type (.-type field)
+   :cardinality (.-cardinality field)
+   :valueKind (.-value-kind field)
+   :subjectTemplate
+   (subject-template app-name entity-name (.-name field))})
+
+(defn entity-plan [app-name: String entity: Any] -> Any
+  (let [entity-name (.-name entity)]
+    {:name entity-name
+     :identity
+     (identity-plan app-name entity-name (.-identity-field entity))
+     :fields (mapv
+               (fn [field: Any] -> Any
+                 (field-plan app-name entity-name field))
+               (.-stored-fields entity))}))
+
+(defn state-name [state: String] -> String
+  (if (.startsWith state ":") (.slice state 1) state))
+
+(defn transition-plan [transitions: Any] -> Any
+  (reduce
+    (fn [plan state]
+      (assoc
+        plan
+        (state-name state)
+        (mapv state-name (or (get transitions state) []))))
+    {}
+    (keys transitions)))
+
+(defn state-machine-plan [machine: Any] -> Any
+  {:entity (.-entity machine)
+   :field (.-field machine)
+   :stateType (.-state-type machine)
+   :initial (state-name (.-initial machine))
+   :transitions (transition-plan (.-transitions machine))})
+
+(defn publication-plan [publication: Any] -> Any
+  {:name (.-name publication)
+   :owner {:entity (.-owner-entity publication)
+           :pointer (.-pointer-field publication)}
+   :revision {:entity (.-revision-entity publication)
+              :ownerField (.-owner-field publication)
+              :stateField (.-state-field publication)}
+   :states {:draft (.-draft-state publication)
+            :published (.-published-state publication)
+            :retired (.-retired-state publication)}})
+
+(defn fram-plan [checked: Any] -> Any
+  (let [app-name (.-ns checked)]
+    {:schemaVersion 1
+     :app app-name
+     :backend "fram"
+     :entities (mapv
+                 (fn [entity: Any] -> Any
+                   (entity-plan app-name entity))
+                 (.-entities checked))
+     :stateMachines (mapv state-machine-plan (.-state-machines checked))
+     :publications (mapv publication-plan (.-publications checked))}))
+
+(js/export
+  (defn gen-fram [prog: Any] -> String
+    (str (JSON/stringify (fram-plan (graph/check-program prog)) nil 2) "\n")))

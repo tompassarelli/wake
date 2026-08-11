@@ -1,0 +1,30 @@
+(ns wake.command-ux)
+(backend :fram)
+
+(entity item
+  (id : String :identity)
+  (title : String)
+  (status : String))
+
+(component item-row
+  :props [id title status]
+  (div :class "px-4 py-3 border-b border-border"
+    (span :class "text-sm" :text title)
+    (span :class "text-xs text-muted-foreground" :text status)))
+
+(component item-detail
+  :props [title status]
+  (div :class "p-4"
+    (h2 :class "text-base font-semibold" :text title)
+    (span :class "text-sm" :text status)
+    (button :on-click (set status "done") :text "Done")))
+
+(view items
+  :entity item
+  :each item-row
+  :add-form [id title status]
+  :title "Items"
+  :select item-detail)
+
+(routes :default items
+  [items items])

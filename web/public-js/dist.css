@@ -300,6 +300,19 @@ body {
   overflow: hidden;
 }
 
+/* Prevent mobile browsers from zooming focused form controls. */
+input,
+select,
+textarea,
+input.text-xs,
+input.text-sm,
+select.text-xs,
+select.text-sm,
+textarea.text-xs,
+textarea.text-sm {
+  font-size: 1rem;
+}
+
 @media print {
   .sidebar { display: none !important; }
   .sidebar-layout { display: block !important; }
