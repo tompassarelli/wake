@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { test } from "bun:test";
 import {
   existsSync,
   mkdtempSync,
@@ -9,12 +9,26 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
 const WIKI_APP = "wake.wiki";
+const COMPILER_TEST_TIMEOUT_MS = 20_000;
+
+function spawnSync(command, args, { cwd, env = process.env } = {}) {
+  const result = Bun.spawnSync([command, ...args], {
+    cwd,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    status: result.exitCode,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
+}
 
 function appScope(app, value) {
   return [
@@ -83,10 +97,9 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
     const compiled = spawnSync(
       join(webRoot, "bin", "wake-compile"),
       ["--all", "demo/wiki.wake", outputDir],
-      { cwd: webRoot, encoding: "utf8" },
+      { cwd: webRoot },
     );
     const diagnostics = [
-      compiled.error?.stack,
       compiled.stdout,
       compiled.stderr,
     ].filter(Boolean).join("\n");
@@ -208,4 +221,4 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
   } finally {
     rmSync(outputDir, { force: true, recursive: true });
   }
-});
+}, COMPILER_TEST_TIMEOUT_MS);

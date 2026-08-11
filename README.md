@@ -30,9 +30,9 @@ subscriptions. Change refresh is currently entity-granular.
 Wake owns application shape, application-schema validation, UI projection, the
 closed command/query surface, and the authorization seam. The FRAM kernel stays
 schema-neutral and owns recursive Terms and Triples, occurrence versions,
-history, and Datalog. FRAM's official Node client supplies occurrence-correct
-atomic identity uniqueness, create/upsert, and guarded field replacement. Wake
-does not reproduce those storage semantics in JavaScript. Multi-entity domain
+history, and Datalog. FRAM's official Bun client supplies occurrence-correct atomic
+identity uniqueness, create/upsert, and guarded field replacement. Wake does
+not reproduce those storage semantics in JavaScript. Multi-entity domain
 commands use the client's guarded atomic batch operation; publication policy
 and lifecycle meaning remain in Wake.
 
@@ -92,9 +92,9 @@ Identity fields are always immutable:
 
 The FRAM projection turns each identity into a recursive subject Term and each
 field into a predicate Term. The gateway then maps named Wake operations onto
-FRAM schema and occurrence operations through the official Node client. A
-publication swaps the owner's pointer, publishes the candidate, and retires
-the prior revision in one occurrence-correct guarded batch.
+FRAM schema and occurrence operations through FRAM's official Bun client. A
+publication swaps the owner's pointer, publishes the candidate, and retires the
+prior revision in one occurrence-correct guarded batch.
 
 ## Local example
 
@@ -128,18 +128,19 @@ Local applications keep the existing direct-DOM and local event-store path:
 Run these commands from `wake:web/`:
 
 ```sh
-npm install
+bun install --frozen-lockfile
 ./bin/wake-compile
 ./bin/wake-compile demo/tracker.wake out/app.js
 ./bin/wake-compile --fram demo/wiki.wake out/app.fram.json
 ./bin/wake-compile --all demo/wiki.wake out/wiki
-npm test
-npm run test:browser
+bun run test
+bun run test:browser
 ```
 
 Browser tests use `WAKE_PLAYWRIGHT_EXECUTABLE_PATH` when set, otherwise the
 NixOS system Chrome when present, and otherwise Playwright's bundled Chromium.
-Install that fallback once with `npx playwright install chromium`.
+Install that fallback once with
+`bunx --bun --no-install playwright install chromium`.
 The `test:browser` runner chooses a free high local port for each invocation;
 direct Playwright commands use port 8080 unless `WAKE_BROWSER_PORT` is set.
 
@@ -157,9 +158,9 @@ standard output. `--all` writes exactly:
 
 `wake-compile` recompiles the Beagle/JS compiler modules in private temporary
 staging before emitting an application. With no arguments, it only verifies
-that every compiler module builds. Beagle and Node are development dependencies;
-a deployed FRAM-backed application additionally needs FRAM and a host for the
-Wake gateway.
+that every compiler module builds. Beagle and Bun 1.3.13 are development
+dependencies; a deployed FRAM-backed application additionally needs FRAM and a
+host for the Wake gateway.
 
 ## Pipeline
 

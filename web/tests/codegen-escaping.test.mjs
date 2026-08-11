@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { test } from "bun:test";
 import {
   mkdtempSync,
   readFileSync,
@@ -8,12 +8,26 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
+const COMPILER_TEST_TIMEOUT_MS = 20_000;
+
+function spawnSync(command, args, { cwd, env = process.env } = {}) {
+  const result = Bun.spawnSync([command, ...args], {
+    cwd,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    status: result.exitCode,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
+}
 
 function javascriptLiteralAfter(source, marker) {
   const markerIndex = source.indexOf(marker);
@@ -37,7 +51,7 @@ function embeddedLiteral(value) {
     .replaceAll("\u2029", "\\u2029");
 }
 
-test("generated JavaScript quotes every source string without code injection", () => {
+test("generated JavaScript quotes every source string without code injection", async () => {
   const outputDir = mkdtempSync(join(tmpdir(), "wake-codegen-escaping-"));
   const namespace = "wake.'\\\u2028globalThis.__WAKE_INJECTED__=true\u2029tail";
   const title = "Title '\" \\ newline\n\u2028\u2029; globalThis.__WAKE_INJECTED__=true; //";
@@ -67,19 +81,20 @@ test("generated JavaScript quotes every source string without code injection", (
     const compiled = spawnSync(
       join(webRoot, "bin", "wake-compile"),
       [sourcePath, outputPath],
-      { cwd: webRoot, encoding: "utf8" },
+      { cwd: webRoot },
     );
     const diagnostics = [
-      compiled.error?.stack,
       compiled.stdout,
       compiled.stderr,
     ].filter(Boolean).join("\n");
     assert.equal(compiled.status, 0, diagnostics);
 
-    const checked = spawnSync(process.execPath, ["--check", outputPath], {
-      encoding: "utf8",
+    const checked = await Bun.build({
+      entrypoints: [outputPath],
+      target: "browser",
+      write: false,
     });
-    assert.equal(checked.status, 0, checked.stderr || checked.stdout);
+    assert.equal(checked.success, true, checked.logs.join("\n"));
 
     const generated = readFileSync(outputPath, "utf8");
     assert.equal(
@@ -106,4 +121,4 @@ test("generated JavaScript quotes every source string without code injection", (
   } finally {
     rmSync(outputDir, { force: true, recursive: true });
   }
-});
+}, COMPILER_TEST_TIMEOUT_MS);

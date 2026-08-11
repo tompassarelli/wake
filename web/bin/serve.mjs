@@ -1,43 +1,64 @@
-import { createServer } from "node:http";
-import { readFile } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const testPage = join(webRoot, "public-js", "test.html");
-const stylesheet = join(webRoot, "public-js", "dist.css");
 const assets = new Map([
-  ["/test.html", { path: testPage, type: "text/html; charset=utf-8" }],
-  ["/dist.css", { path: stylesheet, type: "text/css; charset=utf-8" }],
+  [
+    "/test.html",
+    {
+      file: Bun.file(new URL("../public-js/test.html", import.meta.url)),
+      type: "text/html; charset=utf-8",
+    },
+  ],
+  [
+    "/dist.css",
+    {
+      file: Bun.file(new URL("../public-js/dist.css", import.meta.url)),
+      type: "text/css; charset=utf-8",
+    },
+  ],
 ]);
 const portText = process.env.WAKE_BROWSER_PORT ?? "8080";
+const portFile = process.env.WAKE_BROWSER_PORT_FILE;
 const port = Number(portText);
 
 if (
   !/^[0-9]+$/.test(portText) ||
   !Number.isInteger(port) ||
-  port < 1 ||
+  port < 0 ||
   port > 65535
 ) {
   throw new Error(`invalid WAKE_BROWSER_PORT: ${portText}`);
 }
+if (port === 0 && !portFile) {
+  throw new Error("WAKE_BROWSER_PORT=0 requires WAKE_BROWSER_PORT_FILE");
+}
 
-createServer((req, res) => {
-  const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-  const asset = assets.get(pathname);
-  if (!asset) {
-    res.writeHead(404);
-    res.end();
-    return;
-  }
-
-  readFile(asset.path, (error, data) => {
-    if (error) {
-      res.writeHead(500);
-      res.end();
-      return;
+const server = Bun.serve({
+  hostname: "127.0.0.1",
+  port,
+  async fetch(request) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return new Response(null, {
+        status: 405,
+        headers: { allow: "GET, HEAD" },
+      });
     }
-    res.writeHead(200, { "content-type": asset.type });
-    res.end(data);
-  });
-}).listen(port, "127.0.0.1");
+
+    const asset = assets.get(new URL(request.url).pathname);
+    if (!asset) {
+      return new Response(null, { status: 404 });
+    }
+    if (!(await asset.file.exists())) {
+      return new Response(null, { status: 500 });
+    }
+
+    return new Response(request.method === "HEAD" ? null : asset.file, {
+      headers: { "content-type": asset.type },
+    });
+  },
+  error(error) {
+    console.error(error);
+    return new Response(null, { status: 500 });
+  },
+});
+
+if (portFile) {
+  await Bun.write(portFile, `${server.port}\n`);
+}

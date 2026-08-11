@@ -2,15 +2,27 @@
 set -euo pipefail
 
 wake_web="$(cd "$(dirname "$0")/.." && pwd)"
-playwright="$wake_web/node_modules/.bin/playwright"
+playwright="$wake_web/node_modules/@playwright/test/cli.js"
 
-if [[ ! -x "$playwright" ]]; then
-  echo "wake-browser-test: Playwright is not installed; run npm install in $wake_web" >&2
+if ! command -v bun >/dev/null; then
+  echo "wake-browser-test: Bun is not installed" >&2
+  exit 1
+fi
+if [[ ! -f "$playwright" ]]; then
+  echo "wake-browser-test: Playwright is not installed; run bun install in $wake_web" >&2
   exit 1
 fi
 
 fixture_dir="$(mktemp -d "${TMPDIR:-/tmp}/wake-browser.XXXXXX")"
-trap 'rm -rf "${fixture_dir:?}"' EXIT
+server_pid=""
+cleanup() {
+  if [[ -n "$server_pid" ]]; then
+    kill "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+  fi
+  rm -rf "${fixture_dir:?}"
+}
+trap cleanup EXIT
 
 "$wake_web/bin/wake-compile" \
   "$wake_web/demo/crm-v2.wake" "$fixture_dir/crm.js" &
@@ -34,28 +46,47 @@ if [[ "$build_status" -ne 0 ]]; then
   exit 1
 fi
 
-node --check "$fixture_dir/crm.js"
-node --check "$fixture_dir/todo.js"
-node --check "$fixture_dir/tracker.js"
-node --check "$fixture_dir/wiki.js"
+WAKE_BROWSER_FIXTURES="$fixture_dir" bun --no-install --eval '
+  const root = process.env.WAKE_BROWSER_FIXTURES;
+  const result = await Bun.build({
+    entrypoints: ["crm", "todo", "tracker", "wiki"].map(
+      (name) => `${root}/${name}.js`,
+    ),
+    target: "browser",
+    write: false,
+    throw: false,
+  });
+  if (!result.success) {
+    for (const log of result.logs) console.error(log);
+    process.exit(1);
+  }
+'
 
-if [[ -z "${WAKE_BROWSER_PORT:-}" ]]; then
-  WAKE_BROWSER_PORT="$(
-    node --input-type=module -e '
-      import { createServer } from "node:net";
-      const probe = createServer();
-      probe.listen(0, "127.0.0.1", () => {
-        const address = probe.address();
-        if (!address || typeof address === "string") {
-          process.exitCode = 1;
-        } else {
-          process.stdout.write(String(address.port));
-        }
-        probe.close();
-      });
-    '
-  )"
+requested_port="${WAKE_BROWSER_PORT:-0}"
+port_file="$fixture_dir/browser-port"
+server_log="$fixture_dir/browser-server.log"
+WAKE_BROWSER_PORT="$requested_port" \
+WAKE_BROWSER_PORT_FILE="$port_file" \
+  bun --no-install "$wake_web/bin/serve.mjs" >"$server_log" 2>&1 &
+server_pid=$!
+
+for _ in {1..200}; do
+  if [[ -s "$port_file" ]]; then
+    break
+  fi
+  if ! kill -0 "$server_pid" 2>/dev/null; then
+    wait "$server_pid" || true
+    cat "$server_log" >&2
+    echo "wake-browser-test: browser server failed to start" >&2
+    exit 1
+  fi
+  sleep 0.025
+done
+if [[ ! -s "$port_file" ]]; then
+  echo "wake-browser-test: browser server did not report its port" >&2
+  exit 1
 fi
+read -r WAKE_BROWSER_PORT < "$port_file"
 if [[ ! "$WAKE_BROWSER_PORT" =~ ^[0-9]+$ ]] ||
    (( WAKE_BROWSER_PORT <= 1024 ||
       WAKE_BROWSER_PORT == 8080 ||
@@ -64,11 +95,12 @@ if [[ ! "$WAKE_BROWSER_PORT" =~ ^[0-9]+$ ]] ||
   exit 1
 fi
 export WAKE_BROWSER_PORT
+export WAKE_BROWSER_SERVER_MANAGED=1
 echo "wake-browser-test: browser port $WAKE_BROWSER_PORT"
 
 cd "$wake_web"
 WAKE_BROWSER_FIXTURES="$fixture_dir" \
-  "$playwright" test \
+  bun --bun --no-install "$playwright" test \
     tests/crm-js.spec.ts \
     tests/fram-connector.spec.ts \
     tests/todo-component.spec.ts \

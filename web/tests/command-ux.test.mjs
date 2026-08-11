@@ -1,22 +1,34 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
 const compile = join(webRoot, "bin", "wake-compile");
+const COMPILER_TEST_TIMEOUT_MS = 20_000;
+
+function spawnSync(command, args, { cwd, env = process.env } = {}) {
+  const result = Bun.spawnSync([command, ...args], {
+    cwd,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    status: result.exitCode,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
+}
 
 function runCompile(args) {
   const result = spawnSync(compile, args, {
     cwd: webRoot,
-    encoding: "utf8",
   });
   const diagnostics = [
-    result.error?.stack,
     result.stdout,
     result.stderr,
   ].filter(Boolean).join("\n");
@@ -103,4 +115,4 @@ test("FRAM commands propagate promises while local commands stay synchronous", (
   } finally {
     rmSync(outputDir, { force: true, recursive: true });
   }
-});
+}, COMPILER_TEST_TIMEOUT_MS);

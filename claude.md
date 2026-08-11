@@ -31,17 +31,18 @@ beagle fmt --check web/compiler
 Run these Wake commands from `wake:web/`:
 
 ```sh
+bun install --frozen-lockfile
 ./bin/wake-compile
 ./bin/wake-compile demo/tracker.wake out/app.js
 ./bin/wake-compile --fram demo/wiki.wake out/app.fram.json
 ./bin/wake-compile --all demo/wiki.wake out/wiki
-npm test
-npm run test:browser
+bun run test
+bun run test:browser
 ```
 
 The browser command is the fixture authority: it concurrently compiles the
 current CRM, todo, tracker, and wiki sources into one private temporary
-directory, checks each emitted file with Node, and passes that directory to
+directory, checks each emitted file with Bun, and passes that directory to
 Playwright. Tests must not read tracked generated JavaScript or fixed `/tmp`
 paths.
 
@@ -99,7 +100,7 @@ The schema-neutral FRAM kernel owns:
 - occurrence batches, versions, retractions, and history;
 - Datalog evaluation and storage durability.
 
-FRAM's official Node client owns occurrence-correct atomic identity uniqueness,
+FRAM's official Bun client owns occurrence-correct atomic identity uniqueness,
 create/upsert, and guarded field replacement.
 
 If Wake needs to emulate a missing FRAM storage guarantee, stop and repair or

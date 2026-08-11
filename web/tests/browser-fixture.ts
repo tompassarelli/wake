@@ -5,7 +5,7 @@ const fixtureDir = process.env.WAKE_BROWSER_FIXTURES;
 
 if (!fixtureDir) {
   throw new Error(
-    "WAKE_BROWSER_FIXTURES is unset; run the browser suite with npm run test:browser",
+    "WAKE_BROWSER_FIXTURES is unset; run the browser suite with bun run test:browser",
   );
 }
 

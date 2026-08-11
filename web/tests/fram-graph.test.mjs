@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { afterAll, beforeAll, test } from "bun:test";
 import {
   copyFileSync,
   mkdirSync,
@@ -10,12 +10,26 @@ import {
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { after, before, test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
 const beagleRoot = process.env.BEAGLE_ROOT ?? join(homedir(), "code", "beagle", "main");
+const COMPILER_TEST_TIMEOUT_MS = 20_000;
+
+function spawnSync(command, args, { cwd, env = process.env } = {}) {
+  const result = Bun.spawnSync([command, ...args], {
+    cwd,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    status: result.exitCode,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
+}
 
 let buildDir;
 let checkProgram;
@@ -53,14 +67,13 @@ function program({
   };
 }
 
-before(async () => {
+beforeAll(async () => {
   buildDir = mkdtempSync(join(tmpdir(), "wake-fram-graph-"));
   const output = join(buildDir, "graph.js.tmp");
   const built = spawnSync(
     "beagle",
     ["build", join(webRoot, "compiler", "graph.bjs"), output],
     {
-      encoding: "utf8",
       env: { ...process.env, BEAGLE_JS_RUNTIME_PREFIX: "./beagle/" },
     },
   );
@@ -91,7 +104,7 @@ before(async () => {
   ));
 });
 
-after(() => {
+afterAll(() => {
   rmSync(buildDir, { force: true, recursive: true });
 });
 
@@ -325,7 +338,7 @@ test("reader requires the canonical defstate transition arrow", () => {
   const compiled = spawnSync(
     join(webRoot, "bin", "wake-compile"),
     ["--fram", sourcePath, outputPath],
-    { cwd: webRoot, encoding: "utf8" },
+    { cwd: webRoot },
   );
   const diagnostics = `${compiled.stdout}\n${compiled.stderr}`;
   assert.notEqual(compiled.status, 0, diagnostics);
@@ -333,7 +346,7 @@ test("reader requires the canonical defstate transition arrow", () => {
     diagnostics,
     /defstate 'Lifecycle' transitions must use -> after the source state/,
   );
-});
+}, COMPILER_TEST_TIMEOUT_MS);
 
 test("local applications retain open field type spellings", () => {
   const source = program({

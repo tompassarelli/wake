@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { test } from "bun:test";
 import {
   mkdtempSync,
   readFileSync,
@@ -8,30 +8,47 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
 const compile = join(webRoot, "bin", "wake-compile");
+const COMPILER_TEST_TIMEOUT_MS = 20_000;
+
+function spawnSync(command, args, { cwd, env = process.env } = {}) {
+  const result = Bun.spawnSync([command, ...args], {
+    cwd,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    status: result.exitCode,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
+}
 
 function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: webRoot,
-    encoding: "utf8",
   });
   const diagnostics = [
-    result.error?.stack,
     result.stdout,
     result.stderr,
   ].filter(Boolean).join("\n");
   assert.equal(result.status, 0, diagnostics);
 }
 
-function compileAll(source, outputDir) {
+async function compileAll(source, outputDir) {
   run(compile, ["--all", source, outputDir]);
   const appPath = join(outputDir, "app.js");
-  run(process.execPath, ["--check", appPath]);
+  const checked = await Bun.build({
+    entrypoints: [appPath],
+    target: "browser",
+    write: false,
+  });
+  assert.equal(checked.success, true, checked.logs.join("\n"));
   return readFileSync(appPath, "utf8");
 }
 
@@ -42,10 +59,10 @@ function storeBinding(generated, entity) {
   )?.[1];
 }
 
-test("generated bindings are injective and related FRAM creates obey the entity contract", () => {
+test("generated bindings are injective and related FRAM creates obey the entity contract", async () => {
   const outputDir = mkdtempSync(join(tmpdir(), "wake-compiler-contracts-"));
   try {
-    const generated = compileAll(
+    const generated = await compileAll(
       "tests/fixtures/compiler-contracts-list-detail.wake",
       outputDir,
     );
@@ -90,9 +107,9 @@ test("generated bindings are injective and related FRAM creates obey the entity 
   } finally {
     rmSync(outputDir, { force: true, recursive: true });
   }
-});
+}, COMPILER_TEST_TIMEOUT_MS);
 
-test("read-only single views compile and attach publication actions on add and load", () => {
+test("read-only single views compile and attach publication actions on add and load", async () => {
   const outputDir = mkdtempSync(join(tmpdir(), "wake-single-publication-"));
   const sourcePath = join(outputDir, "single-publication.wake");
   writeFileSync(sourcePath, `(ns wake.single-publication)
@@ -122,7 +139,7 @@ test("read-only single views compile and attach publication actions on add and l
 `);
 
   try {
-    const generated = compileAll(sourcePath, join(outputDir, "out"));
+    const generated = await compileAll(sourcePath, join(outputDir, "out"));
     assert.match(
       generated,
       /wakeFramAttachPublicationActions\("revision", evt\.entity, inst,/,
@@ -134,4 +151,4 @@ test("read-only single views compile and attach publication actions on add and l
   } finally {
     rmSync(outputDir, { force: true, recursive: true });
   }
-});
+}, COMPILER_TEST_TIMEOUT_MS);

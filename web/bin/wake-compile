@@ -17,6 +17,10 @@ BEAGLE_ROOT="${BEAGLE_ROOT:-$HOME/code/beagle/main}"
 BEAGLE_BUILD="${BEAGLE_BUILD:-$BEAGLE_ROOT/bin/beagle-build}"
 BEAGLE_RUNTIME_DIR="${BEAGLE_RUNTIME_DIR:-$BEAGLE_ROOT/beagle-lib/lib/beagle}"
 
+if ! command -v bun >/dev/null; then
+  echo "wake-compile: Bun is not installed" >&2
+  exit 1
+fi
 if [[ ! -x "$BEAGLE_BUILD" ]]; then
   echo "wake-compile: Beagle builder not found at $BEAGLE_BUILD" >&2
   echo "wake-compile: set BEAGLE_ROOT or BEAGLE_BUILD to a Beagle checkout" >&2
@@ -31,7 +35,7 @@ for runtime_module in core.js hamt.js; do
 done
 
 # Beagle's JS runtime stays beside the compiled modules. A relative prefix makes
-# the generated imports resolvable by Node without a global node_modules package.
+# the generated imports resolvable by Bun without a global package install.
 compile() {
   local source="$1" output="$2"
   BEAGLE_JS_RUNTIME_PREFIX='./beagle/' \
@@ -124,30 +128,28 @@ echo "compiler modules built" >&2
 emit_js() {
   local src="$1" out="$2"
   WAKE_COMPILE_SOURCE="$src" WAKE_COMPILE_DIST="$dist" \
-    node --input-type=module -e '
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
+    bun --no-install --eval '
 const dist = process.env.WAKE_COMPILE_DIST;
-const { parse_program } = await import(pathToFileURL(path.join(dist, "reader.js")));
-const { gen_program_bang } = await import(pathToFileURL(path.join(dist, "codegen.js")));
-const prog = parse_program(readFileSync(process.env.WAKE_COMPILE_SOURCE, "utf-8"));
-process.stdout.write(gen_program_bang(prog));
+const distUrl = Bun.pathToFileURL(`${dist}/`);
+const { parse_program } = await import(new URL("reader.js", distUrl).href);
+const { gen_program_bang } = await import(new URL("codegen.js", distUrl).href);
+const source = await Bun.file(process.env.WAKE_COMPILE_SOURCE).text();
+const prog = parse_program(source);
+await Bun.write(Bun.stdout, gen_program_bang(prog));
 ' > "$out"
 }
 
 emit_fram() {
   local src="$1" out="$2"
   WAKE_COMPILE_SOURCE="$src" WAKE_COMPILE_DIST="$dist" \
-    node --input-type=module -e '
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { pathToFileURL } from "node:url";
+    bun --no-install --eval '
 const dist = process.env.WAKE_COMPILE_DIST;
-const { parse_program } = await import(pathToFileURL(path.join(dist, "reader.js")));
-const { gen_fram } = await import(pathToFileURL(path.join(dist, "emit-fram.js")));
-const prog = parse_program(readFileSync(process.env.WAKE_COMPILE_SOURCE, "utf-8"));
-process.stdout.write(gen_fram(prog));
+const distUrl = Bun.pathToFileURL(`${dist}/`);
+const { parse_program } = await import(new URL("reader.js", distUrl).href);
+const { gen_fram } = await import(new URL("emit-fram.js", distUrl).href);
+const source = await Bun.file(process.env.WAKE_COMPILE_SOURCE).text();
+const prog = parse_program(source);
+await Bun.write(Bun.stdout, gen_fram(prog));
 ' > "$out"
 }
 

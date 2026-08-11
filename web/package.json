@@ -1,11 +1,15 @@
 {
   "name": "wake",
   "version": "1.0.0",
+  "packageManager": "bun@1.3.13",
   "type": "module",
-  "description": "",
+  "description": "Wake application compiler and Bun-hosted FRAM gateway",
+  "engines": {
+    "bun": "1.3.13"
+  },
   "scripts": {
     "build": "bin/wake-compile --all demo/wiki.wake out/wiki",
-    "test": "node --test runtime/fram-gateway.test.mjs runtime/fram-http.test.mjs tests/codegen-escaping.test.mjs tests/command-ux.test.mjs tests/compiler-contracts.test.mjs tests/fram-graph.test.mjs tests/fram-plan.test.mjs tests/wiki-fram.test.mjs",
+    "test": "bun test runtime/fram-gateway.test.mjs runtime/fram-http.test.mjs tests/*.test.mjs",
     "test:browser": "bash bin/wake-browser-test"
   },
   "keywords": [],
@@ -13,7 +17,7 @@
   "license": "MIT OR Apache-2.0",
   "devDependencies": {
     "@playwright/test": "1.62.1",
-    "@types/node": "25.9.5",
+    "@types/bun": "1.3.13",
     "typescript": "6.0.3"
   }
 }

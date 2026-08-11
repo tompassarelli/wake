@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, before, test } from "node:test";
+import { afterAll, beforeAll, test } from "bun:test";
 import {
   copyFileSync,
   mkdirSync,
@@ -10,12 +10,25 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawnSync } from "node:child_process";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const wakeRoot = join(testDir, "..", "..");
 const beagleRoot = process.env.BEAGLE_ROOT
   ?? join(homedir(), "code", "beagle", "main");
+
+function spawnSync(command, args, { cwd, env = process.env } = {}) {
+  const result = Bun.spawnSync([command, ...args], {
+    cwd,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    status: result.exitCode,
+    stdout: result.stdout.toString(),
+    stderr: result.stderr.toString(),
+  };
+}
 
 const field = (
   name,
@@ -124,12 +137,11 @@ function assertAppScopedTerm(term, app) {
   assert.deepEqual(term[2], ["keyword", app]);
 }
 
-before(async () => {
+beforeAll(async () => {
   buildDir = mkdtempSync(join(tmpdir(), "wake-fram-plan-"));
   const source = join(wakeRoot, "web", "compiler", "emit-fram.bjs");
   const output = join(buildDir, "emit-fram.mjs");
   const built = spawnSync("beagle", ["build", source, output], {
-    encoding: "utf8",
     env: { ...process.env, BEAGLE_JS_RUNTIME_PREFIX: "./beagle/" },
   });
 
@@ -147,7 +159,7 @@ before(async () => {
   ({ gen_fram: genFram } = await import(pathToFileURL(output).href));
 });
 
-after(() => {
+afterAll(() => {
   rmSync(buildDir, { force: true, recursive: true });
 });
 
