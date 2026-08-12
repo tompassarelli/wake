@@ -19,142 +19,74 @@
    (package-version String)])
 (defrecord IrProvenance [(source IrSourceUnit) (span SourceSpan)])
 (defrecord IrDeclarationProvenance
-  [(kind String)
-   (name String)
-   (provenance IrProvenance)])
+  [(kind String) (name String) (provenance IrProvenance)])
 
 (defrecord IrEntityRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrFieldRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrStateRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrStateValueRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrValueTypeRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrProviderPortRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrRendererRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrCapabilityRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrQueryRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrCommandRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrComponentRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrViewRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrRouteTemplateRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrEntityFieldsPortRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrComponentSlotRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrRouteSlotRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrPublicationRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrFormRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrListDetailRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrReceiptEntityRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrReceiptFieldRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrExtensionFieldRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrPluginUseRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrIntRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrStringRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrBoolRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrKeywordRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrEntityNameRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrFieldNameRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrStateNameRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrStateValueNameRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrExternalEntityRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrValueRoleRef
-  [(declaration-id String)
-   (name String)
-   (provenance-token String)])
+  [(declaration-id String) (name String) (provenance-token String)])
 (defrecord IrImportedIntRoleRef
   [(use IrPluginUseRef)
    (declaration-id String)
@@ -282,12 +214,9 @@
    (derived-fields (Vec IrDerivedFieldSpec))
    (storage-id String?)])
 (defrecord IrStateValueSpec
-  [(ref IrStateValueRef)
-   (state IrStateRef)
-   (value String)])
+  [(ref IrStateValueRef) (state IrStateRef) (value String)])
 (defrecord IrStateTransitionSpec
-  [(from IrStateValueRef)
-   (to (Vec IrStateValueRef))])
+  [(from IrStateValueRef) (to (Vec IrStateValueRef))])
 (defrecord IrStateDeclarationSpec
   [(ref IrStateRef)
    (values (Vec IrStateValueSpec))
@@ -328,21 +257,15 @@
    (omit-if-null Bool)])
 (defunion IrCommandWriteSpec
   (IrFieldCommandWrite [(write IrCommandWrite)])
-  (IrExtensionCommandWrite
-    [(port IrEntityFieldsPortRef)
-     (input String)]))
+  (IrExtensionCommandWrite [(port IrEntityFieldsPortRef) (input String)]))
 (defunion IrCommandStep
   (IrAssertStep [(predicate IrCommandPredicate)])
   (IrRequireStep
-    [(entity IrEntityRef)
-     (id IrCommandExpr)
-     (when IrCommandPredicate?)])
+    [(entity IrEntityRef) (id IrCommandExpr) (when IrCommandPredicate?)])
   (IrRequireEachStep [(entity IrEntityRef) (ids IrCommandExpr)])
   (IrGuardStep [(guard IrCommandGuardSpec)])
   (IrCreateStep
-    [(entity IrEntityRef)
-     (id IrCommandExpr)
-     (fields (Vec IrCommandWriteSpec))])
+    [(entity IrEntityRef) (id IrCommandExpr) (fields (Vec IrCommandWriteSpec))])
   (IrUpdateStep
     [(entity IrEntityRef)
      (id IrCommandExpr)
@@ -359,15 +282,9 @@
   (IrValidateWithInjection [(port IrProviderPortRef) (input IrCommandExpr)])
   (IrCanonicalDigestInjection [(name String) (input IrCommandExpr)]))
 (defrecord IrCommandResultField
-  [(name String)
-   (value-type IrValueTypeSpec)
-   (value IrCommandExpr)])
-(defrecord IrReceiptResultField
-  [(name String)
-   (field IrReceiptFieldRef)])
-(defrecord IrReceiptEntitySpec
-  [(ref IrReceiptEntityRef)
-   (storage-id String)])
+  [(name String) (value-type IrValueTypeSpec) (value IrCommandExpr)])
+(defrecord IrReceiptResultField [(name String) (field IrReceiptFieldRef)])
+(defrecord IrReceiptEntitySpec [(ref IrReceiptEntityRef) (storage-id String)])
 (defrecord IrReceiptFieldDeclarationSpec
   [(ref IrReceiptFieldRef)
    (owner IrReceiptEntityRef)
@@ -387,8 +304,7 @@
    (result (Vec IrCommandResultField))
    (receipt IrReceiptSpec)])
 (defrecord IrCapabilitySpec
-  [(ref IrCapabilityRef)
-   (guards (Vec IrCommandGuardSpec))])
+  [(ref IrCapabilityRef) (guards (Vec IrCommandGuardSpec))])
 
 (defrecord IrValueRecordEntry [(name String) (value IrValueExpr)])
 (defunion IrValueExpr
@@ -404,9 +320,7 @@
   (IrConfigProjectionValue [(projection IrConfigProjection)]))
 
 (defrecord IrValueRecordField
-  [(name String)
-   (value-type IrValueTypeSpec)
-   (required Bool)])
+  [(name String) (value-type IrValueTypeSpec) (required Bool)])
 (defrecord IrValueTaggedVariant [(tag String) (fields (Vec IrValueRecordField))])
 (defunion IrValueLiteral
   (IrStringLiteral [(value String)])
@@ -470,8 +384,7 @@
 (defunion IrQueryPredicateSpec
   (IrQueryEqualPredicate [(left IrQueryValueExpr) (right IrQueryValueExpr)])
   (IrQueryContainsPredicate
-    [(collection IrQueryValueExpr)
-     (value IrQueryValueExpr)])
+    [(collection IrQueryValueExpr) (value IrQueryValueExpr)])
   (IrQueryNonNullPredicate [(value IrQueryValueExpr)]))
 (defunion IrQuerySelectionSpec
   (IrQueryValueSelection [(name String) (value IrQueryValueExpr)])
@@ -500,9 +413,7 @@
    (output-type IrValueTypeSpec)
    (capability IrCapabilityRef?)])
 (defrecord IrRendererSpec
-  [(ref IrRendererRef)
-   (input-type IrValueTypeSpec)
-   (component IrComponentRef)])
+  [(ref IrRendererRef) (input-type IrValueTypeSpec) (component IrComponentRef)])
 
 (defrecord IrFieldRequirement
   [(name String)
@@ -517,7 +428,8 @@
    (target IrEntityFieldsTarget)
    (requirements (Vec IrFieldRequirement))
    (policy IrEntityFieldsPortPolicy)])
-(defrecord IrComponentSlotSpec [(ref IrComponentSlotRef) (target IrComponentRef)])
+(defrecord IrComponentSlotSpec
+  [(ref IrComponentSlotRef) (target IrComponentRef)])
 (defrecord IrRouteSlotSpec [(ref IrRouteSlotRef) (target IrRouteTemplateRef)])
 
 (defrecord IrPluginIdentity
@@ -528,15 +440,9 @@
    (durable-schema-version Int)
    (provenance-token String)])
 
-(defrecord IrIntRoleSpec
-  [(ref IrIntRoleRef)
-   (minimum Int?)
-   (maximum Int?)])
+(defrecord IrIntRoleSpec [(ref IrIntRoleRef) (minimum Int?) (maximum Int?)])
 (defrecord IrStringRoleSpec
-  [(ref IrStringRoleRef)
-   (min-scalars Int?)
-   (max-scalars Int?)
-   (max-bytes Int?)])
+  [(ref IrStringRoleRef) (min-scalars Int?) (max-scalars Int?) (max-bytes Int?)])
 (defrecord IrBoolRoleSpec [(ref IrBoolRoleRef)])
 (defrecord IrKeywordRoleSpec [(ref IrKeywordRoleRef) (allowed (Vec String))])
 (defrecord IrEntityNameRoleSpec [(ref IrEntityNameRoleRef) (target IrEntityRef)])
@@ -544,12 +450,10 @@
   (IrEntityFieldNameRoleTarget [(field IrFieldRef)])
   (IrReceiptFieldNameRoleTarget [(field IrReceiptFieldRef)]))
 (defrecord IrFieldNameRoleSpec
-  [(ref IrFieldNameRoleRef)
-   (target IrFieldNameRoleTarget)])
+  [(ref IrFieldNameRoleRef) (target IrFieldNameRoleTarget)])
 (defrecord IrStateNameRoleSpec [(ref IrStateNameRoleRef) (target IrStateRef)])
 (defrecord IrStateValueNameRoleSpec
-  [(ref IrStateValueNameRoleRef)
-   (target IrStateValueRef)])
+  [(ref IrStateValueNameRoleRef) (target IrStateValueRef)])
 (defrecord IrExternalEntityRoleSpec [(ref IrExternalEntityRoleRef)])
 (defrecord IrValueRoleSpec [(ref IrValueRoleRef) (value-type IrValueTypeSpec)])
 (defrecord IrEntityDeclarationName [(value String)])
@@ -577,23 +481,18 @@
 (defrecord IrBoolBinding [(role IrImportedBoolRoleRef) (value Bool)])
 (defrecord IrKeywordBinding [(role IrImportedKeywordRoleRef) (value String)])
 (defrecord IrEntityNameBinding
-  [(role IrImportedEntityNameRoleRef)
-   (value IrEntityDeclarationName)])
+  [(role IrImportedEntityNameRoleRef) (value IrEntityDeclarationName)])
 (defunion IrFieldNameBindingValue
   (IrEntityFieldDeclarationNameValue [(name IrFieldDeclarationName)])
   (IrReceiptFieldDeclarationNameValue [(name IrReceiptFieldDeclarationName)]))
 (defrecord IrFieldNameBinding
-  [(role IrImportedFieldNameRoleRef)
-   (value IrFieldNameBindingValue)])
+  [(role IrImportedFieldNameRoleRef) (value IrFieldNameBindingValue)])
 (defrecord IrStateNameBinding
-  [(role IrImportedStateNameRoleRef)
-   (value IrStateDeclarationName)])
+  [(role IrImportedStateNameRoleRef) (value IrStateDeclarationName)])
 (defrecord IrStateValueNameBinding
-  [(role IrImportedStateValueNameRoleRef)
-   (value IrStateValueDeclarationName)])
+  [(role IrImportedStateValueNameRoleRef) (value IrStateValueDeclarationName)])
 (defrecord IrExternalEntityBinding
-  [(role IrImportedExternalEntityRoleRef)
-   (value IrEntityRef)])
+  [(role IrImportedExternalEntityRoleRef) (value IrEntityRef)])
 (defrecord IrValueBinding [(role IrImportedValueRoleRef) (value IrValueExpr)])
 (defrecord IrPluginBindings
   [(ints (Vec IrIntBinding))
@@ -615,10 +514,7 @@
   (IrUiContribution [(unit Nil)])
   (IrRouteContribution [(unit Nil)]))
 (defrecord IrMigrationSpec
-  [(from-version Int)
-   (to-version Int)
-   (ordinal Int)
-   (command IrCommandRef)])
+  [(from-version Int) (to-version Int) (ordinal Int) (command IrCommandRef)])
 
 (defrecord IrPluginExports
   [(entities (Vec IrEntityRef))
@@ -653,7 +549,8 @@
    (version String)
    (allow (Vec IrContributionKind))
    (bindings IrPluginBindings)])
-(defrecord IrProviderBindingSpec [(name String) (port IrImportedProviderPortRef)])
+(defrecord IrProviderBindingSpec
+  [(name String) (port IrImportedProviderPortRef)])
 (defrecord IrExtensionFieldSpec
   [(ref IrExtensionFieldRef)
    (value-type IrFieldValueType)
@@ -662,11 +559,9 @@
    (storage-id String)
    (required Bool)])
 (defrecord IrExtendSpec
-  [(port IrImportedEntityFieldsPortRef)
-   (fields (Vec IrExtensionFieldSpec))])
+  [(port IrImportedEntityFieldsPortRef) (fields (Vec IrExtensionFieldSpec))])
 (defrecord IrFillSpec
-  [(slot IrImportedComponentSlotRef)
-   (component IrComponentRef)])
+  [(slot IrImportedComponentSlotRef) (component IrComponentRef)])
 (defrecord IrMountSpec [(slot IrImportedRouteSlotRef) (path String)])
 
 (defrecord IrPluginComposition
@@ -743,8 +638,7 @@
      (attrs (Map String IrUiAttrSpec))
      (children (Vec IrDeclarationUiNode))])
   (IrDeclarationWhen
-    [(condition IrUiConditionSpec)
-     (children (Vec IrDeclarationUiNode))]))
+    [(condition IrUiConditionSpec) (children (Vec IrDeclarationUiNode))]))
 (defrecord IrComponentPropertySpec [(name String) (value-type IrValueTypeSpec)])
 (defrecord IrComponentDeclarationSpec
   [(ref IrComponentRef)
@@ -815,34 +709,16 @@
    (package-id String)
    (port-name String)
    (span SourceSpan)])
-(defrecord IrFill
-  [(port String)
-   (component String)
-   (span SourceSpan)])
+(defrecord IrFill [(port String) (component String) (span SourceSpan)])
 (defrecord IrMount
-  [(port String)
-   (path String)
-   (parameters (Vec String))
-   (span SourceSpan)])
-(defrecord IrAttr
-  [(name String)
-   (storage-id String?)
-   (type String)
-   (opts Any)])
-(defrecord IrExtend
-  [(port String)
-   (fields (Vec IrAttr))
-   (span SourceSpan)])
-(defrecord IrEntity
-  [(name String)
-   (storage-id String?)
-   (attrs (Vec IrAttr))])
+  [(port String) (path String) (parameters (Vec String)) (span SourceSpan)])
+(defrecord IrAttr [(name String) (storage-id String?) (type String) (opts Any)])
+(defrecord IrExtend [(port String) (fields (Vec IrAttr)) (span SourceSpan)])
+(defrecord IrEntity [(name String) (storage-id String?) (attrs (Vec IrAttr))])
 (defrecord IrBackend [(kind String)])
 (defrecord IrPersist [(storage String) (key String)])
 (defrecord IrDefstate
-  [(name String)
-   (transitions (Map String (Vec String)))
-   (initial String)])
+  [(name String) (transitions (Map String (Vec String))) (initial String)])
 (defrecord IrPublication
   [(name String)
    (owner-entity String)
@@ -856,24 +732,12 @@
 (defrecord IrQueryParam [(name String) (type String)])
 (defrecord IrQueryBinding [(name String) (entity-name String)])
 (defrecord IrQueryOperand
-  [(kind String)
-   (name String?)
-   (binding String?)
-   (field String?)
-   (value Any)])
+  [(kind String) (name String?) (binding String?) (field String?) (value Any)])
 (defrecord IrQueryPredicate
-  [(op String)
-   (left IrQueryOperand)
-   (right IrQueryOperand)])
-(defrecord IrQuerySelect
-  [(name String)
-   (binding String)
-   (field String)])
+  [(op String) (left IrQueryOperand) (right IrQueryOperand)])
+(defrecord IrQuerySelect [(name String) (binding String) (field String)])
 (defrecord IrQueryFieldSplice [(port String) (binding String)])
-(defrecord IrQueryProvided
-  [(name String)
-   (provider String)
-   (input Any)])
+(defrecord IrQueryProvided [(name String) (provider String) (input Any)])
 (defrecord IrQueryPage [(default-limit Int) (max-limit Int)])
 (defrecord IrQuery
   [(name String)
@@ -913,15 +777,10 @@
 ;; interface only carries constructor arity when fields ride on the member
 ;; form itself, not via a separate same-name defrecord.
 (defunion IrNode
-  (IrElement
-    [(tag String)
-     (attrs Any)
-     (children Any)])
+  (IrElement [(tag String) (attrs Any) (children Any)])
   (IrWhen [(prop String) (children Any)]))
 (defrecord IrComponent
-  [(name String)
-   (props (Vec String))
-   (body (Vec IrElement))])
+  [(name String) (props (Vec String)) (body (Vec IrElement))])
 (defrecord IrRelatedTab
   [(label String)
    (entity-name String)
@@ -948,10 +807,7 @@
    (required-props (Vec String))])
 (defrecord IrRouter [(default-route String) (routes (Vec IrRoute))])
 (defrecord IrNavGroup [(label String) (items (Vec String))])
-(defrecord IrLayout
-  [(style String)
-   (title String?)
-   (groups (Vec IrNavGroup))])
+(defrecord IrLayout [(style String) (title String?) (groups (Vec IrNavGroup))])
 (defrecord IrProgram
   [(source-unit IrSourceUnit)
    (application IrApplication?)
