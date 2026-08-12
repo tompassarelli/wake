@@ -5,6 +5,10 @@ const MAX_PAGE_LIMIT = 247;
 const MAX_SINGULAR_ROWS = 4_096;
 const MAX_QUERY_PAGES = 32;
 const MAX_QUERY_CAPABILITIES = 16;
+const MAX_RESULT_PROVIDERS = 16;
+const MAX_PROVIDER_OUTPUT_BYTES = 1024 * 1024;
+const MAX_PROVIDER_OUTPUT_DEPTH = 256;
+const MAX_PROVIDER_OUTPUT_NODES = 65_536;
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/;
@@ -590,8 +594,16 @@ function resultProviders(source, columns, outputNames, label) {
   if (!Array.isArray(source)) {
     fail("gateway/invalid-plan", `${label}.resultProviders must be an array`);
   }
+  if (source.length > MAX_RESULT_PROVIDERS) {
+    fail(
+      "gateway/invalid-plan",
+      `${label}.resultProviders exceeds ${MAX_RESULT_PROVIDERS} checked derivations`,
+    );
+  }
   const providerNames = new Set();
   const usedInternal = new Set();
+  let aggregateBytes = 0;
+  let aggregateNodes = 0;
   const compiled = source.map((step, index) => {
     const stepLabel = `${label}.resultProviders[${index}]`;
     exactRecord(step, ["name", "provider", "input", "inputType", "outputType"], stepLabel);
@@ -601,11 +613,30 @@ function resultProviders(source, columns, outputNames, label) {
     outputNames.add(name);
     if (providerNames.has(name)) fail("gateway/invalid-plan", `${label} repeats result provider ${name}`);
     providerNames.add(name);
+    const inputContract = checkedProviderContract(step.inputType, `${stepLabel}.inputType`);
+    const outputContract = checkedProviderContract(step.outputType, `${stepLabel}.outputType`);
+    const outputDescriptor = outputContract.descriptor;
+    if (outputDescriptor.kind !== "bounded"
+        || outputDescriptor.maxDepth > MAX_PROVIDER_OUTPUT_DEPTH) {
+      fail(
+        "gateway/invalid-plan",
+        `${stepLabel}.outputType must be a bounded value with depth at most ${MAX_PROVIDER_OUTPUT_DEPTH}`,
+      );
+    }
+    aggregateBytes += outputDescriptor.maxBytes;
+    aggregateNodes += outputDescriptor.maxNodes;
+    if (aggregateBytes > MAX_PROVIDER_OUTPUT_BYTES
+        || aggregateNodes > MAX_PROVIDER_OUTPUT_NODES) {
+      fail(
+        "gateway/invalid-plan",
+        `${label}.resultProviders exceed the aggregate checked output bound`,
+      );
+    }
     return Object.freeze({
       input: compileProviderInput(step.input, columns, `${stepLabel}.input`, usedInternal),
-      inputContract: checkedProviderContract(step.inputType, `${stepLabel}.inputType`),
+      inputContract,
       name,
-      outputContract: checkedProviderContract(step.outputType, `${stepLabel}.outputType`),
+      outputContract,
       provider,
     });
   });
@@ -797,6 +828,9 @@ function compileQuery(entry, surface, queryIndex) {
     }
     if (columns.some(column => column.field.cardinality === "multi")) {
       fail("gateway/invalid-plan", `${label} cannot page a multi-cardinality projection`);
+    }
+    if (providers.length > 0) {
+      fail("gateway/invalid-plan", `${label} cannot derive provider results for a paged query`);
     }
   } else {
     exactRecord(entry.result, ["kind"], `${label}.result`);

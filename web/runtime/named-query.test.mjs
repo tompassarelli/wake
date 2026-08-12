@@ -247,7 +247,7 @@ const safeDocumentType = {
   value: { kind: "ref", name: "Document" },
 };
 
-const providedPageQuery = {
+const providedQuery = {
   ...pageQuery,
   name: "rendered-releases",
   select: [
@@ -293,6 +293,7 @@ const providedPageQuery = {
     },
     outputType: safeDocumentType,
   }],
+  result: { kind: "optional" },
 };
 
 function mockFram(responses) {
@@ -512,7 +513,7 @@ describe("named query execution", () => {
       21n,
       { ordinal: 0, done: true, nextCursor: null },
     )]);
-    const runtime = createNamedQueryRuntime([providedPageQuery], {
+    const runtime = createNamedQueryRuntime([providedQuery], {
       entities,
       fram: mock.fram,
       providers: {
@@ -528,14 +529,13 @@ describe("named query execution", () => {
     await expect(runtime.execute(
       "rendered-releases",
       { channel: "stable" },
-      { limit: 1 },
+      {},
       reader,
     )).resolves.toEqual({
-      rows: [{
+      row: {
         id: "r-1",
         document: { tag: "document", blocks: ["# Safe"] },
-      }],
-      page: { done: true, nextCursor: null },
+      },
       servedVersion: 21n,
     });
     expect(calls).toEqual([{
@@ -546,7 +546,7 @@ describe("named query execution", () => {
   });
 
   test("fails closed on missing, failed, malformed, and forged result providers", async () => {
-    expectThrowsCode(() => createNamedQueryRuntime([providedPageQuery], {
+    expectThrowsCode(() => createNamedQueryRuntime([providedQuery], {
       entities,
       fram: mockFram([]).fram,
     }), "gateway/missing-provider");
@@ -555,7 +555,7 @@ describe("named query execution", () => {
       [async () => { throw new Error("private parser detail"); }, "gateway/provider-failed"],
       [async () => ({ tag: "script", blocks: [] }), "gateway/provider-output"],
     ]) {
-      const runtime = createNamedQueryRuntime([providedPageQuery], {
+      const runtime = createNamedQueryRuntime([providedQuery], {
         entities,
         fram: mockFram([response(
           [[subject("release", "r-1"), string("r-1"), string("source")]],
@@ -567,21 +567,43 @@ describe("named query execution", () => {
       await expectRejectsCode(runtime.execute(
         "rendered-releases",
         { channel: "stable" },
-        { limit: 1 },
+        {},
         reader,
       ), code);
     }
 
     expectThrowsCode(() => compileNamedQueries([{
-      ...providedPageQuery,
+      ...providedQuery,
       resultProviders: [{
-        ...providedPageQuery.resultProviders[0],
+        ...providedQuery.resultProviders[0],
         input: { kind: "column", name: "id" },
       }],
     }], entities), "gateway/invalid-plan");
     expectThrowsCode(() => compileNamedQueries([{
-      ...providedPageQuery,
+      ...providedQuery,
       resultProviders: [],
+    }], entities), "gateway/invalid-plan");
+
+    expectThrowsCode(() => compileNamedQueries([{
+      ...providedQuery,
+      result: { kind: "page", defaultLimit: 1, maxLimit: 1 },
+    }], entities), "gateway/invalid-plan");
+    expectThrowsCode(() => compileNamedQueries([{
+      ...providedQuery,
+      resultProviders: [{
+        ...providedQuery.resultProviders[0],
+        outputType: { kind: "record", fields: [] },
+      }],
+    }], entities), "gateway/invalid-plan");
+    expectThrowsCode(() => compileNamedQueries([{
+      ...providedQuery,
+      resultProviders: [{
+        ...providedQuery.resultProviders[0],
+        outputType: {
+          ...safeDocumentType,
+          maxBytes: 1024 * 1024 + 1,
+        },
+      }],
     }], entities), "gateway/invalid-plan");
   });
 
