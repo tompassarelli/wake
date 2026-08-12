@@ -221,7 +221,7 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
       `const wakeApplicationFingerprint = ${JSON.stringify(framPlan.semanticFingerprint)};`,
     ));
     assert.ok(appSource.includes(
-      "JSON.stringify({ fingerprint: wakeApplicationFingerprint, ...body })",
+      "JSON.stringify({ ...body, fingerprint: wakeApplicationFingerprint })",
     ));
     for (const token of [
       "/api/wake/query",
