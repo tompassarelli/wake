@@ -8,8 +8,8 @@ import {
 const webRoot = `${import.meta.dir}/..`;
 const repositoryRoot = `${webRoot}/..`;
 const packer = `${webRoot}/bin/wake-runtime-pack`;
-const archiveName = "tompassarelli-wake-runtime-1.1.0.tgz";
-const receiptName = "tompassarelli-wake-runtime-1.1.0.receipt.json";
+const archiveName = "tompassarelli-wake-runtime-0.2.0.tgz";
+const receiptName = "tompassarelli-wake-runtime-0.2.0.receipt.json";
 const releaseTagEnvironment = Object.freeze({
   ...process.env,
   GIT_COMMITTER_DATE: "2026-08-12T00:01:00Z",
@@ -91,8 +91,8 @@ function releaseSource(scratch) {
     GIT_AUTHOR_DATE: "2026-08-12T00:00:00Z",
     GIT_COMMITTER_DATE: "2026-08-12T00:00:00Z",
   };
-  run(["git", "commit", "-q", "-m", "Wake 1.1.0 runtime"], { cwd: seed, env: environment });
-  run(["git", "tag", "-a", "v1.1.0", "-m", "Wake v1.1.0"], {
+  run(["git", "commit", "-q", "-m", "Wake 0.2.0 runtime"], { cwd: seed, env: environment });
+  run(["git", "tag", "-a", "v0.2.0", "-m", "Wake v0.2.0"], {
     cwd: seed,
     env: releaseTagEnvironment,
   });
@@ -100,7 +100,7 @@ function releaseSource(scratch) {
     cwd: seed,
   })).trim();
   const releaseTagObject = new TextDecoder().decode(run([
-    "git", "rev-parse", "refs/tags/v1.1.0",
+    "git", "rev-parse", "refs/tags/v0.2.0",
   ], { cwd: seed })).trim();
 
   const first = `${scratch}/first-source`;
@@ -122,7 +122,7 @@ function pack(source, output, receipt = `${output}/${receiptName}`) {
   run([
     packer,
     "--source-root", source,
-    "--version", "v1.1.0",
+    "--version", "v0.2.0",
     "--output", output,
     "--receipt", receipt,
   ]);
@@ -145,6 +145,24 @@ describe("@tompassarelli/wake-runtime package", () => {
       expect(firstArchive).toEqual(secondArchive);
       expect(await Bun.file(first.receipt).text()).toBe(await Bun.file(second.receipt).text());
 
+      const hiddenInput = "web/runtime/index.mjs";
+      run(["git", "update-index", "--assume-unchanged", hiddenInput], {
+        cwd: source.first,
+      });
+      const hiddenPath = `${source.first}/${hiddenInput}`;
+      await Bun.write(
+        hiddenPath,
+        `${await Bun.file(hiddenPath).text()}\nthrow new Error("not in the tagged tree");\n`,
+      );
+      expect(new TextDecoder().decode(run([
+        "git", "status", "--porcelain=v1", "--untracked-files=all",
+      ], { cwd: source.first }))).toBe("");
+      const hidden = pack(source.first, `${scratch}/hidden-worktree`);
+      expect(new Uint8Array(await Bun.file(hidden.archive).arrayBuffer()))
+        .toEqual(firstArchive);
+      expect(await Bun.file(hidden.receipt).text())
+        .toBe(await Bun.file(first.receipt).text());
+
       const receiptText = await Bun.file(first.receipt).text();
       const receipt = JSON.parse(receiptText);
       expect(receiptText).toBe(canonicalDocument(receipt));
@@ -155,13 +173,13 @@ describe("@tompassarelli/wake-runtime package", () => {
       });
       expect(receipt.package).toEqual({
         name: "@tompassarelli/wake-runtime",
-        version: "1.1.0",
+        version: "0.2.0",
       });
       expect(receipt.packer).toBe(`bun@${Bun.version}`);
       expect(receipt.schemaVersion).toBe(2);
       expect(receipt.source).toEqual({
         commit: source.sourceCommit,
-        releaseTag: "v1.1.0",
+        releaseTag: "v0.2.0",
         releaseTagObject: source.releaseTagObject,
         repository: "https://github.com/tompassarelli/wake.git",
       });
@@ -179,7 +197,7 @@ describe("@tompassarelli/wake-runtime package", () => {
       run([
         packer,
         "--source-root", source.first,
-        "--version", "v1.1.0",
+        "--version", "v0.2.0",
         "--output", `${scratch}/checked`,
         "--check", first.receipt,
       ]);
@@ -234,29 +252,29 @@ describe("@tompassarelli/wake-runtime package", () => {
     const scratch = temporaryDirectory("wake-runtime-package-refusal");
     try {
       const source = releaseSource(scratch);
-      run(["git", "tag", "-d", "v1.1.0"], { cwd: source.first });
+      run(["git", "tag", "-d", "v0.2.0"], { cwd: source.first });
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v1.1.0",
+        packer, "--source-root", source.first, "--version", "v0.2.0",
         "--output", `${scratch}/untagged`,
       ]).exitCode).not.toBe(0);
 
-      run(["git", "tag", "v1.1.0"], { cwd: source.first });
+      run(["git", "tag", "v0.2.0"], { cwd: source.first });
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v1.1.0",
+        packer, "--source-root", source.first, "--version", "v0.2.0",
         "--output", `${scratch}/lightweight`,
       ]).exitCode).not.toBe(0);
 
-      run(["git", "tag", "-d", "v1.1.0"], { cwd: source.first });
-      run(["git", "tag", "-a", "v1.1.0", "-m", "Wake v1.1.0"], {
+      run(["git", "tag", "-d", "v0.2.0"], { cwd: source.first });
+      run(["git", "tag", "-a", "v0.2.0", "-m", "Wake v0.2.0"], {
         cwd: source.first,
         env: releaseTagEnvironment,
       });
-      run(["git", "tag", "-a", "v1.1.1", "-m", "Wake v1.1.1"], {
+      run(["git", "tag", "-a", "v0.2.1", "-m", "Wake v0.2.1"], {
         cwd: source.first,
         env: releaseTagEnvironment,
       });
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v1.1.1",
+        packer, "--source-root", source.first, "--version", "v0.2.1",
         "--output", `${scratch}/mismatched`,
       ]).exitCode).not.toBe(0);
 
@@ -264,7 +282,7 @@ describe("@tompassarelli/wake-runtime package", () => {
         cwd: source.first,
       });
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v1.1.0",
+        packer, "--source-root", source.first, "--version", "v0.2.0",
         "--output", `${scratch}/origin`,
       ]).exitCode).not.toBe(0);
 
@@ -273,7 +291,7 @@ describe("@tompassarelli/wake-runtime package", () => {
       });
       run(["touch", `${source.first}/untracked`]);
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v1.1.0",
+        packer, "--source-root", source.first, "--version", "v0.2.0",
         "--output", `${scratch}/dirty`,
       ]).exitCode).not.toBe(0);
     } finally {

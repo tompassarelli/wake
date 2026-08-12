@@ -118,11 +118,13 @@ if (origin.replace(/\.git$/u, "") !== REPOSITORY.replace(/\.git$/u, "")) {
   throw new Error(`source origin must be ${REPOSITORY}`);
 }
 
-const packageRoot = `${sourceRoot}/web/runtime`;
-if (realpath(packageRoot) !== packageRoot) {
-  throw new Error("runtime package root must not traverse a symbolic link");
-}
-const packageJson = await Bun.file(`${packageRoot}/package.json`).json();
+const packageJson = JSON.parse(text([
+  "git",
+  "-C",
+  sourceRoot,
+  "show",
+  `${sourceCommit}:web/runtime/package.json`,
+]));
 const expectedFiles = [
   "LICENSE-APACHE",
   "LICENSE-MIT",
@@ -151,7 +153,7 @@ const expectedRepository = {
   directory: "web/runtime",
 };
 if (packageJson.name !== "@tompassarelli/wake-runtime"
-    || packageJson.version !== "1.1.0"
+    || packageJson.version !== "0.2.0"
     || packageJson.type !== "module"
     || packageJson.types !== "./index.d.ts"
     || packageJson.sideEffects !== false
@@ -159,14 +161,21 @@ if (packageJson.name !== "@tompassarelli/wake-runtime"
     || !sameValues(packageJson.exports, expectedExports)
     || !sameValues(packageJson.files, expectedFiles)
     || !sameValues(packageJson.repository, expectedRepository)) {
-  throw new Error("runtime package manifest differs from the closed 1.1.0 release contract");
+  throw new Error("runtime package manifest differs from the closed 0.2.0 release contract");
 }
 for (const relative of ["package.json", ...expectedFiles]) {
-  const path = `${packageRoot}/${relative}`;
-  if (realpath(path) !== path) {
-    throw new Error(`runtime release input traverses a symbolic link: ${relative}`);
+  const entry = text([
+    "git",
+    "-C",
+    sourceRoot,
+    "ls-tree",
+    sourceCommit,
+    "--",
+    `web/runtime/${relative}`,
+  ]);
+  if (!/^100644 blob [0-9a-f]{40}\t/u.test(entry)) {
+    throw new Error(`runtime release input is not a regular tagged file: ${relative}`);
   }
-  run(["git", "-C", sourceRoot, "ls-files", "--error-unmatch", `web/runtime/${relative}`]);
 }
 if (releaseTag !== `v${packageJson.version}`) {
   throw new Error("release tag must exactly match the runtime package version");
@@ -187,6 +196,32 @@ if (options["--receipt"] && options["--receipt"] !== `${outputRoot}/${expectedRe
 }
 const scratch = text(["mktemp", "-d", `${outputRoot}/.wake-runtime-release.XXXXXX`]);
 try {
+  const archivedSource = `${scratch}/source`;
+  const archivedTree = `${scratch}/source.tar`;
+  run(["mkdir", "-p", archivedSource]);
+  run([
+    "git",
+    "-C",
+    sourceRoot,
+    "archive",
+    "--format=tar",
+    `--output=${archivedTree}`,
+    sourceCommit,
+    "--",
+    "web/runtime",
+  ]);
+  run(["tar", "-xf", archivedTree, "-C", archivedSource]);
+  const packageRoot = `${archivedSource}/web/runtime`;
+  if (realpath(packageRoot) !== packageRoot) {
+    throw new Error("tagged runtime package root must not traverse a symbolic link");
+  }
+  for (const relative of ["package.json", ...expectedFiles]) {
+    const path = `${packageRoot}/${relative}`;
+    if (realpath(path) !== path) {
+      throw new Error(`tagged runtime release input traverses a symbolic link: ${relative}`);
+    }
+  }
+
   run([
     "bun",
     "pm",

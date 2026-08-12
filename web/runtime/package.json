@@ -1,6 +1,6 @@
 {
   "name": "@tompassarelli/wake-runtime",
-  "version": "1.1.0",
+  "version": "0.2.0",
   "description": "Checked Wake application runtime for Fetch hosts and FRAM",
   "type": "module",
   "exports": {
