@@ -13,7 +13,7 @@
 (use "wake-wiki"
   :as wiki
   :version "0.1.0"
-  :allow [schema query capability ui route]
+  :allow [schema query command capability ui route]
   :config [resource entry
            resource-id entry-id
            revision edition
@@ -59,6 +59,11 @@
   (audience : Keyword
     :storage-id "wake-wiki-substrate-fixture/field/edition/audience"
     :required true))
+
+(extend wiki.receipt-fields
+  (policy-digest : Digest
+    :storage-id "wake-wiki-substrate-fixture/field/receipt/policy-digest"
+    :server true))
 
 (mount wiki.browse :path "/library")
 (mount wiki.new :path "/library/new")

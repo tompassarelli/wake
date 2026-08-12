@@ -14,10 +14,11 @@ never participate in storage identity.
 
 ## Materialization status
 
-`plugin.wake` currently materializes both durable entities, the three-state
-revision lifecycle, all seven exported named queries, and all twelve exported UI
-components. A neutral substrate fixture is packed, digest-pinned, linked,
-checked, and emitted as a FRAM plan in the package tests. `review` returns the
+`plugin.wake` materializes both durable entities, the three-state revision
+lifecycle, all five invariant-bearing commands, all eight exported named
+queries, the closed `SafeDocument` value type and provider port, and all twelve
+exported UI components. A neutral substrate fixture is packed, digest-pinned,
+linked, checked, and emitted as a FRAM plan in the package tests. `review` returns the
 current draft half; a host composes it with `read-published` at the same served
 snapshot because named-query ABI 1 has no optional joined binding. History is
 split into `history-current` and `history-superseded`: the host reads the exact
@@ -35,12 +36,10 @@ includes `current` on every page and rejects any version disagreement; a
 continuation never samples current head before opening its snapshot-pinned
 cursor.
 
-The remaining frozen exports—five commands, twelve capabilities, the
-content-parser provider port, extension ports, and six route slots—stay in the
-version-1 public contract while Wake's shared checked declaration grammars land.
-They are not implemented as callbacks or a package-local mini-language.
-Consumers must not treat an operation-surface manifest entry as executable
-until the checked application artifact contains its declaration.
+All operation exports are checked declarations, not callbacks or a
+package-local mini-language. The twelve capabilities remain declarations,
+never grants; the application binds policy before an operation becomes
+reachable.
 
 ## Fixed storage roles
 
@@ -106,7 +105,8 @@ superseded ->
 
 All limits are finite and required. There is no unbounded default.
 Caller-selected page limits cannot exceed 247 rows, link lists cannot exceed
-200 anchors, and configured safe-document limits cannot exceed FRAM's absolute
+200 anchors, and configured safe-document limits have a minimum depth of 5 and
+cannot exceed FRAM's absolute
 1,048,576-byte, 256-depth, and 65,536-Term ceilings. A consuming application is
 expected to bind materially tighter product and HTTP budgets; these absolute
 plugin ceilings do not make a large provider result safe for a particular
@@ -137,6 +137,7 @@ Queries:
 |---|---|
 | `browse-published` | narrow page of current published resources |
 | `read-published` | one current published revision rendered as safe blocks |
+| `read-source-for-draft` | raw current published revision for an authorized new draft seed |
 | `read-draft` | current draft and raw source for authorized editing |
 | `review` | nullable published base and current draft at one snapshot |
 | `history-current` | exact current published revision for snapshot pinning |
@@ -180,7 +181,7 @@ Version 1 exports exactly one plugin-specific provider port:
 
 ```text
 wake-wiki/provider/content-parser
-  input  {content-source, safe-document-limits}
+  input  {contentSource, safeDocumentLimits}
   output SafeDocument
 ```
 

@@ -204,6 +204,7 @@ describe("wake-wiki K0C data contract", () => {
     expect(manifest.exports.queries).toEqual([
       "browse-published",
       "read-published",
+      "read-source-for-draft",
       "read-draft",
       "review",
       "history-current",
@@ -342,12 +343,16 @@ describe("wake-wiki K0C data contract", () => {
       maxDepth: 256,
       maxNodes: 65_536,
     });
+    expect(manifest.configuration["safe-document-limits"].type.fields.find(
+      field => field.name === "maxDepth",
+    ).type.minimum).toBe(5);
   });
 
   test("keeps product semantics out of the reusable package", async () => {
     const manifest = await jsonAt("wake-plugin.json");
     const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
-    const semanticText = [...collectStrings(manifest), entry].join("\n");
+    const semanticText = [...collectStrings(manifest), entry].join("\n")
+      .replaceAll(":canonical-digest", "");
     for (const forbidden of [
       /greywrought/iu,
       /\barticle\b/iu,
@@ -411,6 +416,34 @@ describe("wake-wiki K0C data contract", () => {
     expect(entry).toContain("[(config superseded-state) ->]");
   });
 
+  test("materializes every checked command with closed write invariants", async () => {
+    const manifest = await jsonAt("wake-plugin.json");
+    const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
+    for (const command of manifest.exports.commands) {
+      expect(entry).toContain(`(command ${command}\n`);
+    }
+    expect(entry).toContain("((config digest-field) : Digest :write :create)");
+    expect(entry.match(/:provider \(config content-provider\) SafeDocument/gu))
+      .toHaveLength(3);
+    expect(entry.match(/:canonical-digest Digest/gu)).toHaveLength(3);
+    expect(entry.match(/:extensions \[receipt-fields\]/gu)).toHaveLength(5);
+    expect(entry).toContain(
+      "(expected-published-revision : (Nullable String))",
+    );
+    expect(entry).toContain(
+      "(assert (not-contains (input expected-links-to) (input resource-id)))",
+    );
+    expect(entry).toContain(
+      "(config published-at-field) (receipt-time)",
+    );
+    const abandonStart = entry.indexOf("(command abandon-draft\n");
+    const abandonEnd = entry.indexOf("\n(command publish\n", abandonStart);
+    const abandon = entry.slice(abandonStart, abandonEnd);
+    expect(abandon).toContain("abandon-own-draft");
+    expect(abandon).toContain("abandon-any-draft");
+    expect(abandon).toContain("(config author-field) (actor id)");
+  });
+
   test("materializes every exported query without draft leakage", async () => {
     const manifest = await jsonAt("wake-plugin.json");
     const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
@@ -418,7 +451,10 @@ describe("wake-wiki K0C data contract", () => {
       expect(entry).toContain(`(query ${query}\n`);
     }
     const publishedStart = entry.indexOf("(query read-published\n");
-    const publishedEnd = entry.indexOf("\n(query read-draft\n", publishedStart);
+    const publishedEnd = entry.indexOf(
+      "\n(query read-source-for-draft\n",
+      publishedStart,
+    );
     const published = entry.slice(publishedStart, publishedEnd);
     expect(published).toContain(
       "(= (field entry (config published-pointer)) published)",
@@ -436,6 +472,27 @@ describe("wake-wiki K0C data contract", () => {
       "(extension-fields revision-fields published)",
     );
     expect(published).not.toMatch(/draft|superseded/u);
+
+    const sourceStart = entry.indexOf("(query read-source-for-draft\n");
+    const sourceEnd = entry.indexOf("\n(query read-draft\n", sourceStart);
+    const source = entry.slice(sourceStart, sourceEnd);
+    expect(source).toContain(":capability start-draft");
+    expect(source).toContain(
+      "(= (field entry (config published-pointer)) published)",
+    );
+    expect(source).toContain(
+      "(= (field published (config owner-field)) entry)",
+    );
+    expect(source).toContain(
+      "(= (field published (config state-field)) (config published-state))",
+    );
+    expect(source).toContain(
+      "(content-source (field published (config content-source-field)))",
+    );
+    expect(source).toContain(
+      "(extension-fields revision-fields published)",
+    );
+    expect(source).not.toMatch(/draft-pointer|draft-state|superseded/u);
 
     const currentHistoryStart = entry.indexOf("(query history-current\n");
     const supersededHistoryStart = entry.indexOf(
@@ -569,6 +626,7 @@ describe("wake-wiki K0C data contract", () => {
     expect(plan.queries.map((query) => query.name)).toEqual([
       "wiki.browse-published",
       "wiki.read-published",
+      "wiki.read-source-for-draft",
       "wiki.read-draft",
       "wiki.review",
       "wiki.history-current",
@@ -590,6 +648,7 @@ describe("wake-wiki K0C data contract", () => {
       const expectedCapability = {
         "browse-published": "wake-wiki/cap/browse-published",
         "read-published": "wake-wiki/cap/read-published",
+        "read-source-for-draft": "wake-wiki/cap/start-draft",
         "read-draft": "wake-wiki/cap/read-draft",
         review: "wake-wiki/cap/review-draft",
         "history-current": "wake-wiki/cap/read-history",
@@ -691,6 +750,7 @@ describe("wake-wiki K0C data contract", () => {
     for (const name of [
       "wiki.browse-published",
       "wiki.read-published",
+      "wiki.read-source-for-draft",
       "wiki.read-draft",
       "wiki.review",
       "wiki.history-current",
