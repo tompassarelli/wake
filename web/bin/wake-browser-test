@@ -106,4 +106,5 @@ WAKE_BROWSER_FIXTURES="$fixture_dir" \
     tests/todo-component.spec.ts \
     tests/tracker.spec.ts \
     tests/webdev.spec.ts \
-    tests/wiki-fram.spec.ts
+    tests/wiki-fram.spec.ts \
+    tests/wiki-routing.spec.ts

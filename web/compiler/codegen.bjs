@@ -3166,10 +3166,11 @@ async function wakeFramStart() {
       (> (count (or (.-required-props route) [])) 0)
       (> (count (or (.-queries route) [])) 0)))
 
-(defn route-query-definition
+(defn route-browser-definition
   [route: Any
    queries: Any
-   views: Any] -> String
+   views: Any
+   dynamic: Bool] -> String
   (let [view
         (first
           (filterv (fn [candidate] (= (.-name candidate) (.-view-name route))) views))
@@ -3218,6 +3219,7 @@ async function wakeFramStart() {
           (str "[" (.join (mapv q (or items [])) ", ") "]"))]
     (str "{ path: " (q (.-path route))
          ", view: " (q (.-view-name route))
+         ", dynamic: " (if dynamic "true" "false")
          ", component: " (id->ref (.-component view)) "_create"
          ", parameters: " (strings (.-parameters route))
          ", inputParameters: " (strings (.-input-parameters route))
@@ -3312,12 +3314,16 @@ async function wakeFramStart() {
         query-route-sections
         (.join (mapv gen-query-route-section query-routes) "\n")
 
-        query-route-definitions
+        browser-route-definitions
         (.join
           (mapv
             (fn [route]
-              (route-query-definition route (or (.-queries g) []) views))
-            query-routes)
+              (route-browser-definition
+                route
+                (or (.-queries g) [])
+                views
+                (query-route? route)))
+            routes)
           ",\n  ")
 
         undo-watchers
@@ -3473,7 +3479,7 @@ async function wakeFramStart() {
       "  const wakeStaticViews = new Set(["
       (.join (mapv q static-view-names) ", ")
       "]);\n"
-      "  const wakeQueryRoutes = [\n  " query-route-definitions "\n  ];\n"
+      "  const wakeBrowserRoutes = [\n  " browser-route-definitions "\n  ];\n"
       #r#"
   let wakeRouteGeneration = 0;
   function wakeRouteErrorKind(error) {
@@ -3501,7 +3507,7 @@ async function wakeFramStart() {
     try { return decodeURIComponent(segment); } catch { return null; }
   }
   function wakeMatchRoute(pathname) {
-    for (const route of wakeQueryRoutes) {
+    for (const route of wakeBrowserRoutes) {
       const expected = route.path === '/' ? [] : route.path.slice(1).split('/');
       const actual = pathname === '/' ? [] : pathname.slice(1).split('/');
       if (expected.length !== actual.length) continue;
@@ -3609,8 +3615,13 @@ async function wakeFramStart() {
   }
   function wakeRenderLocation() {
     const match = wakeMatchRoute(location.pathname);
-    if (match) { void wakeRenderMatchedRoute(match); return true; }
-    return false;
+    if (!match) return false;
+    if (match.route.dynamic) void wakeRenderMatchedRoute(match);
+    else {
+      wakeRouteGeneration += 1;
+      navigate(match.route.view, false);
+    }
+    return true;
   }
   function wakeRenderStaticLocation() {
     if (!location.hash.startsWith('#')) return false;
@@ -3621,7 +3632,7 @@ async function wakeFramStart() {
     return true;
   }
   function wakeRenderBrowserLocation() {
-    return wakeRenderLocation() || wakeRenderStaticLocation();
+    return wakeRenderStaticLocation() || wakeRenderLocation();
   }
   function wakeNavigatePath(path) {
     history.pushState(null, '', path);
