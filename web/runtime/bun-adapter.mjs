@@ -1,4 +1,4 @@
-import { canonicalDocument, sha256Digest } from "../compiler/canonical.mjs";
+import { canonicalDocument, sha256Digest } from "./canonical.mjs";
 import { createFramGateway } from "./fram-gateway.mjs";
 import { createWakeHttpHandler } from "./fram-http.mjs";
 
