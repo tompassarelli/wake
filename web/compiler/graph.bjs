@@ -859,12 +859,11 @@
               (reduce
                 (fn [seen tab]
                   (if (= (.-content-type tab) "related")
-                    (let [target
-                          (str (.-entity-name tab) "." (.-relation-field tab))]
-                      (if (.includes seen target)
+                    (let [child (.-entity-name tab)]
+                      (if (.includes seen child)
                         (graph-error
-                          (str label " repeats related target '" target "'"))
-                        (conj seen target)))
+                          (str label " repeats related entity '" child "'"))
+                        (conj seen child)))
                     seen))
                 []
                 resolved-tabs)

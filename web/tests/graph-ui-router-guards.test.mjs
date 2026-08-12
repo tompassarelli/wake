@@ -582,6 +582,7 @@ test("rejects list-detail tab codegen collisions", () => {
     attrs: [
       attribute("id", "String", { identity: true }),
       attribute("page", "Ref", { "target-entity": "page" }),
+      attribute("alternate-page", "Ref", { "target-entity": "page" }),
     ],
   };
   const event = {
@@ -596,10 +597,13 @@ test("rejects list-detail tab codegen collisions", () => {
     () => checkProgram(program({
       entities: [entity("page"), note],
       list_details: [listDetail({
-        detail_tabs: [related("Notes", "note", "page"), related("History", "note", "page")],
+        detail_tabs: [
+          related("Notes", "note", "page"),
+          related("History", "note", "alternate-page"),
+        ],
       })],
     })),
-    /repeats related target 'note\.page'/,
+    /repeats related entity 'note'/,
   );
   assert.throws(
     () => checkProgram(program({
