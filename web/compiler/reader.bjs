@@ -1229,7 +1229,19 @@
         (parse-error (str label " :query must contain one relation clause"))
         nil)
       (let [qualified (require-keyword (nth where-items 1 nil) label)
+            find-row (sym-name (nth items 1 nil))
+            where-row (sym-name (nth where-items 0 nil))
+            owner-row (sym-name (nth where-items 2 nil))
             prefix (str ":" entity-name "/")]
+        (if (not (= find-row where-row))
+          (parse-error
+            (str label " :query :find row '" find-row
+                 "' must match :where row '" where-row "'"))
+          nil)
+        (if (= where-row owner-row)
+          (parse-error
+            (str label " :query related row and owner must be distinct"))
+          nil)
         (if (not (.startsWith qualified prefix))
           (parse-error
             (str label " :query relation must belong to '" entity-name "'"))

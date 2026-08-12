@@ -471,3 +471,143 @@ test("rejects invalid list-detail fields, searches, and relations", () => {
     assert.throws(() => checkProgram(program({ ...base, list_details: [detail] })), expected);
   }
 });
+
+test("recomputes closed derived expressions and rejects forged dependencies", () => {
+  const expression = (field, overrides = {}) => ({
+    _tag: "IrDerivedExpr",
+    kind: "field",
+    field,
+    value: null,
+    parts: [],
+    ...overrides,
+  });
+  const derived = (name, dependency, expr = expression(dependency)) =>
+    attribute(name, "Derived", { deps: [dependency], expr });
+  const fields = [
+    attribute("id", "String", { identity: true }),
+    attribute("title"),
+    derived("label", "title"),
+  ];
+
+  assert.doesNotThrow(() => checkProgram(program({
+    entities: [{ name: "page", attrs: fields }],
+  })));
+
+  for (const [attrs, expected] of [
+    [
+      [...fields.slice(0, 2), derived("label", "ghost")],
+      /references unknown field 'ghost'/,
+    ],
+    [
+      [...fields, derived("slug", "label")],
+      /cannot reference derived field 'label'/,
+    ],
+    [
+      [...fields.slice(0, 2), attribute("label", "Derived", {
+        deps: [],
+        expr: expression("title"),
+      })],
+      /dependencies do not exactly match its expression/,
+    ],
+    [
+      [...fields.slice(0, 2), derived("label", "title", {
+        ...expression("title"),
+        untrusted: true,
+      })],
+      /derived expression has unsupported fields/,
+    ],
+    [
+      [...fields.slice(0, 2), derived("label", "title", expression("title", {
+        kind: "evaluate-javascript",
+      }))],
+      /unknown derived expression kind 'evaluate-javascript'/,
+    ],
+    [
+      [...fields.slice(0, 2), derived("label", "title", expression(null))],
+      /invalid field derived expression/,
+    ],
+  ]) {
+    assert.throws(
+      () => checkProgram(program({ entities: [{ name: "page", attrs }] })),
+      expected,
+    );
+  }
+});
+
+test("derived fields only read single stored String fields", () => {
+  for (const [source, expected] of [
+    [attribute("count", "Int"), /dependency 'count'.*single stored String/],
+    [attribute("enabled", "Bool"), /dependency 'enabled'.*single stored String/],
+    [attribute("tags", "String", { many: true }), /dependency 'tags'.*single stored String/],
+    [
+      attribute("owner", "Ref", { "target-entity": "user" }),
+      /dependency 'owner'.*single stored String/,
+    ],
+  ]) {
+    const attrs = [
+      attribute("id", "String", { identity: true }),
+      source,
+      attribute("label", "Derived", {
+        deps: [source.name],
+        expr: {
+          _tag: "IrDerivedExpr",
+          kind: "field",
+          field: source.name,
+          value: null,
+          parts: [],
+        },
+      }),
+    ];
+    assert.throws(
+      () => checkProgram(program({
+        entities: [{ name: "page", attrs }, entity("user")],
+      })),
+      expected,
+    );
+  }
+});
+
+test("rejects list-detail tab codegen collisions", () => {
+  const related = (label, entityName, relationField) => ({
+    label,
+    content_type: "related",
+    fields: [],
+    entity_name: entityName,
+    relation_field: relationField,
+    infer_relation: false,
+    display_fields: ["id"],
+  });
+  const note = {
+    name: "note",
+    attrs: [
+      attribute("id", "String", { identity: true }),
+      attribute("page", "Ref", { "target-entity": "page" }),
+    ],
+  };
+  const event = {
+    name: "event",
+    attrs: [
+      attribute("id", "String", { identity: true }),
+      attribute("page", "Ref", { "target-entity": "page" }),
+    ],
+  };
+
+  assert.throws(
+    () => checkProgram(program({
+      entities: [entity("page"), note],
+      list_details: [listDetail({
+        detail_tabs: [related("Notes", "note", "page"), related("History", "note", "page")],
+      })],
+    })),
+    /repeats related target 'note\.page'/,
+  );
+  assert.throws(
+    () => checkProgram(program({
+      entities: [entity("page"), note, event],
+      list_details: [listDetail({
+        detail_tabs: [related("Notes", "note", "page"), related("notes", "event", "page")],
+      })],
+    })),
+    /tab labels collide case-insensitively at 'notes'/,
+  );
+});

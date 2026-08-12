@@ -97,6 +97,12 @@ function definition(ast, name) {
   return value;
 }
 
+function extern(ast, name) {
+  const value = ast.externs.find((candidate) => candidate.name === `wake/${name}`);
+  expect(value, `missing extern wake/${name}`).toBeDefined();
+  return value;
+}
+
 function type(name) {
   return { kind: "prim", name };
 }
@@ -461,6 +467,61 @@ test("checked decoder rejects invalid derived declarations", () => {
     mutate(ast);
     reseal(ast);
     expect(() => decodeFixture(ast), label).toThrow(message);
+  }
+}, 30_000);
+
+test("checked decoder pins wake.core ABI against coordinated projection forgery", () => {
+  const cases = [
+    ["derived-ref literal", (ast) => {
+      extern(ast, "derived-ref").type.params[0] = type("Any");
+    }, "checked extern 'wake/derived-ref'"],
+    ["concat container", (ast) => {
+      extern(ast, "concat-derived").type.params[0] = appType("Vec", type("Any"));
+      definition(ast, "release").value.args[5].items[0]
+        .args[1].args[0].inferredType = appType("Vec", type("Any"));
+    }, "checked extern 'wake/concat-derived'"],
+    ["list-detail entity literal", (ast) => {
+      extern(ast, "->ListDetailSpec").type.params[0] = type("Any");
+    }, "checked extern 'wake/->ListDetailSpec'"],
+    ["list-detail title literal", (ast) => {
+      extern(ast, "->ListDetailSpec").type.params[1] = type("Any");
+    }, "checked extern 'wake/->ListDetailSpec'"],
+    ["detail-tab label literal", (ast) => {
+      extern(ast, "detail-tab").type.params[0] = type("Any");
+    }, "checked extern 'wake/detail-tab'"],
+  ];
+  for (const [label, mutate, message] of cases) {
+    const ast = checkedAst(fixture);
+    mutate(ast);
+    reseal(ast);
+    expect(() => decodeFixture(ast), label).toThrow(message);
+  }
+}, 30_000);
+
+test("checked derived references require single stored String dependencies", () => {
+  for (const [label, annotation] of [
+    ["Int", type("Int")],
+    ["Bool", type("Bool")],
+    ["Vec", appType("Vec", type("String"))],
+    ["Ref", appType("wake/Ref", type("ReleaseNote"))],
+  ]) {
+    const ast = checkedAst(fixture);
+    recordForm(ast, "Release").fields.find((field) => field.name === "title").ann = annotation;
+    reseal(ast);
+    expect(() => decodeFixture(ast), label).toThrow(
+      "derived field 'release.label' dependency 'title' must be a single stored String field",
+    );
+  }
+}, 30_000);
+
+test("checked Ref annotations have exactly one entity record argument", () => {
+  for (const args of [[], [type("Release"), type("ReleaseNote")]]) {
+    const ast = checkedAst(fixture);
+    recordForm(ast, "ReleaseNote").fields[1].ann.args = args;
+    reseal(ast);
+    expect(() => decodeFixture(ast)).toThrow(
+      "wake/Ref must name one entity record type",
+    );
   }
 }, 30_000);
 

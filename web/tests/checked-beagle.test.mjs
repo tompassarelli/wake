@@ -324,7 +324,7 @@ rejected("rejects a wrong macro argument literal", (ast) => {
     kind: "keyword",
     value: "not-a-string",
   };
-}, "application ID must be a string literal");
+}, "application wake/->ApplicationSpec argument 1 does not match the supported wake.core ABI");
 
 rejected("rejects a forged local constructor", (ast) => {
   form(ast, "application").value.fn.name = "->ApplicationSpec";

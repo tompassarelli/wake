@@ -370,6 +370,119 @@
       (if derived (or (get opts "deps") []) [])
       (if derived (get opts "expr") nil))))
 
+(def derived-expr-keys: (Vec String)
+  ["_tag" "kind" "field" "value" "parts"])
+
+(defn require-derived-expr-shape [expr: Any label: String] -> Any
+  (if (nil? expr)
+    (graph-error (str label " requires a closed derived expression"))
+    nil)
+  (let [actual (Object/keys expr)]
+    (if (not (= (count actual) (count derived-expr-keys)))
+      (graph-error (str label " derived expression has unsupported fields"))
+      nil)
+    (doseq [key derived-expr-keys]
+      (if (not (.includes actual key))
+        (graph-error (str label " derived expression has unsupported fields"))
+        nil)))
+  (if (not (= (.-_tag expr) "IrDerivedExpr"))
+    (graph-error (str label " must use an IrDerivedExpr value"))
+    nil))
+
+(defn append-unique-derived-deps
+  [deps: (Vec String)
+   additions: (Vec String)] -> (Vec String)
+  (reduce
+    (fn [result dependency]
+      (if (.includes result dependency)
+        result
+        (conj result dependency)))
+    deps
+    additions))
+
+(defn validate-derived-expression [expr: Any label: String] -> (Vec String)
+  (require-derived-expr-shape expr label)
+  (let [kind (.-kind expr)
+        field (.-field expr)
+        value (.-value expr)
+        parts (.-parts expr)]
+    (if (not (vector? parts))
+      (graph-error (str label " derived expression parts must be a vector"))
+      nil)
+    (cond
+      (= kind "field")
+        (do
+          (if (or (not (nonempty-string? field))
+                  (some? value)
+                  (not (= (count parts) 0)))
+            (graph-error (str label " has an invalid field derived expression"))
+            nil)
+          [(or field "")])
+      (= kind "string")
+        (do
+          (if (or (some? field)
+                  (not (string? value))
+                  (not (= (count parts) 0)))
+            (graph-error (str label " has an invalid string derived expression"))
+            nil)
+          [])
+      (= kind "concat")
+        (do
+          (if (or (some? field)
+                  (some? value)
+                  (= (count parts) 0))
+            (graph-error (str label " has an invalid concat derived expression"))
+            nil)
+          (reduce
+            (fn [deps part]
+              (append-unique-derived-deps
+                deps
+                (validate-derived-expression part label)))
+            []
+            parts))
+      :else
+        (graph-error
+          (str label " has unknown derived expression kind '" kind "'")))))
+
+(defn validate-derived-fields [entity-name: String fields: (Vec GField)] -> Any
+  (doseq [field fields]
+    (if (.-derived field)
+      (let [label (str "derived field '" entity-name "." (.-name field) "'")
+            declared (.-deps field)
+            actual (validate-derived-expression (.-expr field) label)]
+        (if (not (vector? declared))
+          (graph-error (str label " dependencies must be a vector"))
+          nil)
+        (if (not (= declared actual))
+          (graph-error
+            (str label " dependencies do not exactly match its expression"))
+          nil)
+        (doseq [dependency actual]
+          (let [resolved
+                (first
+                  (filterv
+                    (fn [candidate]
+                      (= (.-name candidate) dependency))
+                    fields))]
+            (if (nil? resolved)
+              (graph-error
+                (str label " references unknown field '" dependency "'"))
+              nil)
+            (if (and (some? resolved) (.-derived resolved))
+              (graph-error
+                (str label " cannot reference derived field '" dependency "'"))
+              nil)
+            (if (and (some? resolved)
+                     (or (not (= (.-type resolved) "String"))
+                         (not (= (.-cardinality resolved) "single"))
+                         (not (= (.-value-kind resolved) "literal"))))
+              (graph-error
+                (str label " dependency '" dependency
+                     "' must be a single stored String field"))
+              nil))))
+      nil))
+  nil)
+
 ;; --- Entity analysis ---
 
 (defn analyze-entity
@@ -389,6 +502,7 @@
           (fn [attr]
             (analyze-field attr name local application-id))
           (.-attrs entity))
+        validated-derived (validate-derived-fields name fields)
         stored-fields (filterv (fn [f] (not (.-derived f))) fields)
         derived-fields (filterv (fn [f] (.-derived f)) fields)
         ref-fields (filterv (fn [f] (= (.-type f) "Ref")) fields)
@@ -725,17 +839,41 @@
                             tabs)) 1)
               (graph-error (str label " may declare at most one fields tab"))
               nil)
-            (->GListDetail
-              entity-name
-              (.-title detail)
-              columns
-              search
-              (mapv
-                (fn [tab]
-                  (resolve-list-detail-tab
-                    entities entity tab
-                    (str label " tab '" (.-label tab) "'")))
-                tabs)))))
+            (let [resolved-tabs
+                  (mapv
+                    (fn [tab]
+                      (resolve-list-detail-tab
+                        entities entity tab
+                        (str label " tab '" (.-label tab) "'")))
+                    tabs)]
+              (reduce
+                (fn [seen tab]
+                  (let [folded (.toLowerCase (.-label tab))]
+                    (if (.includes seen folded)
+                      (graph-error
+                        (str label " tab labels collide case-insensitively at '"
+                             (.-label tab) "'"))
+                      (conj seen folded))))
+                []
+                resolved-tabs)
+              (reduce
+                (fn [seen tab]
+                  (if (= (.-content-type tab) "related")
+                    (let [target
+                          (str (.-entity-name tab) "." (.-relation-field tab))]
+                      (if (.includes seen target)
+                        (graph-error
+                          (str label " repeats related target '" target "'"))
+                        (conj seen target)))
+                    seen))
+                []
+                resolved-tabs)
+              (->GListDetail
+                entity-name
+                (.-title detail)
+                columns
+                search
+                resolved-tabs)))))
       details)))
 
 (defn validate-create-fields

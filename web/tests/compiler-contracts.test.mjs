@@ -40,6 +40,10 @@ function run(command, args) {
   assert.equal(result.status, 0, diagnostics);
 }
 
+function compileFram(source) {
+  return spawnSync(compile, ["--fram", source, "-"], { cwd: webRoot });
+}
+
 async function compileAll(source, outputDir) {
   run(compile, ["--all", source, outputDir]);
   const appPath = join(outputDir, "app.js");
@@ -151,5 +155,72 @@ test("read-only single views compile and attach publication actions on add and l
     );
   } finally {
     rmSync(outputDir, { force: true, recursive: true });
+  }
+}, COMPILER_TEST_TIMEOUT_MS);
+
+test("legacy related queries keep one coherent row variable", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-related-query-guard-"));
+  const source = readFileSync(
+    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.wake"),
+    "utf8",
+  );
+  try {
+    for (const [name, query, expected] of [
+      [
+        "incoherent",
+        "[:find ?n :where [?other :blog-note/contact-ref ?e]]",
+        /:query :find row '\?n' must match :where row '\?other'/,
+      ],
+      [
+        "aliased-roles",
+        "[:find ?n :where [?n :blog-note/contact-ref ?n]]",
+        /:query related row and owner must be distinct/,
+      ],
+    ]) {
+      const sourcePath = join(temporary, `${name}.wake`);
+      writeFileSync(sourcePath, source.replace(
+        "[:find ?n :where [?n :blog-note/contact-ref ?e]]",
+        query,
+      ));
+      const result = compileFram(sourcePath);
+      assert.notEqual(result.status, 0);
+      assert.match(`${result.stdout}\n${result.stderr}`, expected);
+    }
+  } finally {
+    rmSync(temporary, { force: true, recursive: true });
+  }
+}, COMPILER_TEST_TIMEOUT_MS);
+
+test("legacy derived fields cannot hide unknown or derived dependencies", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-derived-graph-guard-"));
+  try {
+    const cases = [
+      [
+        "unknown",
+        "  (label : Derived (str ghost))",
+        /derived field 'page\.label' references unknown field 'ghost'/,
+      ],
+      [
+        "derived",
+        "  (label : Derived (str title))\n  (slug : Derived (str label))",
+        /derived field 'page\.slug' cannot reference derived field 'label'/,
+      ],
+    ];
+    for (const [name, derivedFields, expected] of cases) {
+      const sourcePath = join(temporary, `${name}.wake`);
+      writeFileSync(sourcePath, `(ns wake.tests.derived-graph-guard)
+(application :id "wake-derived-graph-guard")
+(backend :fram)
+(entity page
+  (id : String :identity)
+  (title : String)
+${derivedFields})
+`);
+      const result = compileFram(sourcePath);
+      assert.notEqual(result.status, 0);
+      assert.match(`${result.stdout}\n${result.stderr}`, expected);
+    }
+  } finally {
+    rmSync(temporary, { force: true, recursive: true });
   }
 }, COMPILER_TEST_TIMEOUT_MS);

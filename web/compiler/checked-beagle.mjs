@@ -64,6 +64,119 @@ function sameType(left, right) {
   }
 }
 
+const primitiveType = (name) => ({ kind: "prim", name });
+const appliedType = (name, ...args) => ({ args, kind: "app", name });
+const unionType = (...members) => ({ kind: "union", members });
+const functionType = (params, ret) => ({
+  kind: "fn",
+  params,
+  rest: null,
+  ret,
+});
+
+const p = primitiveType;
+const vec = (item) => appliedType("Vec", item);
+const map = (key, value) => appliedType("Map", key, value);
+const fn = (params, result) => functionType(params, result);
+
+const WAKE_CORE_ABI = new Map([
+  ["->ApplicationSpec", fn([p("String")], p("ApplicationSpec"))],
+  ["->BackendSpec", fn([p("Keyword")], p("BackendSpec"))],
+  ["->ComponentSpec", fn([
+    p("String"), p("String"), vec(p("UiNode")),
+  ], p("ComponentSpec"))],
+  ["->EntitySpec", fn([
+    p("String"),
+    p("String"),
+    p("Keyword"),
+    map(p("Keyword"), p("Keyword")),
+    unionType(p("String"), p("Nil")),
+    vec(p("DerivedFieldSpec")),
+  ], p("EntitySpec"))],
+  ["->ListDetailSpec", fn([
+    p("Keyword"),
+    p("String"),
+    vec(p("Keyword")),
+    vec(p("Keyword")),
+    vec(p("DetailTab")),
+  ], p("ListDetailSpec"))],
+  ["->QuerySpec", fn([
+    p("String"),
+    p("String"),
+    p("String"),
+    vec(p("String")),
+    vec(p("QueryPredicate")),
+    vec(p("QuerySelection")),
+    p("QueryResult"),
+  ], p("QuerySpec"))],
+  ["->RouterSpec", fn([
+    p("Keyword"), vec(p("RouteSpec")),
+  ], p("RouterSpec"))],
+  ["->StateSpec", fn([
+    p("String"),
+    p("String"),
+    p("Keyword"),
+    map(p("Keyword"), vec(p("Keyword"))),
+  ], p("StateSpec"))],
+  ["->ViewSpec", fn([
+    p("String"), p("Keyword"), p("Keyword"), p("String"),
+  ], p("ViewSpec"))],
+  ["Ref", p("Ref")],
+  ["bind-attr", fn([p("Keyword")], p("UiAttr"))],
+  ["boolean-value", fn([p("Bool")], p("QueryOperand"))],
+  ["concat-derived", fn([vec(p("DerivedExpr"))], p("DerivedExpr"))],
+  ["derived-field", fn([
+    p("Keyword"), p("DerivedExpr"),
+  ], p("DerivedFieldSpec"))],
+  ["derived-ref", fn([p("Keyword")], p("DerivedExpr"))],
+  ["derived-string", fn([p("String")], p("DerivedExpr"))],
+  ["detail-fields", fn([vec(p("Keyword"))], p("DetailContent"))],
+  ["detail-related", fn([
+    p("Keyword"), p("RelatedRelation"), vec(p("Keyword")),
+  ], p("DetailContent"))],
+  ["detail-tab", fn([
+    p("String"), p("DetailContent"),
+  ], p("DetailTab"))],
+  ["element", fn([
+    p("Keyword"),
+    map(p("Keyword"), p("UiAttr")),
+    vec(p("UiNode")),
+  ], p("UiNode"))],
+  ["eq", fn([
+    p("QueryOperand"), p("QueryOperand"),
+  ], p("QueryPredicate"))],
+  ["field", fn([
+    p("Keyword"), p("Keyword"),
+  ], p("QueryOperand"))],
+  ["infer-related", fn([], p("RelatedRelation"))],
+  ["integer-value", fn([p("Int")], p("QueryOperand"))],
+  ["one-result", fn([], p("QueryResult"))],
+  ["optional-result", fn([], p("QueryResult"))],
+  ["page-result", fn([p("Int"), p("Int")], p("QueryResult"))],
+  ["parameter", fn([p("Keyword")], p("QueryOperand"))],
+  ["query-binding", fn([p("Keyword")], p("QueryOperand"))],
+  ["related-by", fn([p("Keyword")], p("RelatedRelation"))],
+  ["route", fn([
+    p("Keyword"), p("Keyword"),
+  ], p("RouteSpec"))],
+  ["select", fn([
+    p("Keyword"), p("QueryOperand"),
+  ], p("QuerySelection"))],
+  ["static-attr", fn([p("String")], p("UiAttr"))],
+  ["string-value", fn([p("String")], p("QueryOperand"))],
+  ["tag", fn([p("Keyword")], p("QueryOperand"))],
+]);
+
+function validateWakeCoreAbi(externs, alias) {
+  for (const [name, expected] of WAKE_CORE_ABI) {
+    const qualified = `${alias}/${name}`;
+    const actual = externs.get(qualified);
+    if (actual === undefined || !sameType(actual, expected)) {
+      fail(`checked extern '${qualified}' does not match the supported wake.core ABI`);
+    }
+  }
+}
+
 function validateType(type, label) {
   if (type === null || typeof type !== "object" || Array.isArray(type)) {
     fail(`${label} is not a checked type`);
@@ -290,12 +403,67 @@ function callArguments(node, alias, expected, resultType, label) {
   if (actual !== expected) {
     fail(`${label} must call wake/${expected}, not '${actual}'`);
   }
-  if (!isInferredType(node.inferredType, resultType)) {
+  const signature = WAKE_CORE_ABI.get(expected);
+  if (signature?.kind !== "fn") {
+    fail(`internal decoder ABI is missing wake/${expected}`);
+  }
+  if (!sameType(node.inferredType, signature.ret)
+      || !isInferredType(node.inferredType, resultType)) {
     fail(
       `${label} must infer exact ${resultType}, got '${node.inferredType?.name ?? "missing"}'`,
     );
   }
+  if (node.args.length !== signature.params.length) {
+    fail(`${label} wake/${expected} has wrong arity`);
+  }
+  node.args.forEach((argument, index) =>
+    validateAuthoritativeArgument(
+      argument,
+      signature.params[index],
+      `${label} wake/${expected} argument ${index + 1}`,
+    ));
   return node.args;
+}
+
+function typeAccepts(actual, expected) {
+  return sameType(actual, expected)
+    || (expected?.kind === "union"
+      && expected.members.some((member) => sameType(actual, member)));
+}
+
+function literalCheckedType(node) {
+  switch (node.kind) {
+    case "bool": return p("Bool");
+    case "keyword": return p("Keyword");
+    case "nil": return p("Nil");
+    case "number": return p("Int");
+    case "string": return p("String");
+    default: return null;
+  }
+}
+
+function validateAuthoritativeArgument(node, expected, label) {
+  if (node.node === "literal") {
+    const actual = literalCheckedType(node);
+    if (actual === null || !typeAccepts(actual, expected)) {
+      fail(`${label} does not match the supported wake.core ABI`);
+    }
+    return;
+  }
+  if (node.inferredType === undefined
+      || !inferredCompatible(node.inferredType, expected, node)) {
+    fail(`${label} inferred type does not match the supported wake.core ABI`);
+  }
+  if (node.node === "vec" && expected.kind === "app" && expected.name === "Vec") {
+    node.items.forEach((item, index) =>
+      validateAuthoritativeArgument(item, expected.args[0], `${label} item ${index + 1}`));
+  }
+  if (node.node === "map" && expected.kind === "app" && expected.name === "Map") {
+    node.pairs.forEach((pair, index) => {
+      validateAuthoritativeArgument(pair.key, expected.args[0], `${label} key ${index + 1}`);
+      validateAuthoritativeArgument(pair.val, expected.args[1], `${label} value ${index + 1}`);
+    });
+  }
 }
 
 function literal(node, kind, label) {
@@ -1083,7 +1251,7 @@ export function programFromCheckedAst(
       || !sourcePath.endsWith(`/${expectedSourceId}`)) {
     fail("checked source path does not end in its repository-relative projection identity");
   }
-  validateCheckedStructure(ast);
+  const checkedExterns = validateCheckedStructure(ast);
   const seenNamespaces = new Set();
   const seenAliases = new Set();
   for (const entry of ast.requires) {
@@ -1109,6 +1277,7 @@ export function programFromCheckedAst(
     fail("input must import exactly [wake.core :as ALIAS] without :refer");
   }
   const wakeAlias = wakeImports[0].alias;
+  validateWakeCoreAbi(checkedExterns, wakeAlias);
   if (ast.sourceId !== expectedSourceId) {
     fail(`projection source '${ast.sourceId}' does not match input identity '${expectedSourceId}'`);
   }
@@ -1257,6 +1426,14 @@ export function programFromCheckedAst(
         }
         if (derivedNames.has(dependency)) {
           fail(`derived field '${spec.name}.${derived.name}' cannot reference derived field '${dependency}'`);
+        }
+        const source = decodedFields.get(dependency);
+        if (source.type !== "String" || source.cardinality !== "single"
+            || source.targetEntity !== null) {
+          fail(
+            `derived field '${spec.name}.${derived.name}' dependency '${dependency}' `
+              + "must be a single stored String field",
+          );
         }
       }
     }
