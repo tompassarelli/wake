@@ -209,6 +209,9 @@
 
 (defrecord IrStorageSpec [entity: IrEntityRef storage-id: String])
 (defrecord IrIdentitySpec [entity: IrEntityRef field: IrFieldRef])
+(defunion IrEntityReferenceTarget
+  (IrDeclaredEntityTarget [entity: IrEntityRef])
+  (IrExternalEntityTarget [role: IrExternalEntityRoleRef]))
 (defunion IrFieldCardinality
   (IrSingleField [unit: Nil])
   (IrManyField [unit: Nil]))
@@ -225,7 +228,7 @@
   (IrInstantField [unit: Nil])
   (IrDigestField [unit: Nil])
   (IrStateField [state: IrStateRef])
-  (IrRefField [target: IrEntityRef])
+  (IrRefField [target: IrEntityReferenceTarget])
   (IrValueField [value-type: IrValueTypeRef]))
 (defrecord IrFieldSpec
   [ref: IrFieldRef
@@ -253,6 +256,8 @@
    initial: IrStateValueRef
    transitions: (Vec IrStateTransitionSpec)])
 
+(defrecord IrConfigProjection [role: IrValueRoleRef path: (Vec String)])
+
 (defunion IrCommandExpr
   (IrCommandInputExpr [name: String])
   (IrCommandInjectedExpr [name: String])
@@ -264,7 +269,9 @@
   (IrCommandActorExpr [field: String])
   (IrCommandReceiptTimeExpr [unit: Nil])
   (IrCommandRecordExpr [fields: (Vec IrCommandRecordField)])
-  (IrCommandExtensionExpr [port: IrEntityFieldsPortRef input: String]))
+  (IrCommandExtensionExpr [port: IrEntityFieldsPortRef input: String])
+  (IrCommandConfiguredExpr [projection: IrConfigProjection])
+  (IrCommandStateValueExpr [value: IrStateValueRef]))
 (defrecord IrCommandRecordField [name: String value: IrCommandExpr])
 (defunion IrCommandPredicate
   (IrEqualPredicate [left: IrCommandExpr right: IrCommandExpr])
@@ -298,7 +305,12 @@
      id: IrCommandExpr
      fields: (Vec IrCommandWrite)
      when: IrCommandPredicate?]))
-(defrecord IrCommandInputField [name: String value-type: IrValueTypeSpec])
+(defunion IrInputNormalization
+  (IrSortUniqueInput [unit: Nil]))
+(defrecord IrCommandInputField
+  [name: String
+   value-type: IrValueTypeSpec
+   normalization: IrInputNormalization?])
 (defunion IrCommandInjection
   (IrGeneratedIdInjection [name: String])
   (IrProviderInjection
@@ -343,7 +355,8 @@
   (IrRecordValue [fields: (Vec IrValueRecordEntry)])
   (IrListValue [items: (Vec IrValueExpr)])
   (IrBoundFieldValue [field: IrFieldRef])
-  (IrConfigValue [role: IrValueRoleRef]))
+  (IrConfigValue [role: IrValueRoleRef])
+  (IrConfigProjectionValue [projection: IrConfigProjection]))
 
 (defrecord IrValueRecordField
   [name: String
@@ -363,22 +376,31 @@
      maximum-bytes: IrBoundInt?])
   (IrIntegerValueType [minimum: IrBoundInt? maximum: IrBoundInt?])
   (IrBooleanValueType [unit: Nil])
+  (IrDigestValueType [unit: Nil])
+  (IrInstantValueType [unit: Nil])
   (IrKeywordValueType [allowed: (Vec String)])
   (IrEntityReferenceValueType [entity: IrEntityRef])
+  (IrStateValueType [state: IrStateRef])
   (IrRecordValueType [fields: (Vec IrValueRecordField)])
   (IrTaggedValueType [tag-field: String variants: (Vec IrValueTaggedVariant)])
   (IrListValueType
     [item: IrValueTypeSpec
      minimum-items: IrBoundInt?
      maximum-items: IrBoundInt?])
+  (IrExtensionValueType [port: IrEntityFieldsPortRef])
   (IrNullableValueType [value-type: IrValueTypeSpec])
   (IrNamedValueType [value-type: IrValueTypeRef])
   (IrLiteralValueType [literal: IrValueLiteral]))
 
 (defrecord IrValueTypeDefinition [ref: IrValueTypeRef spec: IrValueTypeSpec])
+(defrecord IrValueEnvelopeSpec
+  [maximum-bytes: IrBoundInt
+   maximum-depth: IrBoundInt
+   maximum-nodes: IrBoundInt])
 (defrecord IrValueTypeDeclarationSpec
   [root: IrValueTypeRef
-   definitions: (Vec IrValueTypeDefinition)])
+   definitions: (Vec IrValueTypeDefinition)
+   envelope: IrValueEnvelopeSpec?])
 
 (defrecord IrQueryParameterSpec [name: String value-type: IrValueTypeSpec])
 (defrecord IrQueryBindingSpec [name: String entity: IrEntityRef])
@@ -393,13 +415,15 @@
   (IrQueryNilValue [unit: Nil])
   (IrQueryRecordValue [fields: (Vec IrQueryRecordField)])
   (IrQueryListValue [items: (Vec IrQueryValueExpr)])
-  (IrQueryConfiguredValue [role: IrValueRoleRef]))
+  (IrQueryConfiguredValue [projection: IrConfigProjection])
+  (IrQueryStateValue [value: IrStateValueRef]))
 (defrecord IrQueryRecordField [name: String value: IrQueryValueExpr])
 (defunion IrQueryPredicateSpec
   (IrQueryEqualPredicate [left: IrQueryValueExpr right: IrQueryValueExpr])
   (IrQueryContainsPredicate
     [collection: IrQueryValueExpr
-     value: IrQueryValueExpr]))
+     value: IrQueryValueExpr])
+  (IrQueryNonNullPredicate [value: IrQueryValueExpr]))
 (defunion IrQuerySelectionSpec
   (IrQueryValueSelection [name: String value: IrQueryValueExpr])
   (IrQueryProviderSelection
@@ -436,10 +460,14 @@
    value-type: IrFieldValueType
    cardinality: IrFieldCardinality
    write: IrFieldWriteMode])
+(defunion IrEntityFieldsPortPolicy
+  (IrClosedEntityFieldsPort [unit: Nil])
+  (IrOpenManyEntityFields [write: IrFieldWriteMode require-storage-id: Bool]))
 (defrecord IrEntityFieldsPortSpec
   [ref: IrEntityFieldsPortRef
    target: IrEntityRef
-   requirements: (Vec IrFieldRequirement)])
+   requirements: (Vec IrFieldRequirement)
+   policy: IrEntityFieldsPortPolicy])
 (defrecord IrComponentSlotSpec [ref: IrComponentSlotRef target: IrComponentRef])
 (defrecord IrRouteSlotSpec [ref: IrRouteSlotRef target: IrRouteTemplateRef])
 
@@ -483,7 +511,8 @@
    values: (Vec IrValueRoleSpec)])
 (defunion IrBoundInt
   (IrLiteralBound [value: Int])
-  (IrConfiguredBound [role: IrIntRoleRef]))
+  (IrConfiguredBound [role: IrIntRoleRef])
+  (IrConfiguredProjectionBound [projection: IrConfigProjection]))
 (defrecord IrIntBinding [role: IrImportedIntRoleRef value: Int])
 (defrecord IrStringBinding [role: IrImportedStringRoleRef value: String])
 (defrecord IrBoolBinding [role: IrImportedBoolRoleRef value: Bool])
@@ -577,12 +606,16 @@
    extensions: (Vec IrExtendSpec)
    fills: (Vec IrFillSpec)
    mounts: (Vec IrMountSpec)])
+(defunion IrDefaultRouteTarget
+  (IrLocalDefaultRoute [route: IrRouteTemplateRef])
+  (IrMountedDefaultRoute [slot: IrImportedRouteSlotRef]))
 (defrecord IrApplicationRootSpec
   [id: String
    authority: IrAuthoritySpec
    storage: (Vec IrStorageSpec)
    identities: (Vec IrIdentitySpec)
-   plugins: (Vec IrPluginComposition)])
+   plugins: (Vec IrPluginComposition)
+   default-route: IrDefaultRouteTarget?])
 
 (defunion IrUiAttrSpec
   (IrStaticUiAttr [value: String])
@@ -615,6 +648,29 @@
    view: IrViewRef
    queries: (Vec IrRouteQuerySpec)
    parameters: (Vec IrRouteParameterSpec)])
+
+(defunion IrDeclarationRoot
+  (IrPluginDeclarationRoot [plugin: IrPluginSpec])
+  (IrApplicationDeclarationRoot [application: IrApplicationRootSpec]))
+
+(defrecord IrDeclarationProgram
+  [source-unit: IrSourceUnit
+   ns: String
+   root: IrDeclarationRoot
+   entities: (Vec IrEntityDeclarationSpec)
+   states: (Vec IrStateDeclarationSpec)
+   value-types: (Vec IrValueTypeDeclarationSpec)
+   provider-ports: (Vec IrProviderPortSpec)
+   renderers: (Vec IrRendererSpec)
+   capabilities: (Vec IrCapabilitySpec)
+   queries: (Vec IrQueryDeclarationSpec)
+   commands: (Vec IrCommandSpec)
+   components: (Vec IrComponentDeclarationSpec)
+   views: (Vec IrViewDeclarationSpec)
+   route-templates: (Vec IrRouteTemplateSpec)
+   entity-fields-ports: (Vec IrEntityFieldsPortSpec)
+   component-slots: (Vec IrComponentSlotSpec)
+   route-slots: (Vec IrRouteSlotSpec)])
 
 (defrecord IrApplication [id: String span: SourceSpan])
 (defrecord IrUseConfig [key: String value: Any])

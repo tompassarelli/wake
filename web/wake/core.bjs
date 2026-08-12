@@ -282,6 +282,11 @@
   (defrecord IdentitySpec [entity: EntityRef field: FieldRef]))
 
 (js/export
+  (defunion EntityReferenceTarget
+    (DeclaredEntityTarget [entity: EntityRef])
+    (ExternalEntityTarget [role: ExternalEntityRoleRef])))
+
+(js/export
   (defunion FieldCardinality
     (SingleField [unit: Nil])
     (ManyField [unit: Nil])))
@@ -302,7 +307,7 @@
     (InstantField [unit: Nil])
     (DigestField [unit: Nil])
     (StateField [state: StateRef])
-    (RefField [target: EntityRef])
+    (RefField [target: EntityReferenceTarget])
     (ValueField [value-type: ValueTypeRef])))
 
 (js/export
@@ -339,6 +344,9 @@
      transitions: (Vec StateTransitionSpec)]))
 
 (js/export
+  (defrecord ConfigProjection [role: ValueRoleRef path: (Vec String)]))
+
+(js/export
   (defunion CommandExpr
     (CommandInputExpr [name: Keyword])
     (CommandInjectedExpr [name: Keyword])
@@ -350,7 +358,9 @@
     (CommandActorExpr [field: Keyword])
     (CommandReceiptTimeExpr [unit: Nil])
     (CommandRecordExpr [fields: (Vec CommandRecordField)])
-    (CommandExtensionExpr [port: EntityFieldsPortRef input: Keyword])))
+    (CommandExtensionExpr [port: EntityFieldsPortRef input: Keyword])
+    (CommandConfiguredExpr [projection: ConfigProjection])
+    (CommandStateValueExpr [value: StateValueRef])))
 
 (js/export
   (defrecord CommandRecordField [name: Keyword value: CommandExpr]))
@@ -396,7 +406,14 @@
        when: CommandPredicate?])))
 
 (js/export
-  (defrecord CommandInputField [name: Keyword value-type: ValueTypeSpec]))
+  (defunion InputNormalization
+    (SortUniqueInput [unit: Nil])))
+
+(js/export
+  (defrecord CommandInputField
+    [name: Keyword
+     value-type: ValueTypeSpec
+     normalization: InputNormalization?]))
 
 (js/export
   (defunion CommandInjection
@@ -454,7 +471,8 @@
     (RecordValue [fields: (Vec ValueRecordEntry)])
     (ListValue [items: (Vec ValueExpr)])
     (BoundFieldValue [field: FieldRef])
-    (ConfigValue [role: ValueRoleRef])))
+    (ConfigValue [role: ValueRoleRef])
+    (ConfigProjectionValue [projection: ConfigProjection])))
 
 (js/export
   (defrecord ValueRecordField
@@ -481,14 +499,18 @@
        maximum-bytes: BoundInt?])
     (IntegerValueType [minimum: BoundInt? maximum: BoundInt?])
     (BooleanValueType [unit: Nil])
+    (DigestValueType [unit: Nil])
+    (InstantValueType [unit: Nil])
     (KeywordValueType [allowed: (Vec Keyword)])
     (EntityReferenceValueType [entity: EntityRef])
+    (StateValueType [state: StateRef])
     (RecordValueType [fields: (Vec ValueRecordField)])
     (TaggedValueType [tag-field: String variants: (Vec ValueTaggedVariant)])
     (ListValueType
       [item: ValueTypeSpec
        minimum-items: BoundInt?
        maximum-items: BoundInt?])
+    (ExtensionValueType [port: EntityFieldsPortRef])
     (NullableValueType [value-type: ValueTypeSpec])
     (NamedValueType [value-type: ValueTypeRef])
     (LiteralValueType [literal: ValueLiteral])))
@@ -497,9 +519,16 @@
   (defrecord ValueTypeDefinition [ref: ValueTypeRef spec: ValueTypeSpec]))
 
 (js/export
+  (defrecord ValueEnvelopeSpec
+    [maximum-bytes: BoundInt
+     maximum-depth: BoundInt
+     maximum-nodes: BoundInt]))
+
+(js/export
   (defrecord ValueTypeDeclarationSpec
     [root: ValueTypeRef
-     definitions: (Vec ValueTypeDefinition)]))
+     definitions: (Vec ValueTypeDefinition)
+     envelope: ValueEnvelopeSpec?]))
 
 (js/export
   (defrecord QueryParameterSpec [name: Keyword value-type: ValueTypeSpec]))
@@ -519,7 +548,8 @@
     (QueryNilValue [unit: Nil])
     (QueryRecordValue [fields: (Vec QueryRecordField)])
     (QueryListValue [items: (Vec QueryValueExpr)])
-    (QueryConfiguredValue [role: ValueRoleRef])))
+    (QueryConfiguredValue [projection: ConfigProjection])
+    (QueryStateValue [value: StateValueRef])))
 
 (js/export
   (defrecord QueryRecordField [name: Keyword value: QueryValueExpr]))
@@ -527,7 +557,8 @@
 (js/export
   (defunion QueryPredicateSpec
     (QueryEqualPredicate [left: QueryValueExpr right: QueryValueExpr])
-    (QueryContainsPredicate [collection: QueryValueExpr value: QueryValueExpr])))
+    (QueryContainsPredicate [collection: QueryValueExpr value: QueryValueExpr])
+    (QueryNonNullPredicate [value: QueryValueExpr])))
 
 (js/export
   (defunion QuerySelectionSpec
@@ -576,10 +607,16 @@
      write: FieldWriteMode]))
 
 (js/export
+  (defunion EntityFieldsPortPolicy
+    (ClosedEntityFieldsPort [unit: Nil])
+    (OpenManyEntityFields [write: FieldWriteMode require-storage-id: Bool])))
+
+(js/export
   (defrecord EntityFieldsPortSpec
     [ref: EntityFieldsPortRef
      target: EntityRef
-     requirements: (Vec FieldRequirement)]))
+     requirements: (Vec FieldRequirement)
+     policy: EntityFieldsPortPolicy]))
 
 (js/export
   (defrecord ComponentSlotSpec [ref: ComponentSlotRef target: ComponentRef]))
@@ -651,7 +688,8 @@
 (js/export
   (defunion BoundInt
     (LiteralBound [value: Int])
-    (ConfiguredBound [role: IntRoleRef])))
+    (ConfiguredBound [role: IntRoleRef])
+    (ConfiguredProjectionBound [projection: ConfigProjection])))
 
 (js/export
   (defrecord IntBinding [role: ImportedIntRoleRef value: Int]))
@@ -780,12 +818,18 @@
      mounts: (Vec MountSpec)]))
 
 (js/export
+  (defunion DefaultRouteTarget
+    (LocalDefaultRoute [route: RouteTemplateRef])
+    (MountedDefaultRoute [slot: ImportedRouteSlotRef])))
+
+(js/export
   (defrecord ApplicationRootSpec
     [id: String
      authority: AuthoritySpec
      storage: (Vec StorageSpec)
      identities: (Vec IdentitySpec)
-     plugins: (Vec PluginComposition)]))
+     plugins: (Vec PluginComposition)
+     default-route: DefaultRouteTarget?]))
 
 (js/export
   (defunion DerivedExpr
@@ -1317,7 +1361,8 @@
        ~authority
        ~storage
        ~identities
-       ~plugins)))
+       ~plugins
+       nil)))
 
 (defmacro application [binding id]
   `(def ~binding: ApplicationSpec
