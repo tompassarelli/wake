@@ -1,145 +1,160 @@
 (ns wake.plugins.wiki)
 
-(defstate RevisionLifecycle
-  [:draft -> :published :superseded]
-  [:published -> :superseded]
-  [:superseded ->])
+(defstate (config lifecycle-type)
+  [(config draft-state) -> (config published-state) (config superseded-state)]
+  [(config published-state) -> (config superseded-state)]
+  [(config superseded-state) ->])
 
-(entity resource
-  (id : String :identity)
-  (published-revision : Ref :to revision :write :command)
-  (draft-revision : Ref :to revision :write :command))
+(entity (config resource)
+  ((config resource-id) : String :identity)
+  ((config published-pointer) : Ref :to (config revision) :write :command)
+  ((config draft-pointer) : Ref :to (config revision) :write :command))
 
-(entity revision
-  (id : String :identity)
-  (resource : Ref :to resource :write :create)
-  (based-on : Ref :to revision :write :create)
-  (replaces-draft : Ref :to revision :write :create)
-  (state : RevisionLifecycle :write :command)
-  (author : String :write :create)
-  (created-at : Instant :write :create)
-  (digest : String :write :create)
-  (links-to : Ref :to resource :many :write :create)
-  (title : String :write :create)
-  (summary : String :write :create)
-  (content-source : String :write :create))
+(entity (config revision)
+  ((config revision-id) : String :identity)
+  ((config owner-field) : Ref :to (config resource) :write :create)
+  ((config base-field) : Ref :to (config revision) :write :create)
+  ((config replaces-field) : Ref :to (config revision) :write :create)
+  ((config state-field) : (config lifecycle-type) :write :command)
+  ((config author-field) : Ref :to (config actor-entity) :write :create)
+  ((config created-at-field) : Instant :write :create)
+  ((config digest-field) : String :write :create)
+  ((config links-field) : Ref :to (config resource) :many :write :create)
+  ((config title-field) : String :write :create)
+  ((config summary-field) : String :write :create)
+  ((config content-source-field) : String :write :create))
 
 (query browse-published
+  :capability browse-published
   :params []
-  :from [(entry : resource)
-         (published : revision)]
-  :where [(= entry.published-revision published)
-          (= published.resource entry)
-          (= published.state :published)]
-  :select [(resource-id entry.id)
-           (revision-id published.id)
-           (title published.title)
-           (summary published.summary)
-           (author published.author)
-           (created-at published.created-at)]
+  :from [(entry : (config resource))
+         (published : (config revision))]
+  :where [(= (field entry (config published-pointer)) published)
+          (= (field published (config owner-field)) entry)
+          (= (field published (config state-field)) (config published-state))]
+  :select [(resource-id (field entry (config resource-id)))
+           (revision-id (field published (config revision-id)))
+           (title (field published (config title-field)))
+           (summary (field published (config summary-field)))
+           (author (field published (config author-field)))
+           (created-at (field published (config created-at-field)))
+           (extension-fields revision-fields published)]
   :result :page
-  :page [default 10 max 20])
+  :page [default (config query-limits.browseDefault)
+         max (config query-limits.browseMax)])
 
 (query read-published
+  :capability read-published
   :params [(resource-id : String)]
-  :from [(entry : resource)
-         (published : revision)]
-  :where [(= entry.id $resource-id)
-          (= entry.published-revision published)
-          (= published.resource entry)
-          (= published.state :published)]
-  :select [(resource-id entry.id)
-           (revision-id published.id)
-           (title published.title)
-           (summary published.summary)
-           (content-source published.content-source)
-           (links-to published.links-to)
-           (author published.author)
-           (created-at published.created-at)
-           (digest published.digest)]
+  :from [(entry : (config resource))
+         (published : (config revision))]
+  :where [(= (field entry (config resource-id)) $resource-id)
+          (= (field entry (config published-pointer)) published)
+          (= (field published (config owner-field)) entry)
+          (= (field published (config state-field)) (config published-state))]
+  :select [(resource-id (field entry (config resource-id)))
+           (revision-id (field published (config revision-id)))
+           (title (field published (config title-field)))
+           (summary (field published (config summary-field)))
+           (content-source (field published (config content-source-field)))
+           (links-to (field published (config links-field)))
+           (author (field published (config author-field)))
+           (created-at (field published (config created-at-field)))
+           (digest (field published (config digest-field)))
+           (extension-fields revision-fields published)]
   :result :optional)
 
 (query read-draft
+  :capability read-draft
   :params [(resource-id : String)]
-  :from [(entry : resource)
-         (draft : revision)]
-  :where [(= entry.id $resource-id)
-          (= entry.draft-revision draft)
-          (= draft.resource entry)
-          (= draft.state :draft)]
-  :select [(resource-id entry.id)
-           (revision-id draft.id)
-           (title draft.title)
-           (summary draft.summary)
-           (content-source draft.content-source)
-           (links-to draft.links-to)
-           (author draft.author)
-           (created-at draft.created-at)
-           (digest draft.digest)]
+  :from [(entry : (config resource))
+         (draft : (config revision))]
+  :where [(= (field entry (config resource-id)) $resource-id)
+          (= (field entry (config draft-pointer)) draft)
+          (= (field draft (config owner-field)) entry)
+          (= (field draft (config state-field)) (config draft-state))]
+  :select [(resource-id (field entry (config resource-id)))
+           (revision-id (field draft (config revision-id)))
+           (title (field draft (config title-field)))
+           (summary (field draft (config summary-field)))
+           (content-source (field draft (config content-source-field)))
+           (links-to (field draft (config links-field)))
+           (author (field draft (config author-field)))
+           (created-at (field draft (config created-at-field)))
+           (digest (field draft (config digest-field)))
+           (extension-fields revision-fields draft)]
   :result :optional)
 
 (query review
+  :capability review-draft
   :params [(resource-id : String)]
-  :from [(entry : resource)
-         (candidate : revision)]
-  :where [(= entry.id $resource-id)
-          (= entry.draft-revision candidate)
-          (= candidate.resource entry)
-          (= candidate.state :draft)]
-  :select [(resource-id entry.id)
-           (revision-id candidate.id)
-           (title candidate.title)
-           (summary candidate.summary)
-           (content-source candidate.content-source)
-           (links-to candidate.links-to)
-           (author candidate.author)
-           (created-at candidate.created-at)
-           (digest candidate.digest)]
+  :from [(entry : (config resource))
+         (candidate : (config revision))]
+  :where [(= (field entry (config resource-id)) $resource-id)
+          (= (field entry (config draft-pointer)) candidate)
+          (= (field candidate (config owner-field)) entry)
+          (= (field candidate (config state-field)) (config draft-state))]
+  :select [(resource-id (field entry (config resource-id)))
+           (revision-id (field candidate (config revision-id)))
+           (title (field candidate (config title-field)))
+           (summary (field candidate (config summary-field)))
+           (content-source (field candidate (config content-source-field)))
+           (links-to (field candidate (config links-field)))
+           (author (field candidate (config author-field)))
+           (created-at (field candidate (config created-at-field)))
+           (digest (field candidate (config digest-field)))
+           (extension-fields revision-fields candidate)]
   :result :optional)
 
 (query history
+  :capability read-history
   :params [(resource-id : String)]
-  :from [(entry : resource)
-         (edition : revision)
-         (prior : revision)]
-  :where [(= entry.id $resource-id)
-          (= entry.published-revision edition)
-          (= edition.resource entry)
-          (= edition.state :published)
-          (= edition.based-on prior)
-          (= prior.resource entry)]
-  :select [(resource-id entry.id)
-           (revision-id edition.id)
-           (based-on prior.id)
-           (state edition.state)
-           (title edition.title)
-           (summary edition.summary)
-           (author edition.author)
-           (created-at edition.created-at)
-           (digest edition.digest)]
+  :from [(entry : (config resource))
+         (edition : (config revision))
+         (prior : (config revision))]
+  :where [(= (field entry (config resource-id)) $resource-id)
+          (= (field entry (config published-pointer)) edition)
+          (= (field edition (config owner-field)) entry)
+          (= (field edition (config state-field)) (config published-state))
+          (= (field edition (config base-field)) prior)
+          (= (field prior (config owner-field)) entry)]
+  :select [(resource-id (field entry (config resource-id)))
+           (revision-id (field edition (config revision-id)))
+           (based-on (field prior (config revision-id)))
+           (state (field edition (config state-field)))
+           (title (field edition (config title-field)))
+           (summary (field edition (config summary-field)))
+           (author (field edition (config author-field)))
+           (created-at (field edition (config created-at-field)))
+           (digest (field edition (config digest-field)))
+           (extension-fields revision-fields edition)]
   :result :page
-  :page [default 10 max 20])
+  :page [default (config query-limits.historyDefault)
+         max (config query-limits.historyMax)])
 
 (query backlinks
+  :capability read-backlinks
   :params [(resource-id : String)]
-  :from [(source : resource)
-         (published : revision)
-         (target : resource)
-         (target-published : revision)]
-  :where [(= target.id $resource-id)
-          (= target.published-revision target-published)
-          (= target-published.resource target)
-          (= target-published.state :published)
-          (= source.published-revision published)
-          (= published.resource source)
-          (= published.state :published)
-          (= published.links-to target)]
-  :select [(resource-id source.id)
-           (revision-id published.id)
-           (title published.title)
-           (summary published.summary)]
+  :from [(source : (config resource))
+         (published : (config revision))
+         (target : (config resource))
+         (target-published : (config revision))]
+  :where [(= (field target (config resource-id)) $resource-id)
+          (= (field target (config published-pointer)) target-published)
+          (= (field target-published (config owner-field)) target)
+          (= (field target-published (config state-field)) (config published-state))
+          (= (field source (config published-pointer)) published)
+          (= (field published (config owner-field)) source)
+          (= (field published (config state-field)) (config published-state))
+          (= (field published (config links-field)) target)]
+  :select [(resource-id (field source (config resource-id)))
+           (revision-id (field published (config revision-id)))
+           (title (field published (config title-field)))
+           (summary (field published (config summary-field)))
+           (extension-fields revision-fields published)]
   :result :page
-  :page [default 10 max 20])
+  :page [default (config query-limits.backlinksDefault)
+         max (config query-limits.backlinksMax)])
 
 (component browse-page
   :props [title summary]
@@ -231,32 +246,32 @@
   (p :class "wake-wiki-conflict-notice" :text message))
 
 (view browse-view
-  :entity resource
+  :entity (config resource)
   :each browse-page
   :title "Browse published resources")
 
 (view new-view
-  :entity resource
+  :entity (config resource)
   :each new-draft-page
   :title "New draft")
 
 (view read-view
-  :entity resource
+  :entity (config resource)
   :each read-page
   :title "Published resource")
 
 (view edit-view
-  :entity revision
+  :entity (config revision)
   :each edit-draft-page
   :title "Edit draft")
 
 (view review-view
-  :entity revision
+  :entity (config revision)
   :each review-page
   :title "Review draft")
 
 (view history-view
-  :entity revision
+  :entity (config revision)
   :each history-page
   :title "Published history")
 

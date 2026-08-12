@@ -54,6 +54,11 @@
                                  maxDepth 8
                                  maxNodes 512]])
 
+(extend wiki.revision-fields
+  (audience : Keyword
+    :storage-id "wake-wiki-substrate-fixture/field/edition/audience"
+    :required true))
+
 (mount wiki.browse :path "/library")
 (mount wiki.new :path "/library/new")
 (mount wiki.read :path "/library/:entry-id")

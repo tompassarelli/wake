@@ -92,6 +92,12 @@ superseded ->
 ```
 
 All limits are finite and required. There is no unbounded default.
+Caller-selected page limits cannot exceed 247 rows, link lists cannot exceed
+200 anchors, and configured safe-document limits cannot exceed FRAM's absolute
+1,048,576-byte, 256-depth, and 65,536-Term ceilings. A consuming application is
+expected to bind materially tighter product and HTTP budgets; these absolute
+plugin ceilings do not make a large provider result safe for a particular
+response envelope.
 
 ## Public operations
 
@@ -103,7 +109,7 @@ Commands:
 | `start-revision-draft` | request ID, resource, expected published revision, payload |
 | `replace-draft` | request ID, resource, expected draft, nullable expected published revision, payload |
 | `abandon-draft` | request ID, resource, expected draft, nullable expected published revision |
-| `publish` | request ID, resource, candidate, expected draft, nullable expected published revision, expected candidate digest |
+| `publish` | request ID, resource, candidate, expected draft, nullable expected published revision, expected candidate digest, expected normalized links |
 
 A revision payload contains title, summary, content source, bounded stable
 resource links, and the closed record produced by the revision-field extension.

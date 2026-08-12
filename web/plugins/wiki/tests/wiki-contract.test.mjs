@@ -313,6 +313,31 @@ describe("wake-wiki K0C data contract", () => {
       .toBeUndefined();
     expect(manifest.configuration["content-provider"].type.declarationId)
       .toBeUndefined();
+    expect(Object.fromEntries(
+      manifest.configuration["content-limits"].type.fields.map(field => [
+        field.name,
+        field.type.maximum,
+      ]),
+    )).toEqual({
+      titleBytes: 1_048_576,
+      titleScalars: 1_048_576,
+      summaryBytes: 1_048_576,
+      contentSourceBytes: 1_048_576,
+      links: 200,
+    });
+    expect(manifest.configuration["query-limits"].type.fields.every(
+      field => field.type.maximum === 247,
+    )).toBe(true);
+    expect(Object.fromEntries(
+      manifest.configuration["safe-document-limits"].type.fields.map(field => [
+        field.name,
+        field.type.maximum,
+      ]),
+    )).toEqual({
+      maxBytes: 1_048_576,
+      maxDepth: 256,
+      maxNodes: 65_536,
+    });
   });
 
   test("keeps product semantics out of the reusable package", async () => {
@@ -336,16 +361,19 @@ describe("wake-wiki K0C data contract", () => {
   test("materializes the schema, lifecycle, and every exported component", async () => {
     const manifest = await jsonAt("wake-plugin.json");
     const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
-    for (const entity of manifest.exports.entities) {
-      expect(entry).toContain(`(entity ${entity}\n`);
-    }
+    expect(entry).toContain("(entity (config resource)\n");
+    expect(entry).toContain("(entity (config revision)\n");
     for (const component of manifest.exports.components) {
       expect(entry).toContain(`(component ${component}\n`);
     }
-    expect(entry).toContain("(defstate RevisionLifecycle\n");
-    expect(entry).toContain("[:draft -> :published :superseded]");
-    expect(entry).toContain("[:published -> :superseded]");
-    expect(entry).toContain("[:superseded ->]");
+    expect(entry).toContain("(defstate (config lifecycle-type)\n");
+    expect(entry).toContain(
+      "[(config draft-state) -> (config published-state) (config superseded-state)]",
+    );
+    expect(entry).toContain(
+      "[(config published-state) -> (config superseded-state)]",
+    );
+    expect(entry).toContain("[(config superseded-state) ->]");
   });
 
   test("materializes every exported query without draft leakage", async () => {
@@ -357,31 +385,64 @@ describe("wake-wiki K0C data contract", () => {
     const publishedStart = entry.indexOf("(query read-published\n");
     const publishedEnd = entry.indexOf("\n(query read-draft\n", publishedStart);
     const published = entry.slice(publishedStart, publishedEnd);
-    expect(published).toContain("(= entry.published-revision published)");
-    expect(published).toContain("(= published.resource entry)");
-    expect(published).toContain("(= published.state :published)");
+    expect(published).toContain(
+      "(= (field entry (config published-pointer)) published)",
+    );
+    expect(published).toContain(
+      "(= (field published (config owner-field)) entry)",
+    );
+    expect(published).toContain(
+      "(= (field published (config state-field)) (config published-state))",
+    );
+    expect(published).toContain(
+      "(content-source (field published (config content-source-field)))",
+    );
+    expect(published).toContain(
+      "(extension-fields revision-fields published)",
+    );
     expect(published).not.toMatch(/draft|superseded/u);
 
     const historyStart = entry.indexOf("(query history\n");
     const historyEnd = entry.indexOf("\n(query backlinks\n", historyStart);
     const history = entry.slice(historyStart, historyEnd);
-    expect(history).toContain("(= entry.published-revision edition)");
-    expect(history).toContain("(= edition.resource entry)");
-    expect(history).toContain("(= edition.state :published)");
-    expect(history).toContain("(= edition.based-on prior)");
-    expect(history).toContain("(= prior.resource entry)");
+    expect(history).toContain(
+      "(= (field entry (config published-pointer)) edition)",
+    );
+    expect(history).toContain(
+      "(= (field edition (config owner-field)) entry)",
+    );
+    expect(history).toContain(
+      "(= (field edition (config state-field)) (config published-state))",
+    );
+    expect(history).toContain(
+      "(= (field edition (config base-field)) prior)",
+    );
+    expect(history).toContain(
+      "(= (field prior (config owner-field)) entry)",
+    );
     expect(history).not.toMatch(/draft|superseded/u);
 
     const backlinksStart = entry.indexOf("(query backlinks\n");
     const backlinksEnd = entry.indexOf("\n(component browse-page\n", backlinksStart);
     const backlinks = entry.slice(backlinksStart, backlinksEnd);
     expect(backlinks).toContain(
-      "(= target.published-revision target-published)",
+      "(= (field target (config published-pointer)) target-published)",
     );
-    expect(backlinks).toContain("(= target-published.resource target)");
-    expect(backlinks).toContain("(= target-published.state :published)");
-    expect(backlinks).toContain("(= source.published-revision published)");
-    expect(backlinks).toContain("(= published.state :published)");
+    expect(backlinks).toContain(
+      "(= (field target-published (config owner-field)) target)",
+    );
+    expect(backlinks).toContain(
+      "(= (field target-published (config state-field)) (config published-state))",
+    );
+    expect(backlinks).toContain(
+      "(= (field source (config published-pointer)) published)",
+    );
+    expect(backlinks).toContain(
+      "(= (field published (config state-field)) (config published-state))",
+    );
+    expect(backlinks).toContain(
+      "(extension-fields revision-fields published)",
+    );
     expect(backlinks).not.toMatch(/draft|superseded/u);
   });
 
@@ -393,8 +454,12 @@ describe("wake-wiki K0C data contract", () => {
     expect(first.digest).toBe(sha256Digest(first.bytes));
     expect(first.artifact.files).toHaveLength(1);
     expect(first.artifact.files[0].path).toBe("plugin.wake");
-    expect(first.artifact.files[0].content).toContain("(entity resource\n");
-    expect(first.artifact.files[0].content).toContain("(entity revision\n");
+    expect(first.artifact.files[0].content).toContain(
+      "(entity (config resource)\n",
+    );
+    expect(first.artifact.files[0].content).toContain(
+      "(entity (config revision)\n",
+    );
   });
 
   test("links the delivered substrate into one checked FRAM graph", async () => {
@@ -410,40 +475,40 @@ describe("wake-wiki K0C data contract", () => {
     });
     expect(plan.entities.map((entity) => entity.name)).toEqual([
       "member",
-      "wiki.resource",
-      "wiki.revision",
+      "wiki.entry",
+      "wiki.edition",
     ]);
     expect(plan.entities.map((entity) => entity.storageId)).toEqual([
       "wake-wiki-substrate-fixture/entity/member",
       "wake-wiki/entity/resource",
       "wake-wiki/entity/revision",
     ]);
-    const resource = plan.entities.find((entity) => entity.name === "wiki.resource");
-    const revision = plan.entities.find((entity) => entity.name === "wiki.revision");
+    const resource = plan.entities.find((entity) => entity.name === "wiki.entry");
+    const revision = plan.entities.find((entity) => entity.name === "wiki.edition");
     expect(resource.identity).toMatchObject({
-      field: "id",
+      field: "entry-id",
       storageId: "wake-wiki/field/resource/id",
     });
-    expect(resource.fields.filter((field) => field.name !== "id")
+    expect(resource.fields.filter((field) => field.name !== "entry-id")
       .every((field) => field.write === "command")).toBe(true);
     expect(revision.identity).toMatchObject({
-      field: "id",
+      field: "edition-id",
       storageId: "wake-wiki/field/revision/id",
     });
     expect(revision.fields.filter((field) =>
-      field.name !== "id" && field.name !== "state"
+      field.name !== "edition-id" && field.name !== "phase"
     ).every((field) => field.write === "create")).toBe(true);
-    expect(revision.fields.find((field) => field.name === "state").write)
+    expect(revision.fields.find((field) => field.name === "phase").write)
       .toBe("command");
     expect(plan.stateMachines).toEqual([{
-      entity: "wiki.revision",
-      field: "state",
-      initial: "draft",
-      stateType: "wiki.RevisionLifecycle",
+      entity: "wiki.edition",
+      field: "phase",
+      initial: "working",
+      stateType: "wiki.EditionPhase",
       transitions: {
-        draft: ["published", "superseded"],
-        published: ["superseded"],
-        superseded: [],
+        working: ["released", "withdrawn"],
+        released: ["withdrawn"],
+        withdrawn: [],
       },
     }]);
     expect(plan.queries.map((query) => query.name)).toEqual([
@@ -465,6 +530,16 @@ describe("wake-wiki K0C data contract", () => {
       ["wiki.backlinks", 10, 20],
     ]);
     for (const query of plan.queries) {
+      const localName = query.name.slice("wiki.".length);
+      const expectedCapability = {
+        "browse-published": "wake-wiki/cap/browse-published",
+        "read-published": "wake-wiki/cap/read-published",
+        "read-draft": "wake-wiki/cap/read-draft",
+        review: "wake-wiki/cap/review-draft",
+        history: "wake-wiki/cap/read-history",
+        backlinks: "wake-wiki/cap/read-backlinks",
+      }[localName];
+      expect(query.capabilities).toEqual([expectedCapability]);
       expect(query.select[0]).toMatchObject({
         cardinality: "single",
         valueKind: "literal",
@@ -477,7 +552,7 @@ describe("wake-wiki K0C data contract", () => {
       expect.objectContaining({
         left: expect.objectContaining({
           binding: "entry",
-          field: "published-revision",
+          field: "released-edition",
           kind: "field",
         }),
         op: "eq",
@@ -489,13 +564,13 @@ describe("wake-wiki K0C data contract", () => {
       expect.objectContaining({
         left: expect.objectContaining({
           binding: "edition",
-          field: "state",
+          field: "phase",
           kind: "field",
         }),
         op: "eq",
         right: expect.objectContaining({
           kind: "literal",
-          value: "published",
+          value: "released",
         }),
       }),
     ]));
@@ -507,7 +582,7 @@ describe("wake-wiki K0C data contract", () => {
       expect.objectContaining({
         left: expect.objectContaining({
           binding: "target",
-          field: "published-revision",
+          field: "released-edition",
           kind: "field",
         }),
         op: "eq",
@@ -519,16 +594,32 @@ describe("wake-wiki K0C data contract", () => {
       expect.objectContaining({
         left: expect.objectContaining({
           binding: "target-published",
-          field: "state",
+          field: "phase",
           kind: "field",
         }),
         op: "eq",
         right: expect.objectContaining({
           kind: "literal",
-          value: "published",
+          value: "released",
         }),
       }),
     ]));
+    for (const name of [
+      "wiki.browse-published",
+      "wiki.read-published",
+      "wiki.read-draft",
+      "wiki.review",
+      "wiki.history",
+      "wiki.backlinks",
+    ]) {
+      expect(plan.queries.find(query => query.name === name).select)
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({
+            field: "audience",
+            name: "audience",
+          }),
+        ]));
+    }
 
     expect(plan.routes).toEqual([
       {
