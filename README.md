@@ -8,7 +8,7 @@ and projects it to direct-DOM JavaScript and, when selected, a FRAM plan.
 ```clojure
 #lang beagle/js
 (ns example.app
-  (:require [wake.dsl :as wake]))
+  (:require [wake.core :as wake]))
 
 (wake/application application "example")
 (wake/backend backend :fram)
@@ -36,7 +36,7 @@ bun run test
 
 ## Source authority
 
-- [`web/wake/dsl.bjs`](web/wake/dsl.bjs) defines Wake's public Beagle forms and
+- [`web/wake/core.bjs`](web/wake/core.bjs) defines Wake's public Beagle forms and
   types.
 - [`web/bin/wake-compile`](web/bin/wake-compile) defines compiler invocation and
   output selection.
