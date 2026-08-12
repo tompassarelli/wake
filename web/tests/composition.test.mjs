@@ -179,6 +179,41 @@ describe("W3 checked application composition", () => {
       valueKind: "ref",
       write: "create",
     });
+    const releaseQuery = plan.queries.find(query => (
+      query.name === "release-plugin.release-by-id"
+    ));
+    expect(releaseQuery.capabilities).toEqual([
+      "wake-composition-plugin/cap/read-release",
+    ]);
+    expect(releaseQuery.select.slice(2)).toEqual([
+      {
+        binding: "item",
+        cardinality: "single",
+        entity: "release-plugin.release",
+        field: "channel",
+        name: "channel",
+        type: "String",
+        valueKind: "literal",
+      },
+      {
+        binding: "item",
+        cardinality: "single",
+        entity: "release-plugin.release",
+        field: "owner",
+        name: "owner",
+        targetEntity: "actor",
+        type: "Ref",
+        valueKind: "ref",
+      },
+    ]);
+    expect(releaseQuery.dependencies).toContainEqual({
+      entity: "release-plugin.release",
+      field: "channel",
+    });
+    expect(releaseQuery.dependencies).toContainEqual({
+      entity: "release-plugin.release",
+      field: "owner",
+    });
     expect(plan.composition.providers).toHaveLength(1);
     expect(plan.composition.providers[0]).toMatchObject({
       name: "release-summary-provider",
@@ -256,10 +291,11 @@ describe("W3 checked application composition", () => {
     const client = await import(`${root}/out/wake-client.js`);
     expect(client.semanticFingerprint).toBe(manifest.checkedApplication.fingerprint);
     expect(client.queryDescriptor("release-plugin.release-by-id")).toMatchObject({
-      input: { "release-id": { kind: "string" } },
+      capabilities: ["wake-composition-plugin/cap/read-release"],
+      input: [{ name: "release-id", required: true, value: { kind: "string" } }],
       result: { kind: "optional" },
     });
-    expect(client.validateQueryInput(
+    expect(client.normalizeQueryInput(
       "release-plugin.release-by-id",
       { "release-id": "release-1" },
     )).toEqual({ "release-id": "release-1" });

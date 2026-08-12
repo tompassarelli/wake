@@ -5,11 +5,13 @@
   (state : String))
 
 (query release-by-id
+  :capability read-release
   :params [(release-id : String)]
   :from [(item : release)]
   :where [(= item.id $release-id)]
   :select [(id item.id)
-           (state item.state)]
+           (state item.state)
+           (extension-fields release-fields item)]
   :result :optional)
 
 (component release-card

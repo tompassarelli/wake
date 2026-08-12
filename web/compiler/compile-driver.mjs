@@ -290,6 +290,21 @@ function applyApplicationComposition(linked, direct) {
       : entity);
   }
 
+  const queries = (linked.queries ?? []).map(query => ({
+    ...query,
+    selection: query.selection.flatMap(selection => {
+      if (selection?._tag !== "IrQueryFieldSplice") return [selection];
+      const extension = extensions.find(candidate => candidate.port === selection.port);
+      if (extension === undefined) return [];
+      return extension.fields.map(field => ({
+        _tag: "IrQuerySelect",
+        binding: selection.binding,
+        field: field.name,
+        name: field.name,
+      }));
+    }),
+  }));
+
   const componentNames = new Set(linked.components.map(component => component.name));
   const fills = (linked.fills ?? []).map(fill => {
     const target = declaredCompositionTarget(direct, fill.port, "fill", `fill '${fill.port}'`);
@@ -407,6 +422,7 @@ function applyApplicationComposition(linked, direct) {
     fills,
     mounts,
     providers,
+    queries,
     router,
     views: filledViews,
   };
@@ -531,22 +547,58 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
       }))
     : [];
   const queries = allow.has("query")
-    ? (program.queries ?? []).map((query) => ({
-        ...query,
-        name: qualify(alias, query.name),
-        params: query.params.map((parameter) => ({
-          ...parameter,
-          type: stateNames.has(parameter.type)
-            ? qualify(alias, parameter.type)
-            : parameter.type,
-        })),
-        bindings: query.bindings.map((binding) => ({
-          ...binding,
-          entity_name: entityNames.has(binding.entity_name)
-            ? qualify(alias, binding.entity_name)
-            : binding.entity_name,
-        })),
-      }))
+    ? (program.queries ?? []).map((query) => {
+        const capabilities = query.capabilities.map(capability => {
+          if (!manifest.exports.capabilities.includes(capability)) {
+            fail(`plugin '${manifest.packageId}' query '${query.name}' names unexported capability '${capability}'`);
+          }
+          return `${manifest.packageId}/cap/${capability}`;
+        });
+        const seenSplices = new Set();
+        const selection = query.selection.map(item => {
+          if (item?._tag !== "IrQueryFieldSplice") return item;
+          const port = manifest.extensionPorts.find(candidate => candidate.name === item.port);
+          if (port === undefined) {
+            fail(`plugin '${manifest.packageId}' query '${query.name}' names unknown extension port '${item.port}'`);
+          }
+          if (port.kind !== "entity-fields") {
+            fail(`plugin '${manifest.packageId}' query '${query.name}' extension-fields '${item.port}' targets ${port.kind}, not entity-fields`);
+          }
+          if (seenSplices.has(item.port)) {
+            fail(`plugin '${manifest.packageId}' query '${query.name}' repeats extension-fields '${item.port}'`);
+          }
+          seenSplices.add(item.port);
+          const binding = query.bindings.find(candidate => candidate.name === item.binding);
+          if (binding === undefined) {
+            fail(`plugin '${manifest.packageId}' query '${query.name}' extension-fields '${item.port}' names unknown binding '${item.binding}'`);
+          }
+          const targetEntity = port.target.includes("/")
+            ? port.target
+            : declarations.alias("entity", port.target);
+          if (binding.entity_name !== targetEntity) {
+            fail(`plugin '${manifest.packageId}' query '${query.name}' extension-fields '${item.port}' targets '${targetEntity}', not binding '${item.binding}' entity '${binding.entity_name}'`);
+          }
+          return { ...item, port: qualify(alias, item.port) };
+        });
+        return {
+          ...query,
+          capabilities,
+          name: qualify(alias, query.name),
+          params: query.params.map((parameter) => ({
+            ...parameter,
+            type: stateNames.has(parameter.type)
+              ? qualify(alias, parameter.type)
+              : parameter.type,
+          })),
+          bindings: query.bindings.map((binding) => ({
+            ...binding,
+            entity_name: entityNames.has(binding.entity_name)
+              ? qualify(alias, binding.entity_name)
+              : binding.entity_name,
+          })),
+          selection,
+        };
+      })
     : [];
   const components = allow.has("ui")
     ? program.components.map((component) => ({

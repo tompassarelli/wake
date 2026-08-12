@@ -948,23 +948,23 @@
     (parse-query-operand (nth value 2 nil) query-name)))
 
 (defn parse-query-select [value: Any query-name: String] -> Any
-  (if (and (vector? value) (sym= (nth value 0 nil) "fields-from"))
+  (if (and (vector? value) (sym= (nth value 0 nil) "extension-fields"))
     (do
       (if (not (= (count value) 3))
         (parse-error
           (str "query '" query-name
-               "' fields-from projection must be (fields-from PORT BINDING)"))
+               "' extension-fields projection must be (extension-fields PORT BINDING)"))
         nil)
       (ir/->IrQueryFieldSplice
         (require-query-local-name
-          (nth value 1 nil) (str "query '" query-name "' fields-from port"))
+          (nth value 1 nil) (str "query '" query-name "' extension-fields port"))
         (require-query-local-name
-          (nth value 2 nil) (str "query '" query-name "' fields-from binding"))))
+          (nth value 2 nil) (str "query '" query-name "' extension-fields binding"))))
     (do
       (if (or (not (vector? value)) (not (= (count value) 2)))
         (parse-error
           (str "query '" query-name
-               "' projections must be (OUTPUT BINDING.FIELD) or (fields-from PORT BINDING)"))
+               "' projections must be (OUTPUT BINDING.FIELD) or (extension-fields PORT BINDING)"))
         nil)
       (let [output
             (require-query-local-name
@@ -1080,7 +1080,7 @@
                          (= (.-_tag (first items)) "IrQueryFieldSplice"))
                   (parse-error
                     (str "query '" name
-                         "' fields-from cannot be the first projection"))
+                         "' extension-fields cannot be the first projection"))
                   nil)
                 (recur
                   (+ index 2) capabilities params bindings predicates items
