@@ -358,10 +358,10 @@
   (IrNilLiteral [unit: Nil]))
 (defunion IrValueTypeSpec
   (IrStringValueType
-    [minimum-scalars: Int?
-     maximum-scalars: Int?
-     maximum-bytes: Int?])
-  (IrIntegerValueType [minimum: Int? maximum: Int?])
+    [minimum-scalars: IrBoundInt?
+     maximum-scalars: IrBoundInt?
+     maximum-bytes: IrBoundInt?])
+  (IrIntegerValueType [minimum: IrBoundInt? maximum: IrBoundInt?])
   (IrBooleanValueType [unit: Nil])
   (IrKeywordValueType [allowed: (Vec String)])
   (IrEntityReferenceValueType [entity: IrEntityRef])
@@ -369,8 +369,8 @@
   (IrTaggedValueType [tag-field: String variants: (Vec IrValueTaggedVariant)])
   (IrListValueType
     [item: IrValueTypeSpec
-     minimum-items: Int?
-     maximum-items: Int?])
+     minimum-items: IrBoundInt?
+     maximum-items: IrBoundInt?])
   (IrNullableValueType [value-type: IrValueTypeSpec])
   (IrNamedValueType [value-type: IrValueTypeRef])
   (IrLiteralValueType [literal: IrValueLiteral]))

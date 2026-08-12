@@ -476,10 +476,10 @@
 (js/export
   (defunion ValueTypeSpec
     (StringValueType
-      [minimum-scalars: Int?
-       maximum-scalars: Int?
-       maximum-bytes: Int?])
-    (IntegerValueType [minimum: Int? maximum: Int?])
+      [minimum-scalars: BoundInt?
+       maximum-scalars: BoundInt?
+       maximum-bytes: BoundInt?])
+    (IntegerValueType [minimum: BoundInt? maximum: BoundInt?])
     (BooleanValueType [unit: Nil])
     (KeywordValueType [allowed: (Vec Keyword)])
     (EntityReferenceValueType [entity: EntityRef])
@@ -487,8 +487,8 @@
     (TaggedValueType [tag-field: String variants: (Vec ValueTaggedVariant)])
     (ListValueType
       [item: ValueTypeSpec
-       minimum-items: Int?
-       maximum-items: Int?])
+       minimum-items: BoundInt?
+       maximum-items: BoundInt?])
     (NullableValueType [value-type: ValueTypeSpec])
     (NamedValueType [value-type: ValueTypeRef])
     (LiteralValueType [literal: ValueLiteral])))
