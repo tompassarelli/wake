@@ -99,14 +99,17 @@
 
 (query history
   :params [(resource-id : String)]
-  :from [(edition : revision)
-         (entry : resource)
+  :from [(entry : resource)
+         (edition : revision)
          (prior : revision)]
-  :where [(= edition.resource entry)
-          (= entry.id $resource-id)
+  :where [(= entry.id $resource-id)
+          (= entry.published-revision edition)
+          (= edition.resource entry)
+          (= edition.state :published)
           (= edition.based-on prior)
           (= prior.resource entry)]
-  :select [(revision-id edition.id)
+  :select [(resource-id entry.id)
+           (revision-id edition.id)
            (based-on prior.id)
            (state edition.state)
            (title edition.title)
@@ -121,8 +124,12 @@
   :params [(resource-id : String)]
   :from [(source : resource)
          (published : revision)
-         (target : resource)]
+         (target : resource)
+         (target-published : revision)]
   :where [(= target.id $resource-id)
+          (= target.published-revision target-published)
+          (= target-published.resource target)
+          (= target-published.state :published)
           (= source.published-revision published)
           (= published.resource source)
           (= published.state :published)

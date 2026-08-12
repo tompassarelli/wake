@@ -313,9 +313,24 @@ describe("wake-wiki K0C data contract", () => {
     expect(published).toContain("(= published.state :published)");
     expect(published).not.toMatch(/draft|superseded/u);
 
+    const historyStart = entry.indexOf("(query history\n");
+    const historyEnd = entry.indexOf("\n(query backlinks\n", historyStart);
+    const history = entry.slice(historyStart, historyEnd);
+    expect(history).toContain("(= entry.published-revision edition)");
+    expect(history).toContain("(= edition.resource entry)");
+    expect(history).toContain("(= edition.state :published)");
+    expect(history).toContain("(= edition.based-on prior)");
+    expect(history).toContain("(= prior.resource entry)");
+    expect(history).not.toMatch(/draft|superseded/u);
+
     const backlinksStart = entry.indexOf("(query backlinks\n");
     const backlinksEnd = entry.indexOf("\n(component browse-page\n", backlinksStart);
     const backlinks = entry.slice(backlinksStart, backlinksEnd);
+    expect(backlinks).toContain(
+      "(= target.published-revision target-published)",
+    );
+    expect(backlinks).toContain("(= target-published.resource target)");
+    expect(backlinks).toContain("(= target-published.state :published)");
     expect(backlinks).toContain("(= source.published-revision published)");
     expect(backlinks).toContain("(= published.state :published)");
     expect(backlinks).not.toMatch(/draft|superseded/u);
@@ -404,6 +419,64 @@ describe("wake-wiki K0C data contract", () => {
       });
       expect(query.dependencies.length).toBeGreaterThan(0);
     }
+
+    const history = plan.queries.find((query) => query.name === "wiki.history");
+    expect(history.where).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        left: expect.objectContaining({
+          binding: "entry",
+          field: "published-revision",
+          kind: "field",
+        }),
+        op: "eq",
+        right: expect.objectContaining({
+          binding: "edition",
+          kind: "binding",
+        }),
+      }),
+      expect.objectContaining({
+        left: expect.objectContaining({
+          binding: "edition",
+          field: "state",
+          kind: "field",
+        }),
+        op: "eq",
+        right: expect.objectContaining({
+          kind: "literal",
+          value: "published",
+        }),
+      }),
+    ]));
+
+    const backlinks = plan.queries.find(
+      (query) => query.name === "wiki.backlinks",
+    );
+    expect(backlinks.where).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        left: expect.objectContaining({
+          binding: "target",
+          field: "published-revision",
+          kind: "field",
+        }),
+        op: "eq",
+        right: expect.objectContaining({
+          binding: "target-published",
+          kind: "binding",
+        }),
+      }),
+      expect.objectContaining({
+        left: expect.objectContaining({
+          binding: "target-published",
+          field: "state",
+          kind: "field",
+        }),
+        op: "eq",
+        right: expect.objectContaining({
+          kind: "literal",
+          value: "published",
+        }),
+      }),
+    ]));
   }, 30_000);
 });
 
