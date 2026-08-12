@@ -1,3 +1,5 @@
+import { CheckedValueError, compileCheckedValue } from "./checked-value.mjs";
+
 const QUERY_TIMEOUT_MS = 5_000;
 const MAX_PAGE_LIMIT = 247;
 const MAX_SINGULAR_ROWS = 4_096;
@@ -521,10 +523,134 @@ function queryCapabilities(value, label) {
   return Object.freeze(capabilities);
 }
 
+function checkedProviderContract(source, label) {
+  try {
+    return compileCheckedValue(source, { descriptorCode: "gateway/invalid-plan" });
+  } catch (error) {
+    if (error instanceof CheckedValueError) {
+      fail("gateway/invalid-plan", `${label} has an invalid checked value contract`);
+    }
+    throw error;
+  }
+}
+
+function compileProviderInput(source, columns, label, usedInternal) {
+  if (!plainObject(source)) fail("gateway/invalid-plan", `${label} must be an expression`);
+  switch (source.kind) {
+    case "column": {
+      exactRecord(source, ["kind", "name"], label);
+      const name = requiredName(source.name, `${label}.name`);
+      const column = columns.get(name);
+      if (!column) fail("gateway/invalid-plan", `${label} names unknown query column ${name}`);
+      if (!column.internal) {
+        fail("gateway/invalid-plan", `${label} may consume only an internal query column`);
+      }
+      usedInternal.add(name);
+      return Object.freeze({ kind: "column", name });
+    }
+    case "literal": {
+      exactRecord(source, ["kind", "value"], label);
+      if (source.value !== null
+          && typeof source.value !== "string"
+          && typeof source.value !== "boolean"
+          && !(typeof source.value === "number"
+            && Number.isFinite(source.value) && !Object.is(source.value, -0))) {
+        fail("gateway/invalid-plan", `${label}.value must be a scalar JSON literal`);
+      }
+      return Object.freeze({ kind: "literal", value: source.value });
+    }
+    case "record": {
+      exactRecord(source, ["kind", "fields"], label);
+      if (!Array.isArray(source.fields)) {
+        fail("gateway/invalid-plan", `${label}.fields must be an array`);
+      }
+      const names = new Set();
+      const fields = source.fields.map((field, index) => {
+        const fieldLabel = `${label}.fields[${index}]`;
+        exactRecord(field, ["name", "value"], fieldLabel);
+        const name = requiredName(field.name, `${fieldLabel}.name`);
+        if (names.has(name)) fail("gateway/invalid-plan", `${label} repeats field ${name}`);
+        names.add(name);
+        return Object.freeze({
+          name,
+          value: compileProviderInput(field.value, columns, `${fieldLabel}.value`, usedInternal),
+        });
+      });
+      return Object.freeze({ fields: Object.freeze(fields), kind: "record" });
+    }
+    default:
+      fail(
+        "gateway/invalid-plan",
+        `${label}.kind ${String(source.kind)} is not a checked provider input expression`,
+      );
+  }
+}
+
+function resultProviders(source, columns, outputNames, label) {
+  if (!Array.isArray(source)) {
+    fail("gateway/invalid-plan", `${label}.resultProviders must be an array`);
+  }
+  const providerNames = new Set();
+  const usedInternal = new Set();
+  const compiled = source.map((step, index) => {
+    const stepLabel = `${label}.resultProviders[${index}]`;
+    exactRecord(step, ["name", "provider", "input", "inputType", "outputType"], stepLabel);
+    const name = requiredName(step.name, `${stepLabel}.name`);
+    const provider = requiredName(step.provider, `${stepLabel}.provider`);
+    if (outputNames.has(name)) fail("gateway/invalid-plan", `${label} output ${name} is duplicated`);
+    outputNames.add(name);
+    if (providerNames.has(name)) fail("gateway/invalid-plan", `${label} repeats result provider ${name}`);
+    providerNames.add(name);
+    return Object.freeze({
+      input: compileProviderInput(step.input, columns, `${stepLabel}.input`, usedInternal),
+      inputContract: checkedProviderContract(step.inputType, `${stepLabel}.inputType`),
+      name,
+      outputContract: checkedProviderContract(step.outputType, `${stepLabel}.outputType`),
+      provider,
+    });
+  });
+  for (const column of columns.values()) {
+    if (column.internal && !usedInternal.has(column.name)) {
+      fail("gateway/invalid-plan", `${label} internal column ${column.name} is not consumed`);
+    }
+  }
+  return Object.freeze(compiled);
+}
+
+function checkedProviderRegistry(source, compiled) {
+  if (!plainObject(source)) {
+    fail("gateway/invalid-plan", "named query runtime providers must be an object");
+  }
+  const required = new Set();
+  for (const name of compiled.names) {
+    for (const step of compiled.get(name).resultProviders) required.add(step.provider);
+  }
+  const registry = new Map();
+  for (const name of required) {
+    const descriptor = Object.getOwnPropertyDescriptor(source, name);
+    if (!descriptor || descriptor.enumerable !== true || !("value" in descriptor)
+        || typeof descriptor.value !== "function") {
+      fail("gateway/missing-provider", `checked query provider '${name}' is unavailable`);
+    }
+    registry.set(name, descriptor.value);
+  }
+  return registry;
+}
+
 function compileQuery(entry, surface, queryIndex) {
   exactRecord(
     entry,
-    ["name", "capabilities", "parameters", "bindings", "where", "select", "result", "dependencies"],
+    [
+      "name",
+      "capabilities",
+      "parameters",
+      "bindings",
+      "where",
+      "select",
+      "resultProviders",
+      "result",
+      "dependencies",
+    ],
     `queries[${queryIndex}]`,
   );
   const name = requiredName(entry.name, `queries[${queryIndex}].name`);
@@ -629,7 +755,12 @@ function compileQuery(entry, surface, queryIndex) {
     const columnKeys = column.valueKind === "ref"
       ? ["name", "binding", "entity", "field", "type", "cardinality", "valueKind", "targetEntity"]
       : ["name", "binding", "entity", "field", "type", "cardinality", "valueKind"];
-    exactRecord(column, columnKeys, `${label}.select[${index}]`);
+    const internal = column.internal === true;
+    exactRecord(
+      column,
+      internal ? [...columnKeys, "internal"] : columnKeys,
+      `${label}.select[${index}]`,
+    );
     const outputName = requiredName(column.name, `${label}.select[${index}].name`);
     if (outputNames.has(outputName)) fail("gateway/invalid-plan", `${label} output ${outputName} is duplicated`);
     outputNames.add(outputName);
@@ -641,8 +772,13 @@ function compileQuery(entry, surface, queryIndex) {
         || (reference.field.valueKind === "ref" && column.targetEntity !== reference.field.targetName)) {
       fail("gateway/invalid-plan", `${label} output ${outputName} does not match its checked field plan`);
     }
-    return { name: outputName, ...reference };
+    return { internal, name: outputName, ...reference };
   });
+  const columnsByName = new Map(columns.map(column => [column.name, column]));
+  const providers = resultProviders(entry.resultProviders, columnsByName, outputNames, label);
+  if (columns.every(column => column.internal)) {
+    fail("gateway/invalid-plan", `${label} must expose at least one ordinary field output`);
+  }
 
   if (!plainObject(entry.result)) fail("gateway/invalid-plan", `${label}.result must be an object`);
   const kind = entry.result.kind;
@@ -740,6 +876,8 @@ function compileQuery(entry, surface, queryIndex) {
     parameters: Object.freeze(parameters.list),
     bindings: Object.freeze(bindings.list),
     columns: Object.freeze(columns),
+    publicColumns: Object.freeze(columns.filter(column => !column.internal)),
+    resultProviders: providers,
     rootColumns: Object.freeze(columns.filter(column => column.field.cardinality === "single")),
     result: Object.freeze({ kind, defaultLimit, maxLimit }),
     lower,
@@ -923,6 +1061,87 @@ function decodeGroup(query, group) {
     return row;
 }
 
+function evaluateProviderInput(expression, row) {
+  switch (expression.kind) {
+    case "column":
+      return row[expression.name];
+    case "literal":
+      return expression.value;
+    case "record": {
+      const value = {};
+      for (const field of expression.fields) {
+        Object.defineProperty(value, field.name, {
+          configurable: true,
+          enumerable: true,
+          value: evaluateProviderInput(field.value, row),
+          writable: true,
+        });
+      }
+      return value;
+    }
+    default:
+      throw new TypeError("unreachable checked provider input expression");
+  }
+}
+
+function normalizeProviderValue(contract, value, code, label) {
+  try {
+    return contract.normalize(value, { code, label });
+  } catch (error) {
+    if (error instanceof CheckedValueError) fail(code, `${label} is invalid`);
+    throw error;
+  }
+}
+
+async function publicRow(query, group, providers, servedVersion) {
+  const hydrated = decodeGroup(query, group);
+  const row = {};
+  for (const column of query.publicColumns) {
+    Object.defineProperty(row, column.name, {
+      configurable: true,
+      enumerable: true,
+      value: hydrated[column.name],
+      writable: true,
+    });
+  }
+  for (const step of query.resultProviders) {
+    const provider = providers.get(step.provider);
+    if (typeof provider !== "function") throw new TypeError("unreachable checked query provider");
+    const input = normalizeProviderValue(
+      step.inputContract,
+      evaluateProviderInput(step.input, hydrated),
+      "gateway/data-integrity",
+      `query ${query.name} provider input`,
+    );
+    let value;
+    try {
+      value = await provider(input, Object.freeze({
+        query: query.name,
+        servedVersion: servedVersion.toString(),
+      }));
+    } catch (error) {
+      fail(
+        "gateway/provider-failed",
+        `query ${query.name} provider failed`,
+        { provider: step.provider },
+      );
+    }
+    const output = normalizeProviderValue(
+      step.outputContract,
+      value,
+      "gateway/provider-output",
+      `query ${query.name} provider output ${step.name}`,
+    );
+    Object.defineProperty(row, step.name, {
+      configurable: true,
+      enumerable: true,
+      value: output,
+      writable: true,
+    });
+  }
+  return row;
+}
+
 async function hydrateMultiColumn(fram, query, group, column, servedVersion) {
   const bindingIndex = query.bindings.indexOf(column.binding);
   if (bindingIndex < 0) throw new TypeError("unreachable named-query binding");
@@ -993,7 +1212,7 @@ async function hydrateMultiColumns(fram, query, group, servedVersion) {
   }
 }
 
-async function executePage(fram, query, structuredQuery, options) {
+async function executePage(fram, query, structuredQuery, options, providers) {
   const page = { limit: options.limit };
   if (options.cursor !== undefined) page.cursor = options.cursor;
   const framOptions = { timeoutMs: QUERY_TIMEOUT_MS, page };
@@ -1002,14 +1221,18 @@ async function executePage(fram, query, structuredQuery, options) {
   if (response.result.length > options.limit) {
     fail("gateway/protocol", `FRAM exceeded the requested page limit for query ${query.name}`);
   }
+  const rows = [];
+  for (const group of rowGroups(query, response.result)) {
+    rows.push(await publicRow(query, group, providers, response.servedVersion));
+  }
   return {
-    rows: rowGroups(query, response.result).map(group => decodeGroup(query, group)),
+    rows,
     page: pageState(response, query),
     servedVersion: response.servedVersion,
   };
 }
 
-async function executeSingular(fram, query, structuredQuery, options) {
+async function executeSingular(fram, query, structuredQuery, options, providers) {
   const rawRows = [];
   const seenCursors = new Set();
   let cursor;
@@ -1045,7 +1268,7 @@ async function executeSingular(fram, query, structuredQuery, options) {
         );
       }
       await hydrateMultiColumns(fram, query, groups[0], servedVersion);
-      return { row: decodeGroup(query, groups[0]), servedVersion };
+      return { row: await publicRow(query, groups[0], providers, servedVersion), servedVersion };
     }
     const key = termKey(state.nextCursor);
     if (seenCursors.has(key)) fail("gateway/protocol", `FRAM repeated a cursor for query ${query.name}`);
@@ -1055,11 +1278,12 @@ async function executeSingular(fram, query, structuredQuery, options) {
   fail("gateway/result-limit", `query ${query.name} exceeded its page limit`);
 }
 
-export function createNamedQueryRuntime(entries, { fram, entities } = {}) {
+export function createNamedQueryRuntime(entries, { fram, entities, providers = {} } = {}) {
   if (!fram || typeof fram.query !== "function") {
     fail("gateway/invalid-plan", "named query runtime requires fram.query");
   }
   const compiled = compileNamedQueries(entries, entities);
+  const providerRegistry = checkedProviderRegistry(providers, compiled);
   return Object.freeze({
     names: compiled.names,
     async execute(name, input, options = {}, authority) {
@@ -1071,8 +1295,8 @@ export function createNamedQueryRuntime(entries, { fram, entities } = {}) {
       const checkedOptions = executionOptions(query, options);
       const structuredQuery = query.lower(encodedParameters);
       return query.result.kind === "page"
-        ? executePage(fram, query, structuredQuery, checkedOptions)
-        : executeSingular(fram, query, structuredQuery, checkedOptions);
+        ? executePage(fram, query, structuredQuery, checkedOptions, providerRegistry)
+        : executeSingular(fram, query, structuredQuery, checkedOptions, providerRegistry);
     },
   });
 }

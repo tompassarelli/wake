@@ -846,6 +846,7 @@ export function createFramGateway(plan, {
   const namedQueries = createNamedQueryRuntime(plan.queries, {
     fram,
     entities: plan.entities,
+    providers,
   });
 
   const entityNamed = name => {

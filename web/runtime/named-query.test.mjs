@@ -110,6 +110,7 @@ const pageQuery = {
       valueKind: "literal",
     },
   ],
+  resultProviders: [],
   result: { kind: "page", defaultLimit: 2, maxLimit: 5 },
   dependencies: [
     { entity: "release", field: "id" },
@@ -199,6 +200,7 @@ const oneQuery = {
       valueKind: "literal",
     },
   ],
+  resultProviders: [],
   result: { kind: "one" },
   dependencies: [
     { entity: "release", field: "id" },
@@ -218,6 +220,80 @@ const reviewer = Object.freeze({
   id: "actor-2",
   capabilities: Object.freeze(["release:review"]),
 });
+
+const safeDocumentType = {
+  kind: "bounded",
+  maxBytes: 4096,
+  maxDepth: 8,
+  maxNodes: 64,
+  definitions: [{
+    name: "Document",
+    value: {
+      kind: "record",
+      fields: [
+        { name: "tag", required: true, value: { kind: "literal", value: "document" } },
+        {
+          name: "blocks",
+          required: true,
+          value: {
+            kind: "list",
+            maxItems: 8,
+            items: { kind: "string", maxBytes: 1024 },
+          },
+        },
+      ],
+    },
+  }],
+  value: { kind: "ref", name: "Document" },
+};
+
+const providedPageQuery = {
+  ...pageQuery,
+  name: "rendered-releases",
+  select: [
+    pageQuery.select[0],
+    { ...pageQuery.select[1], internal: true, name: "wake$provided$0$0" },
+  ],
+  resultProviders: [{
+    name: "document",
+    provider: "render-content",
+    input: {
+      kind: "record",
+      fields: [
+        {
+          name: "contentSource",
+          value: { kind: "column", name: "wake$provided$0$0" },
+        },
+        {
+          name: "limits",
+          value: {
+            kind: "record",
+            fields: [{ name: "maxNodes", value: { kind: "literal", value: 64 } }],
+          },
+        },
+      ],
+    },
+    inputType: {
+      kind: "record",
+      fields: [
+        { name: "contentSource", required: true, value: { kind: "string" } },
+        {
+          name: "limits",
+          required: true,
+          value: {
+            kind: "record",
+            fields: [{
+              name: "maxNodes",
+              required: true,
+              value: { kind: "integer", minimum: 1, maximum: 64 },
+            }],
+          },
+        },
+      ],
+    },
+    outputType: safeDocumentType,
+  }],
+};
 
 function mockFram(responses) {
   const queue = [...responses];
@@ -429,6 +505,86 @@ describe("named query plan lowering", () => {
 });
 
 describe("named query execution", () => {
+  test("replaces internal hydrated fields with revalidated provider results", async () => {
+    const calls = [];
+    const mock = mockFram([response(
+      [[subject("release", "r-1"), string("r-1"), string("# Safe")]],
+      21n,
+      { ordinal: 0, done: true, nextCursor: null },
+    )]);
+    const runtime = createNamedQueryRuntime([providedPageQuery], {
+      entities,
+      fram: mock.fram,
+      providers: {
+        "render-content": async (input, context) => {
+          calls.push({ context, input });
+          expect(Object.isFrozen(input)).toBe(true);
+          expect(Object.isFrozen(input.limits)).toBe(true);
+          return { tag: "document", blocks: [input.contentSource] };
+        },
+      },
+    });
+
+    await expect(runtime.execute(
+      "rendered-releases",
+      { channel: "stable" },
+      { limit: 1 },
+      reader,
+    )).resolves.toEqual({
+      rows: [{
+        id: "r-1",
+        document: { tag: "document", blocks: ["# Safe"] },
+      }],
+      page: { done: true, nextCursor: null },
+      servedVersion: 21n,
+    });
+    expect(calls).toEqual([{
+      input: { contentSource: "# Safe", limits: { maxNodes: 64 } },
+      context: { query: "rendered-releases", servedVersion: "21" },
+    }]);
+    expect(calls[0].input).not.toHaveProperty("wake$provided$0$0");
+  });
+
+  test("fails closed on missing, failed, malformed, and forged result providers", async () => {
+    expectThrowsCode(() => createNamedQueryRuntime([providedPageQuery], {
+      entities,
+      fram: mockFram([]).fram,
+    }), "gateway/missing-provider");
+
+    for (const [provider, code] of [
+      [async () => { throw new Error("private parser detail"); }, "gateway/provider-failed"],
+      [async () => ({ tag: "script", blocks: [] }), "gateway/provider-output"],
+    ]) {
+      const runtime = createNamedQueryRuntime([providedPageQuery], {
+        entities,
+        fram: mockFram([response(
+          [[subject("release", "r-1"), string("r-1"), string("source")]],
+          22n,
+          { ordinal: 0, done: true, nextCursor: null },
+        )]).fram,
+        providers: { "render-content": provider },
+      });
+      await expectRejectsCode(runtime.execute(
+        "rendered-releases",
+        { channel: "stable" },
+        { limit: 1 },
+        reader,
+      ), code);
+    }
+
+    expectThrowsCode(() => compileNamedQueries([{
+      ...providedPageQuery,
+      resultProviders: [{
+        ...providedPageQuery.resultProviders[0],
+        input: { kind: "column", name: "id" },
+      }],
+    }], entities), "gateway/invalid-plan");
+    expectThrowsCode(() => compileNamedQueries([{
+      ...providedPageQuery,
+      resultProviders: [],
+    }], entities), "gateway/invalid-plan");
+  });
+
   test("requires one exact checked capability and authorizes any declared choice", async () => {
     const allowed = mockFram([
       response([], 6n, { ordinal: 0, done: true, nextCursor: null }),

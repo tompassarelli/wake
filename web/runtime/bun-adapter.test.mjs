@@ -98,6 +98,7 @@ function realFixture({ title = "Wake" } = {}) {
       { entity: "entry", field: "id" },
       { entity: "entry", field: "title" },
     ],
+    resultProviders: [],
   }];
   planValue.queries.push({
     ...structuredClone(planValue.queries[0]),
