@@ -1051,6 +1051,274 @@
   (defn route [path: Keyword view: Keyword] -> RouteSpec
     (->RouteSpec path view)))
 
+(defmacro defcapability
+  [binding
+   declaration-id
+   guards]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:capability:" declaration-id)]
+    `(do
+       (def ~ref-binding: CapabilityRef
+         (->CapabilityRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: CapabilitySpec
+         (->CapabilitySpec ~ref-binding ~guards)))))
+
+(defmacro defstate-model
+  [binding
+   declaration-id
+   values
+   initial
+   transitions]
+  (let [state-ref-binding (format-symbol "~a-ref" binding)
+        state-provenance-token
+        (str "wake:macro:state:" declaration-id)
+        value-ref-name
+        (fn [value-name]
+          (format-symbol "~a-~a-ref" binding value-name))
+        value-spec-name
+        (fn [value-name]
+          (format-symbol "~a-~a" binding value-name))
+        value-definitions
+        (mapcat
+          (fn [value]
+            (let [value-name (first value)
+                  value-keyword (second value)
+                  value-ref-binding (value-ref-name value-name)
+                  value-spec-binding (value-spec-name value-name)
+                  value-declaration-id
+                  (str declaration-id "/value/" value-name)
+                  value-provenance-token
+                  (str "wake:macro:state-value:" value-declaration-id)]
+              (list
+                `(def ~value-ref-binding: StateValueRef
+                   (->StateValueRef
+                     ~value-declaration-id
+                     ~(str value-name)
+                     ~value-provenance-token))
+                `(def ~value-spec-binding: StateValueSpec
+                   (->StateValueSpec
+                     ~value-ref-binding
+                     ~state-ref-binding
+                     ~value-keyword)))))
+          values)
+        value-specs
+        (apply vec
+          (map
+            (fn [value]
+              (value-spec-name (first value)))
+            values))
+        initial-ref (value-ref-name initial)
+        transition-specs
+        (apply vec
+          (map
+            (fn [transition]
+              (let [from-ref (value-ref-name (first transition))
+                    to-refs
+                    (apply vec
+                      (map value-ref-name (second transition)))]
+                `(->StateTransitionSpec ~from-ref ~to-refs)))
+            transitions))]
+    `(do
+       (def ~state-ref-binding: StateRef
+         (->StateRef
+           ~declaration-id
+           ~(str binding)
+           ~state-provenance-token))
+       ~@value-definitions
+       (def ~binding: StateDeclarationSpec
+         (->StateDeclarationSpec
+           ~state-ref-binding
+           ~value-specs
+           ~initial-ref
+           ~transition-specs)))))
+
+(defmacro defentity-model
+  [binding
+   record-name
+   declaration-id
+   storage-id
+   fields]
+  (let [entity-ref-binding (format-symbol "~a-ref" binding)
+        entity-provenance-token
+        (str "wake:macro:entity:" declaration-id)
+        field-ref-name
+        (fn [field-name]
+          (format-symbol "~a-~a-ref" binding field-name))
+        field-spec-name
+        (fn [field-name]
+          (format-symbol "~a-~a" binding field-name))
+        record-fields
+        (apply vec
+          (map
+            (fn [field]
+              (make-field (first field) (second field)))
+            fields))
+        field-definitions
+        (mapcat
+          (fn [field]
+            (let [field-name (first field)
+                  field-type (third field)
+                  cardinality (nth field 3)
+                  write-mode (nth field 4)
+                  field-storage-id (nth field 5)
+                  required (nth field 6)
+                  field-ref-binding (field-ref-name field-name)
+                  field-spec-binding (field-spec-name field-name)
+                  field-declaration-id
+                  (str declaration-id "/field/" field-name)
+                  field-provenance-token
+                  (str "wake:macro:field:" field-declaration-id)]
+              (list
+                `(def ~field-ref-binding: FieldRef
+                   (->FieldRef
+                     ~field-declaration-id
+                     ~(str field-name)
+                     ~field-provenance-token))
+                `(def ~field-spec-binding: FieldSpec
+                   (->FieldSpec
+                     ~field-ref-binding
+                     ~entity-ref-binding
+                     ~field-type
+                     ~cardinality
+                     ~write-mode
+                     ~field-storage-id
+                     ~required)))))
+          fields)
+        field-specs
+        (apply vec
+          (map
+            (fn [field]
+              (field-spec-name (first field)))
+            fields))]
+    `(do
+       (defrecord ~record-name ~record-fields)
+       (def ~entity-ref-binding: EntityRef
+         (->EntityRef
+           ~declaration-id
+           ~(str binding)
+           ~entity-provenance-token))
+       ~@field-definitions
+       (def ~binding: EntityDeclarationSpec
+         (->EntityDeclarationSpec
+           ~entity-ref-binding
+           ~(str record-name)
+           ~field-specs
+           ~storage-id)))))
+
+(defmacro defquery-model
+  [binding
+   declaration-id
+   capabilities
+   parameters
+   bindings
+   predicates
+   selection
+   result]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:query:" declaration-id)]
+    `(do
+       (def ~ref-binding: QueryRef
+         (->QueryRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: QueryDeclarationSpec
+         (->QueryDeclarationSpec
+           ~ref-binding
+           ~capabilities
+           ~parameters
+           ~bindings
+           ~predicates
+           ~selection
+           ~result)))))
+
+(defmacro defplugin
+  [binding
+   package-id
+   version
+   compatible-wake
+   plugin-abi-version
+   durable-schema-version
+   contributions
+   configuration
+   exports
+   required-providers
+   migrations]
+  (let [identity-binding (format-symbol "~a-identity" binding)
+        provenance-token
+        (str "wake:macro:plugin:" package-id "@" version)]
+    `(do
+       (def ~identity-binding: PluginIdentity
+         (->PluginIdentity
+           ~package-id
+           ~version
+           ~compatible-wake
+           ~plugin-abi-version
+           ~durable-schema-version
+           ~provenance-token))
+       (def ~binding: PluginSpec
+         (->PluginSpec
+           ~identity-binding
+           ~contributions
+           ~configuration
+           ~exports
+           ~required-providers
+           ~migrations)))))
+
+(defmacro use-plugin
+  [binding
+   declaration-id
+   package-id
+   version
+   allow
+   bindings
+   providers
+   extensions
+   fills
+   mounts]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        composition-binding (format-symbol "~a-composition" binding)
+        provenance-token (str "wake:macro:plugin-use:" declaration-id)]
+    `(do
+       (def ~ref-binding: PluginUseRef
+         (->PluginUseRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: PluginUseSpec
+         (->PluginUseSpec
+           ~ref-binding
+           ~package-id
+           ~version
+           ~allow
+           ~bindings))
+       (def ~composition-binding: PluginComposition
+         (->PluginComposition
+           ~binding
+           ~providers
+           ~extensions
+           ~fills
+           ~mounts)))))
+
+(defmacro application-root
+  [binding
+   id
+   authority
+   storage
+   identities
+   plugins]
+  `(def ~binding: ApplicationRootSpec
+     (->ApplicationRootSpec
+       ~id
+       ~authority
+       ~storage
+       ~identities
+       ~plugins)))
+
 (defmacro application [binding id]
   `(def ~binding: ApplicationSpec
      (->ApplicationSpec ~id)))

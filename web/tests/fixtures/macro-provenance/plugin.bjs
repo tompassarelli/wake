@@ -1,0 +1,90 @@
+#lang beagle/js
+(ns wake.fixtures.macro-provenance.plugin
+  (:require [wake.core :as wake]))
+
+(wake/defcapability publish "capability/publish" [])
+
+(wake/defstate-model
+  revision-status
+  "state/revision-status"
+  [[draft :draft]
+   [published :published]]
+  draft
+  [[draft [published]]
+   [published []]])
+
+(wake/defentity-model
+  page
+  Page
+  "entity/page"
+  "pages"
+  [[id String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    nil
+    true]
+   [title String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    nil
+    true]
+   [status Keyword
+    (wake/->StateField revision-status-ref)
+    (wake/->SingleField nil)
+    (wake/->ServerWrite nil)
+    nil
+    true]])
+
+(wake/defquery-model
+  page-by-id
+  "query/page-by-id"
+  [publish-ref]
+  [(wake/->QueryParameterSpec
+     :id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :page page-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :page page-id-ref)
+     (wake/->QueryParameterValue :id))]
+  [(wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :page page-title-ref))]
+  (wake/->QueryOptionalResult nil))
+
+(def plugin-configuration: wake/PluginConfigurationSchema
+  (wake/->PluginConfigurationSchema [] [] [] [] [] [] [] [] [] []))
+
+(def plugin-exports: wake/PluginExports
+  (wake/->PluginExports
+    [page-ref]
+    [page-id-ref page-title-ref page-status-ref]
+    [revision-status-ref]
+    [revision-status-draft-ref revision-status-published-ref]
+    []
+    []
+    []
+    [publish-ref]
+    [page-by-id-ref]
+    []
+    []
+    []
+    []
+    []
+    []
+    []))
+
+(wake/defplugin
+  wiki-plugin
+  "dev.greywrought.wiki"
+  "0.1.0"
+  "0.1.x"
+  1
+  1
+  [(wake/->SchemaContribution nil)
+   (wake/->QueryContribution nil)]
+  plugin-configuration
+  plugin-exports
+  []
+  [])
