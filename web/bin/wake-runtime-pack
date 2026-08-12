@@ -5,26 +5,30 @@ import {
   sha256Digest,
 } from "../runtime/canonical.mjs";
 
+const REPOSITORY = "https://github.com/tompassarelli/wake.git";
+
 function usage() {
   console.error(
-    "usage: wake-runtime-pack --output /absolute/directory [--receipt /absolute/file | --check /absolute/file]",
+    "usage: wake-runtime-pack --source-root /absolute/checkout --version vMAJOR.MINOR.PATCH --output /absolute/directory [--receipt /absolute/file | --check /absolute/file]",
   );
   process.exit(64);
 }
 
 function parseArguments(argv) {
   const options = {};
+  const allowed = new Set(["--check", "--output", "--receipt", "--source-root", "--version"]);
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
     const value = argv[index + 1];
-    if (!["--check", "--output", "--receipt"].includes(name) || value === undefined) usage();
-    if (Object.hasOwn(options, name)) usage();
+    if (!allowed.has(name) || value === undefined || Object.hasOwn(options, name)) usage();
     options[name] = value;
   }
-  if (!options["--output"] || (options["--check"] && options["--receipt"])) usage();
-  for (const value of Object.values(options)) {
-    if (!value.startsWith("/")) usage();
+  if (!options["--output"] || !options["--source-root"] || !options["--version"]
+      || (options["--check"] && options["--receipt"])) usage();
+  for (const [name, value] of Object.entries(options)) {
+    if (name !== "--version" && !value.startsWith("/")) usage();
   }
+  if (!/^v[0-9]+\.[0-9]+\.[0-9]+$/u.test(options["--version"])) usage();
   return options;
 }
 
@@ -41,73 +45,227 @@ function run(command, options = {}) {
   return result.stdout;
 }
 
+function text(command, options) {
+  return new TextDecoder().decode(run(command, options)).trim();
+}
+
+function realpath(path) {
+  return text(["realpath", path]);
+}
+
 function packageArchiveName(name, version) {
   return `${name.replace(/^@/u, "").replaceAll("/", "-")}-${version}.tgz`;
 }
 
+function receiptName(name, version) {
+  return `${name.replace(/^@/u, "").replaceAll("/", "-")}-${version}.receipt.json`;
+}
+
+function sameValues(left, right) {
+  return canonicalDocument(left) === canonicalDocument(right);
+}
+
+function sameFile(left, right) {
+  return Bun.spawnSync(["cmp", "-s", left, right]).exitCode === 0;
+}
+
+async function publishExact(source, destination) {
+  if (await Bun.file(destination).exists()) {
+    if (!sameFile(source, destination)) {
+      throw new Error(`refusing to replace different release output: ${destination}`);
+    }
+    return;
+  }
+  run(["mv", source, destination]);
+}
+
+function removeReleaseScratch(scratch, outputRoot) {
+  const prefix = `${outputRoot}/.wake-runtime-release.`;
+  if (!scratch.startsWith(prefix)
+      || scratch.includes("/../")
+      || realpath(scratch) !== scratch) {
+    throw new Error("refusing to remove an unverified release scratch directory");
+  }
+  run(["rm", "-rf", "--", scratch]);
+}
+
 const options = parseArguments(Bun.argv.slice(2));
-const packageRoot = decodeURIComponent(new URL("../runtime/", import.meta.url).pathname);
+if (Bun.version !== "1.3.13") {
+  throw new Error("Wake runtime releases require Bun 1.3.13");
+}
+
+const requestedRoot = options["--source-root"];
+const sourceRoot = realpath(requestedRoot);
+if (sourceRoot !== requestedRoot
+    || realpath(text(["git", "-C", sourceRoot, "rev-parse", "--show-toplevel"])) !== sourceRoot) {
+  throw new Error("source root must be the canonical top of one Git worktree");
+}
+if (text(["git", "-C", sourceRoot, "status", "--porcelain=v1", "--untracked-files=all"])) {
+  throw new Error("source worktree must be completely clean");
+}
+const sourceCommit = text(["git", "-C", sourceRoot, "rev-parse", "HEAD^{commit}"]);
+const releaseTag = options["--version"];
+const releaseTagObject = text(["git", "-C", sourceRoot, "rev-parse", `refs/tags/${releaseTag}`]);
+if (!/^[0-9a-f]{40}$/u.test(sourceCommit)
+    || !/^[0-9a-f]{40}$/u.test(releaseTagObject)
+    || text(["git", "-C", sourceRoot, "cat-file", "-t", releaseTagObject]) !== "tag"
+    || text(["git", "-C", sourceRoot, "rev-parse", `refs/tags/${releaseTag}^{commit}`])
+      !== sourceCommit) {
+  throw new Error("release version must be an annotated tag pointing at source HEAD");
+}
+const origin = text(["git", "-C", sourceRoot, "config", "--get", "remote.origin.url"]);
+if (origin.replace(/\.git$/u, "") !== REPOSITORY.replace(/\.git$/u, "")) {
+  throw new Error(`source origin must be ${REPOSITORY}`);
+}
+
+const packageRoot = `${sourceRoot}/web/runtime`;
+if (realpath(packageRoot) !== packageRoot) {
+  throw new Error("runtime package root must not traverse a symbolic link");
+}
 const packageJson = await Bun.file(`${packageRoot}/package.json`).json();
+const expectedFiles = [
+  "LICENSE-APACHE",
+  "LICENSE-MIT",
+  "README.md",
+  "application-installer.mjs",
+  "application-receipt.mjs",
+  "bun-adapter.mjs",
+  "canonical.mjs",
+  "checked-value.mjs",
+  "commands.mjs",
+  "cursor-provider.mjs",
+  "fram-gateway.mjs",
+  "fram-http.mjs",
+  "index.d.ts",
+  "index.mjs",
+  "named-query.mjs",
+  "safe-document.mjs",
+  "worker-host.mjs",
+];
+const expectedExports = {
+  ".": { types: "./index.d.ts", import: "./index.mjs" },
+};
+const expectedRepository = {
+  type: "git",
+  url: `git+${REPOSITORY}`,
+  directory: "web/runtime",
+};
+if (packageJson.name !== "@tompassarelli/wake-runtime"
+    || packageJson.version !== "1.1.0"
+    || packageJson.type !== "module"
+    || packageJson.types !== "./index.d.ts"
+    || packageJson.sideEffects !== false
+    || packageJson.license !== "MIT OR Apache-2.0"
+    || !sameValues(packageJson.exports, expectedExports)
+    || !sameValues(packageJson.files, expectedFiles)
+    || !sameValues(packageJson.repository, expectedRepository)) {
+  throw new Error("runtime package manifest differs from the closed 1.1.0 release contract");
+}
+for (const relative of ["package.json", ...expectedFiles]) {
+  const path = `${packageRoot}/${relative}`;
+  if (realpath(path) !== path) {
+    throw new Error(`runtime release input traverses a symbolic link: ${relative}`);
+  }
+  run(["git", "-C", sourceRoot, "ls-files", "--error-unmatch", `web/runtime/${relative}`]);
+}
+if (releaseTag !== `v${packageJson.version}`) {
+  throw new Error("release tag must exactly match the runtime package version");
+}
 const archiveName = packageArchiveName(packageJson.name, packageJson.version);
-const archivePath = `${options["--output"]}/${archiveName}`;
+const expectedReceiptName = receiptName(packageJson.name, packageJson.version);
+if (options["--receipt"] && !options["--receipt"].endsWith(`/${expectedReceiptName}`)) {
+  throw new Error(`receipt output must be named ${expectedReceiptName}`);
+}
 
 run(["mkdir", "-p", options["--output"]]);
-run([
-  "bun",
-  "pm",
-  "pack",
-  "--destination",
-  options["--output"],
-  "--ignore-scripts",
-  "--quiet",
-], { cwd: packageRoot });
-
-const expectedFiles = ["package.json", ...packageJson.files]
-  .map(path => `package/${path}`)
-  .sort();
-const archiveFiles = new TextDecoder()
-  .decode(run(["tar", "-tzf", archivePath]))
-  .trim()
-  .split("\n")
-  .filter(Boolean)
-  .sort();
-if (canonicalDocument(archiveFiles) !== canonicalDocument(expectedFiles)) {
-  throw new Error("wake runtime archive contains an unexpected file closure");
+const outputRoot = realpath(options["--output"]);
+if (outputRoot !== options["--output"]) {
+  throw new Error("output must be a canonical directory path");
 }
-
-const files = archiveFiles.map((path) => {
-  const bytes = run(["tar", "-xOzf", archivePath, path]);
-  return Object.freeze({
-    path,
-    sha256: sha256Digest(bytes),
-    size: bytes.byteLength,
-  });
-});
-const archiveBytes = new Uint8Array(await Bun.file(archivePath).arrayBuffer());
-const receipt = Object.freeze({
-  artifact: Object.freeze({
-    filename: archiveName,
-    sha256: sha256Digest(archiveBytes),
-    size: archiveBytes.byteLength,
-  }),
-  files,
-  package: Object.freeze({
-    name: packageJson.name,
-    version: packageJson.version,
-  }),
-  packer: `bun@${Bun.version}`,
-  schemaVersion: 1,
-});
-const receiptDocument = canonicalDocument(receipt);
-
-if (options["--check"]) {
-  const checked = await Bun.file(options["--check"]).text();
-  if (checked !== receiptDocument) {
-    throw new Error(`wake runtime package receipt is stale: ${options["--check"]}`);
+if (options["--receipt"] && options["--receipt"] !== `${outputRoot}/${expectedReceiptName}`) {
+  throw new Error("receipt must be written beside the release archive");
+}
+const scratch = text(["mktemp", "-d", `${outputRoot}/.wake-runtime-release.XXXXXX`]);
+try {
+  run([
+    "bun",
+    "pm",
+    "pack",
+    "--destination",
+    scratch,
+    "--ignore-scripts",
+    "--quiet",
+  ], { cwd: packageRoot });
+  const scratchArchive = `${scratch}/${archiveName}`;
+  const expectedArchiveFiles = ["package.json", ...packageJson.files]
+    .map(path => `package/${path}`)
+    .sort();
+  const archiveFiles = new TextDecoder()
+    .decode(run(["tar", "-tzf", scratchArchive]))
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .sort();
+  if (canonicalDocument(archiveFiles) !== canonicalDocument(expectedArchiveFiles)) {
+    throw new Error("wake runtime archive contains an unexpected file closure");
   }
-}
-if (options["--receipt"]) {
-  await Bun.write(options["--receipt"], receiptDocument);
-}
+  const verbose = new TextDecoder().decode(run(["tar", "--numeric-owner", "-tvzf", scratchArchive]));
+  if (verbose.trim().split("\n").some(line => !line.startsWith("-rw-r--r--"))) {
+    throw new Error("wake runtime archive contains a non-regular or non-canonical member");
+  }
 
-console.log(archivePath);
+  const files = archiveFiles.map((path) => {
+    const bytes = run(["tar", "-xOzf", scratchArchive, path]);
+    return Object.freeze({
+      path,
+      sha256: sha256Digest(bytes),
+      size: bytes.byteLength,
+    });
+  });
+  const archiveBytes = new Uint8Array(await Bun.file(scratchArchive).arrayBuffer());
+  const receipt = Object.freeze({
+    artifact: Object.freeze({
+      filename: archiveName,
+      sha256: sha256Digest(archiveBytes),
+      size: archiveBytes.byteLength,
+    }),
+    files,
+    package: Object.freeze({
+      name: packageJson.name,
+      version: packageJson.version,
+    }),
+    packer: `bun@${Bun.version}`,
+    schemaVersion: 2,
+    source: Object.freeze({
+      commit: sourceCommit,
+      releaseTag,
+      releaseTagObject,
+      repository: REPOSITORY,
+    }),
+  });
+  const receiptDocument = canonicalDocument(receipt);
+
+  if (options["--check"]) {
+    const checked = await Bun.file(options["--check"]).text();
+    if (checked !== receiptDocument) {
+      throw new Error(`wake runtime package receipt is stale: ${options["--check"]}`);
+    }
+  }
+  const scratchReceipt = `${scratch}/${expectedReceiptName}`;
+  await Bun.write(scratchReceipt, receiptDocument);
+
+  if (text(["git", "-C", sourceRoot, "status", "--porcelain=v1", "--untracked-files=all"])
+      || text(["git", "-C", sourceRoot, "rev-parse", "HEAD^{commit}"]) !== sourceCommit
+      || text(["git", "-C", sourceRoot, "rev-parse", `refs/tags/${releaseTag}`])
+        !== releaseTagObject) {
+    throw new Error("source worktree, HEAD, or release tag changed while packaging");
+  }
+
+  const archivePath = `${outputRoot}/${archiveName}`;
+  await publishExact(scratchArchive, archivePath);
+  if (options["--receipt"]) await publishExact(scratchReceipt, options["--receipt"]);
+  console.log(archivePath);
+  if (options["--receipt"]) console.log(options["--receipt"]);
+} finally {
+  removeReleaseScratch(scratch, outputRoot);
+}

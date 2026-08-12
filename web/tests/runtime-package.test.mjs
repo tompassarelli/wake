@@ -6,9 +6,10 @@ import {
 } from "../runtime/canonical.mjs";
 
 const webRoot = `${import.meta.dir}/..`;
+const repositoryRoot = `${webRoot}/..`;
 const packer = `${webRoot}/bin/wake-runtime-pack`;
-const receiptPath = `${webRoot}/release/wake-runtime-1.1.0.receipt.json`;
 const archiveName = "tompassarelli-wake-runtime-1.1.0.tgz";
+const receiptName = "tompassarelli-wake-runtime-1.1.0.receipt.json";
 const expectedFiles = [
   "package/LICENSE-APACHE",
   "package/LICENSE-MIT",
@@ -30,12 +31,25 @@ const expectedFiles = [
   "package/worker-host.mjs",
 ];
 
-function run(command) {
-  const result = Bun.spawnSync(command, { stderr: "pipe", stdout: "pipe" });
+function run(command, options = {}) {
+  const result = Bun.spawnSync(command, {
+    cwd: options.cwd,
+    env: options.env,
+    stderr: "pipe",
+    stdout: "pipe",
+  });
   if (result.exitCode !== 0) {
     throw new Error(new TextDecoder().decode(result.stderr));
   }
   return result.stdout;
+}
+
+function fails(command, options = {}) {
+  return Bun.spawnSync(command, {
+    cwd: options.cwd,
+    stderr: "pipe",
+    stdout: "pipe",
+  });
 }
 
 function temporaryDirectory(label) {
@@ -44,24 +58,88 @@ function temporaryDirectory(label) {
     .trim();
 }
 
+function removeTemporaryDirectory(path, label) {
+  if (!path.startsWith(`/tmp/${label}.`) || path.includes("/../")) {
+    throw new Error(`refusing to remove unverified test scratch: ${path}`);
+  }
+  run(["rm", "-rf", "--", path]);
+}
+
+function copyRuntime(source) {
+  run(["mkdir", "-p", `${source}/web`]);
+  run(["cp", "-R", `${webRoot}/runtime`, `${source}/web/runtime`]);
+}
+
+function releaseSource(scratch) {
+  const seed = `${scratch}/seed`;
+  copyRuntime(seed);
+  run(["git", "init", "-q"], { cwd: seed });
+  run(["git", "config", "user.name", "Wake Release"], { cwd: seed });
+  run(["git", "config", "user.email", "wake@example.invalid"], { cwd: seed });
+  run(["git", "remote", "add", "origin", "https://github.com/tompassarelli/wake.git"], {
+    cwd: seed,
+  });
+  run(["git", "add", "web/runtime"], { cwd: seed });
+  const environment = {
+    ...process.env,
+    GIT_AUTHOR_DATE: "2026-08-12T00:00:00Z",
+    GIT_COMMITTER_DATE: "2026-08-12T00:00:00Z",
+  };
+  run(["git", "commit", "-q", "-m", "Wake 1.1.0 runtime"], { cwd: seed, env: environment });
+  run(["git", "tag", "-a", "v1.1.0", "-m", "Wake v1.1.0"], {
+    cwd: seed,
+    env: { ...environment, GIT_COMMITTER_DATE: "2026-08-12T00:01:00Z" },
+  });
+  const sourceCommit = new TextDecoder().decode(run(["git", "rev-parse", "HEAD"], {
+    cwd: seed,
+  })).trim();
+  const releaseTagObject = new TextDecoder().decode(run([
+    "git", "rev-parse", "refs/tags/v1.1.0",
+  ], { cwd: seed })).trim();
+
+  const first = `${scratch}/first-source`;
+  const second = `${scratch}/different/depth/second-source`;
+  run(["mkdir", "-p", `${scratch}/different/depth`]);
+  run(["git", "clone", "-q", "--no-local", seed, first]);
+  run(["git", "clone", "-q", "--no-local", seed, second]);
+  for (const path of [first, second]) {
+    run(["git", "remote", "set-url", "origin", "https://github.com/tompassarelli/wake.git"], {
+      cwd: path,
+    });
+  }
+  run(["touch", "-t", "203801020304.05", `${second}/web/runtime/index.mjs`]);
+  return Object.freeze({ first, releaseTagObject, second, seed, sourceCommit });
+}
+
+function pack(source, output, receipt = `${output}/${receiptName}`) {
+  run(["mkdir", "-p", output]);
+  run([
+    packer,
+    "--source-root", source,
+    "--version", "v1.1.0",
+    "--output", output,
+    "--receipt", receipt,
+  ]);
+  return Object.freeze({
+    archive: `${output}/${archiveName}`,
+    receipt,
+  });
+}
+
 describe("@tompassarelli/wake-runtime package", () => {
-  test("packs a deterministic, receipt-bound production-only artifact", async () => {
+  test("packs deterministic source-bound production-only release bytes", async () => {
     const scratch = temporaryDirectory("wake-runtime-package");
     try {
-      const first = `${scratch}/first`;
-      const second = `${scratch}/second`;
-      run([packer, "--output", first, "--check", receiptPath]);
-      run([packer, "--output", second, "--check", receiptPath]);
+      const source = releaseSource(scratch);
+      const first = pack(source.first, `${scratch}/first`);
+      const second = pack(source.second, `${scratch}/second`);
 
-      const firstArchive = new Uint8Array(
-        await Bun.file(`${first}/${archiveName}`).arrayBuffer(),
-      );
-      const secondArchive = new Uint8Array(
-        await Bun.file(`${second}/${archiveName}`).arrayBuffer(),
-      );
+      const firstArchive = new Uint8Array(await Bun.file(first.archive).arrayBuffer());
+      const secondArchive = new Uint8Array(await Bun.file(second.archive).arrayBuffer());
       expect(firstArchive).toEqual(secondArchive);
+      expect(await Bun.file(first.receipt).text()).toBe(await Bun.file(second.receipt).text());
 
-      const receiptText = await Bun.file(receiptPath).text();
+      const receiptText = await Bun.file(first.receipt).text();
       const receipt = JSON.parse(receiptText);
       expect(receiptText).toBe(canonicalDocument(receipt));
       expect(receipt.artifact).toEqual({
@@ -74,10 +152,16 @@ describe("@tompassarelli/wake-runtime package", () => {
         version: "1.1.0",
       });
       expect(receipt.packer).toBe(`bun@${Bun.version}`);
-      expect(receipt.schemaVersion).toBe(1);
+      expect(receipt.schemaVersion).toBe(2);
+      expect(receipt.source).toEqual({
+        commit: source.sourceCommit,
+        releaseTag: "v1.1.0",
+        releaseTagObject: source.releaseTagObject,
+        repository: "https://github.com/tompassarelli/wake.git",
+      });
 
       const listed = new TextDecoder()
-        .decode(run(["tar", "-tzf", `${first}/${archiveName}`]))
+        .decode(run(["tar", "-tzf", first.archive]))
         .trim()
         .split("\n")
         .sort();
@@ -86,9 +170,17 @@ describe("@tompassarelli/wake-runtime package", () => {
         .toBe(false);
       expect(receipt.files.map(file => file.path)).toEqual(expectedFiles);
 
+      run([
+        packer,
+        "--source-root", source.first,
+        "--version", "v1.1.0",
+        "--output", `${scratch}/checked`,
+        "--check", first.receipt,
+      ]);
+
       const extracted = `${scratch}/extracted`;
       run(["mkdir", "-p", extracted]);
-      run(["tar", "-xzf", `${first}/${archiveName}`, "-C", extracted]);
+      run(["tar", "-xzf", first.archive, "-C", extracted]);
       const publicModule = await import(`${extracted}/package/index.mjs`);
       expect(Object.keys(publicModule).sort()).toEqual([
         "CheckedValueError",
@@ -124,11 +216,56 @@ describe("@tompassarelli/wake-runtime package", () => {
         },
       });
       for (const path of listed.filter(path => path.endsWith(".mjs"))) {
-        const source = await Bun.file(`${extracted}/${path}`).text();
-        expect(source).not.toMatch(/\.\.\/|node:/u);
+        const sourceText = await Bun.file(`${extracted}/${path}`).text();
+        expect(sourceText).not.toMatch(/\.\.\/|node:/u);
       }
     } finally {
-      run(["rm", "-rf", scratch]);
+      removeTemporaryDirectory(scratch, "wake-runtime-package");
+    }
+  });
+
+  test("refuses untagged, lightweight-tagged, dirty, wrong-origin, and mismatched releases", () => {
+    const scratch = temporaryDirectory("wake-runtime-package-refusal");
+    try {
+      const source = releaseSource(scratch);
+      run(["git", "tag", "-d", "v1.1.0"], { cwd: source.first });
+      expect(fails([
+        packer, "--source-root", source.first, "--version", "v1.1.0",
+        "--output", `${scratch}/untagged`,
+      ]).exitCode).not.toBe(0);
+
+      run(["git", "tag", "v1.1.0"], { cwd: source.first });
+      expect(fails([
+        packer, "--source-root", source.first, "--version", "v1.1.0",
+        "--output", `${scratch}/lightweight`,
+      ]).exitCode).not.toBe(0);
+
+      run(["git", "tag", "-d", "v1.1.0"], { cwd: source.first });
+      run(["git", "tag", "-a", "v1.1.0", "-m", "Wake v1.1.0"], { cwd: source.first });
+      run(["git", "tag", "-a", "v1.1.1", "-m", "Wake v1.1.1"], { cwd: source.first });
+      expect(fails([
+        packer, "--source-root", source.first, "--version", "v1.1.1",
+        "--output", `${scratch}/mismatched`,
+      ]).exitCode).not.toBe(0);
+
+      run(["git", "remote", "set-url", "origin", "https://example.invalid/wake.git"], {
+        cwd: source.first,
+      });
+      expect(fails([
+        packer, "--source-root", source.first, "--version", "v1.1.0",
+        "--output", `${scratch}/origin`,
+      ]).exitCode).not.toBe(0);
+
+      run(["git", "remote", "set-url", "origin", "https://github.com/tompassarelli/wake.git"], {
+        cwd: source.first,
+      });
+      run(["touch", `${source.first}/untracked`]);
+      expect(fails([
+        packer, "--source-root", source.first, "--version", "v1.1.0",
+        "--output", `${scratch}/dirty`,
+      ]).exitCode).not.toBe(0);
+    } finally {
+      removeTemporaryDirectory(scratch, "wake-runtime-package-refusal");
     }
   });
 });
