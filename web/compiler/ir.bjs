@@ -91,13 +91,15 @@
   [name: String
    binding: String
    field: String])
+(defrecord IrQueryFieldSplice [port: String binding: String])
 (defrecord IrQueryPage [default-limit: Int max-limit: Int])
 (defrecord IrQuery
   [name: String
+   capabilities: (Vec String)
    params: (Vec IrQueryParam)
    bindings: (Vec IrQueryBinding)
    predicates: (Vec IrQueryPredicate)
-   selection: (Vec IrQuerySelect)
+   selection: (Vec Any)
    result-kind: String
    page: IrQueryPage?])
 (defrecord IrDetailTab

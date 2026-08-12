@@ -8,6 +8,7 @@
   (label : Derived (str title)))
 
 (query invalid-derived-projection
+  :capability wake-tests/cap/read
   :params []
   :from [(release : release)]
   :where []

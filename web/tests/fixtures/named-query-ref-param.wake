@@ -10,6 +10,7 @@
   (owner : Ref :to owner))
 
 (query invalid-ref-parameter
+  :capability wake-tests/cap/read
   :params [(owner : Ref)]
   :from [(release : release)]
   :where [(= release.owner $owner)]

@@ -5,5 +5,5 @@
 (use "wake-state-query-fixture"
   :as fixture
   :version "0.1.0"
-  :allow [schema query]
+  :allow [schema query capability]
   :config [])

@@ -9,6 +9,7 @@
   (phase : Phase))
 
 (query releases-in-phase
+  :capability read-releases
   :params [(phase : Phase)]
   :from [(release : release)]
   :where [(= release.phase $phase)]

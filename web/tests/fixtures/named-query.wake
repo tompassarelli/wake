@@ -17,6 +17,7 @@
   (state : String :write :create))
 
 (query browse-releases
+  :capability wake-tests/cap/browse-releases
   :params []
   :from [(release : release)]
   :where [(= release.state :published)]
@@ -26,6 +27,7 @@
   :page [default 20 max 64])
 
 (query release-by-id
+  :capability wake-tests/cap/read-release
   :params [(release-id : String)]
   :from [(release : release)]
   :where [(= (field release id) $release-id)]
@@ -35,6 +37,7 @@
   :result :optional)
 
 (query approvals-for-release
+  :capability [wake-tests/cap/read-approvals wake-tests/cap/admin]
   :params [(release-id : String)]
   :from [(release : release)
          (approval : approval)]

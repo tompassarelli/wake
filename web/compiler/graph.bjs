@@ -82,6 +82,7 @@
 (defrecord GQueryDependency [entity: String field: String])
 (defrecord GQuery
   [name: String
+   capabilities: (Vec String)
    params: (Vec GQueryParam)
    bindings: (Vec GQueryBinding)
    predicates: (Vec GQueryPredicate)
@@ -991,6 +992,7 @@
         label (str "query '" name "'")
         entities-by-name
         (query-name-map entities (fn [entity] (.-name entity)) "entity")
+        capabilities (or (.-capabilities raw) [])
         raw-bindings (.-bindings raw)
         raw-params (.-params raw)
         binding-names
@@ -1010,6 +1012,25 @@
                 nil)
               (assoc result (.-name binding) entity)))
           {} raw-bindings)]
+    (if (or (= (count capabilities) 0) (> (count capabilities) 16))
+      (graph-error
+        (str label " requires from 1 through 16 capabilities"))
+      nil)
+    (reduce
+      (fn [seen capability]
+        (if (or (not (string? capability)) (= (count capability) 0))
+          (graph-error (str label " contains an invalid capability"))
+          nil)
+        (if (.includes seen capability)
+          (graph-error
+            (str label " repeats capability '" capability "'"))
+          (conj seen capability)))
+      [] capabilities)
+    (doseq [selection (.-selection raw)]
+      (if (= (.-_tag selection) "IrQueryFieldSplice")
+        (graph-error
+          (str label " contains an unexpanded extension-field projection"))
+        nil))
     (doseq [parameter raw-params]
       (let [type (.-type parameter)]
         (if (= type "Ref")
@@ -1111,6 +1132,7 @@
         nil)
       (->GQuery
         name
+        capabilities
         (mapv
           (fn [parameter]
             (->GQueryParam (.-name parameter) (.-type parameter)))

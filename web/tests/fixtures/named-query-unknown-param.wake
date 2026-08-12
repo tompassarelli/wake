@@ -7,6 +7,7 @@
   (opaque : String))
 
 (query invalid-unknown-parameter
+  :capability wake-tests/cap/read
   :params [(opaque : Opaque)]
   :from [(release : release)]
   :where [(= release.opaque $opaque)]

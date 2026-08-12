@@ -170,6 +170,7 @@
 
 (defn query-plan [query: Any] -> Any
   {:name (.-name query)
+   :capabilities (.-capabilities query)
    :parameters
    (mapv
      (fn [parameter: Any] -> Any
