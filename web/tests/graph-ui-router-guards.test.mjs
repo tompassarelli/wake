@@ -623,4 +623,19 @@ test("rejects list-detail tab codegen collisions", () => {
     })),
     /related tab label 'OVERVIEW' conflicts with the built-in overview tab/,
   );
+  assert.throws(
+    () => checkProgram(program({
+      entities: [{
+        name: "page",
+        attrs: [
+          attribute("id", "String", { identity: true }),
+          attribute("parent", "Ref", { "target-entity": "page" }),
+        ],
+      }],
+      list_details: [listDetail({
+        detail_tabs: [related("Children", "page", "parent")],
+      })],
+    })),
+    /repeats related entity 'page'/,
+  );
 });

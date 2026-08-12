@@ -871,7 +871,7 @@
                           (str label " repeats related entity '" child "'"))
                         (conj seen child)))
                     seen))
-                []
+                [entity-name]
                 resolved-tabs)
               (->GListDetail
                 entity-name
