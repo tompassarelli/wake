@@ -228,6 +228,33 @@ function expectedReceipt(applicationId, manifestArtifact, planArtifact, deployme
   });
 }
 
+/**
+ * Checks one exact compiler artifact closure without touching FRAM. The
+ * installer uses this before recording an intent or invoking host bootstrap.
+ */
+export function prepareApplicationReceipt({
+  applicationId,
+  deploymentReceipt,
+  manifest,
+  plan,
+} = {}) {
+  nonempty(applicationId, "applicationId", "receipt/invalid-input");
+  const manifestArtifact = checkedManifest(manifest);
+  const planArtifact = checkedPlan(plan);
+  const deploymentArtifact = checkedDeploymentReceipt(deploymentReceipt);
+  return Object.freeze({
+    applicationReceipt: expectedReceipt(
+      applicationId,
+      manifestArtifact,
+      planArtifact,
+      deploymentArtifact,
+    ),
+    deploymentReceipt: deploymentArtifact,
+    manifest: manifestArtifact,
+    plan: planArtifact,
+  });
+}
+
 const keyword = value => ["keyword", value];
 const string = value => ["string", value];
 const triple = (t1, t2, t3) => ["triple", t1, t2, t3];
@@ -349,15 +376,12 @@ export async function loadApplicationReceipt({
     fail("receipt/invalid-input", "fram must be the official client with query support");
   }
 
-  const manifestArtifact = checkedManifest(manifest);
-  const planArtifact = checkedPlan(plan);
-  const deploymentArtifact = checkedDeploymentReceipt(deploymentReceipt);
-  const expected = expectedReceipt(
+  const { applicationReceipt: expected } = prepareApplicationReceipt({
     applicationId,
-    manifestArtifact,
-    planArtifact,
-    deploymentArtifact,
-  );
+    deploymentReceipt,
+    manifest,
+    plan,
+  });
 
   const storage = receiptStorage(applicationId);
   const subjects = await queryReceipt(
