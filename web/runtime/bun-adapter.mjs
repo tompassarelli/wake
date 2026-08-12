@@ -546,7 +546,7 @@ export function createWakeBunAdapter({
     }
     const checked = checkedContext(context);
     const handleHttp = createHttpHandler(gateway, {
-      cursorProvider,
+      ...(cursorProvider === null ? {} : { cursorProvider }),
       expectedFingerprint: manifest.checkedApplication.fingerprint,
       authorize: async operation => {
         try {
