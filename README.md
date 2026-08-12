@@ -17,7 +17,8 @@ and projects it to direct-DOM JavaScript and, when selected, a FRAM plan.
   [id: String
    body: String]
   :id
-  {:body :create})
+  {:body :create}
+  [])
 ```
 
 Wake is not a browser framework or a storage engine. It owns application-domain
