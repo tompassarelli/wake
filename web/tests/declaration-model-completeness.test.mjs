@@ -45,6 +45,10 @@ function vec(name) {
   return { kind: "app", name: "Vec", args: [prim(name)] };
 }
 
+function map(key, value) {
+  return { kind: "app", name: "Map", args: [prim(key), prim(value)] };
+}
+
 function optional(name) {
   return { kind: "union", members: [prim(name), prim("Nil")] };
 }
@@ -365,4 +369,112 @@ test("internal declaration program is closed and mirrors the public model", () =
       normalizedForm(publicForm(publicProgram, name)),
     );
   }
+});
+
+test("internal declaration extension atoms preserve their exact ownership domains", () => {
+  const program = ast(ir);
+  const nominalFields = [
+    ["declaration-id", prim("String")],
+    ["name", prim("String")],
+    ["provenance-token", prim("String")],
+  ];
+  for (const name of [
+    "IrPublicationRef",
+    "IrFormRef",
+    "IrListDetailRef",
+    "IrReceiptEntityRef",
+    "IrReceiptFieldRef",
+    "IrExtensionFieldRef",
+  ]) {
+    expect(fields(internalForm(program, name)), name).toEqual(nominalFields);
+  }
+
+  for (const name of [
+    "IrEntityDeclarationName",
+    "IrFieldDeclarationName",
+    "IrStateDeclarationName",
+    "IrStateValueDeclarationName",
+  ]) {
+    expect(fields(internalForm(program, name)), name).toEqual([
+      ["value", prim("String")],
+    ]);
+  }
+
+  expect(fields(internalForm(program, "IrReceiptEntitySpec"))).toEqual([
+    ["ref", prim("IrReceiptEntityRef")],
+    ["storage-id", prim("String")],
+  ]);
+  expect(fields(internalForm(program, "IrReceiptFieldDeclarationSpec"))).toEqual([
+    ["ref", prim("IrReceiptFieldRef")],
+    ["owner", prim("IrReceiptEntityRef")],
+    ["value-type", prim("IrValueTypeSpec")],
+    ["target", optional("IrEntityRef")],
+    ["storage-id", prim("String")],
+  ]);
+  expect(fields(internalForm(program, "IrExtensionFieldSpec"))).toEqual([
+    ["ref", prim("IrExtensionFieldRef")],
+    ["value-type", prim("IrFieldValueType")],
+    ["cardinality", prim("IrFieldCardinality")],
+    ["write", prim("IrFieldWriteMode")],
+    ["storage-id", prim("String")],
+    ["required", prim("Bool")],
+  ]);
+  expect(fields(internalForm(program, "IrThemeSpec"))).toEqual([
+    ["colors", map("String", "String")],
+  ]);
+
+  expect(fields(internalForm(program, "IrPublicationDeclarationSpec"))).toEqual([
+    ["ref", prim("IrPublicationRef")],
+    ["owner", prim("IrEntityRef")],
+    ["pointer", prim("IrFieldRef")],
+    ["revision", prim("IrEntityRef")],
+    ["owner-field", prim("IrFieldRef")],
+    ["state-field", prim("IrFieldRef")],
+    ["draft", prim("IrStateValueRef")],
+    ["published", prim("IrStateValueRef")],
+    ["retired", prim("IrStateValueRef")],
+  ]);
+  expect(internalForm(program, "IrFormSuccessAction")).toMatchObject({
+    members: ["IrClearFormSuccess"],
+  });
+  expect(fields(internalForm(program, "IrFormDeclarationSpec"))).toEqual([
+    ["ref", prim("IrFormRef")],
+    ["entity", prim("IrEntityRef")],
+    ["fields", vec("IrFieldRef")],
+    ["required", vec("IrFieldRef")],
+    ["submit-label", prim("String")],
+    ["on-success", prim("IrFormSuccessAction")],
+  ]);
+  expect(internalForm(program, "IrListDetailTabSpec")).toMatchObject({
+    members: ["IrFieldsDetailTab", "IrRelatedDetailTab"],
+    "member-fields": {
+      IrFieldsDetailTab: [
+        { name: "label", ann: prim("String") },
+        { name: "fields", ann: vec("IrFieldRef") },
+      ],
+      IrRelatedDetailTab: [
+        { name: "label", ann: prim("String") },
+        { name: "entity", ann: prim("IrEntityRef") },
+        { name: "relation", ann: prim("IrFieldRef") },
+        { name: "display", ann: vec("IrFieldRef") },
+      ],
+    },
+  });
+  expect(fields(internalForm(program, "IrListDetailDeclarationSpec"))).toEqual([
+    ["ref", prim("IrListDetailRef")],
+    ["entity", prim("IrEntityRef")],
+    ["title", prim("String")],
+    ["columns", vec("IrFieldRef")],
+    ["search", vec("IrFieldRef")],
+    ["detail-tabs", vec("IrListDetailTabSpec")],
+  ]);
+  expect(internalForm(program, "IrUiAction")).toMatchObject({
+    members: ["IrSetFieldAction"],
+    "member-fields": {
+      IrSetFieldAction: [
+        { name: "field", ann: prim("IrFieldRef") },
+        { name: "value", ann: prim("IrValueExpr") },
+      ],
+    },
+  });
 });

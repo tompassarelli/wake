@@ -15,7 +15,7 @@ export const CHECKED_DECLARATION_MODEL = Object.freeze({
   wakeCoreSourceSha256:
     "sha256:cd21559fc26a3baf1473d6d18cdf97d67ef410d8575809bc85810eda5f274f96",
   wakeIrSourceSha256:
-    "sha256:8e52e0d9578f047abb1edae5c0c8aa0a4ed2b3d3d1533c89902c9dd021db25ae",
+    "sha256:690f27cdb64a292368a023e7ea414f3ceb5f87c07e5486a2c227004560c5471c",
 });
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
