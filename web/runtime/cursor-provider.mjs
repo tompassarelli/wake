@@ -192,7 +192,11 @@ function cloneTerm(value, label, code, budget = { nodes: 0 }, depth = 1) {
 }
 
 function base64url(bytes) {
-  return bytes.toBase64({ alphabet: "base64url", omitPadding: true });
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
 
 function decodeBase64url(text, label, maxBytes) {
@@ -202,7 +206,9 @@ function decodeBase64url(text, label, maxBytes) {
   }
   let bytes;
   try {
-    bytes = Uint8Array.fromBase64(text, { alphabet: "base64url" });
+    const standard = text.replaceAll("-", "+").replaceAll("_", "/");
+    const binary = atob(`${standard}${"=".repeat((4 - standard.length % 4) % 4)}`);
+    bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
   } catch {
     throw cursorError("invalid_cursor", `${label} is not canonical base64url`);
   }

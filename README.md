@@ -42,13 +42,19 @@ and lifecycle meaning remain in Wake.
     ▼
 checked Wake graph
     ├── direct-DOM JavaScript ──► browser
-    └── FRAM plan ──────────────► Wake gateway ──► FRAMRPC ──► FRAM
+    └── FRAM plan ──────────────► Wake gateway ──► FRAM client ──► FRAM
 ```
 
 The browser never speaks FRAMRPC and cannot submit arbitrary FRAM queries. The
 runtime HTTP adapter exposes only the operations in the checked application
 boundary, accepts POSTed JSON, and denies requests unless its host supplies an
 authorizer.
+
+The runtime-neutral application adapter accepts the official FRAM client
+surface. A Bun deployment can use its native FRAMRPC transport; a Cloudflare
+module Worker can use `createWakeWorkerHost` with a Durable Object-backed
+transport and an Assets binding. The compiled Wake application and closed HTTP
+protocol are identical in both hosts.
 
 ## FRAM example
 
@@ -179,6 +185,7 @@ and resolved reference targets, are checked there before output is produced.
 - `wake:web/compiler/emit-fram.bjs` — deterministic FRAM plan projection.
 - `wake:web/runtime/fram-gateway.mjs` — plan-driven FRAM application gateway.
 - `wake:web/runtime/fram-http.mjs` — closed HTTP adapter and authorization seam.
+- `wake:web/runtime/worker-host.mjs` — standard Fetch host for Cloudflare module Workers.
 - `wake:web/demo/` — compiler-checked examples; `wiki.wake` is the FRAM fixture.
 - `wake:web/tests/` — handwritten compiler-plan, wiki, and browser tests.
 - `wake:web/public-js/` — the browser-test HTML shell and shared CSS.

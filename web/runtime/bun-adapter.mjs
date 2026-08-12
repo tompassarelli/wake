@@ -429,11 +429,12 @@ function httpAuthorizationSnapshot(operation, actor, traceId) {
 }
 
 /**
- * Composes Wake's checked artifacts and public FRAM clients into a Bun host
- * adapter. Authentication stays in the host; this boundary accepts only the
- * derived actor context and never reads credentials from request headers.
+ * Composes Wake's checked artifacts and public FRAM clients into a
+ * runtime-neutral application adapter. Authentication stays in the host; this
+ * boundary accepts only the derived actor context and never reads credentials
+ * from request headers.
  */
-export function createWakeBunAdapter({
+export function createWakeApplicationAdapter({
   applicationReceipt: installedReceipt,
   authorize,
   browserClient,
@@ -638,3 +639,6 @@ export function createWakeBunAdapter({
     semanticFingerprint: manifest.checkedApplication.fingerprint,
   });
 }
+
+/** @deprecated Use createWakeApplicationAdapter. */
+export const createWakeBunAdapter = createWakeApplicationAdapter;

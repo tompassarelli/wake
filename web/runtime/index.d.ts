@@ -83,7 +83,7 @@ export interface WakeQueryOptions {
   readonly limit?: number;
 }
 
-export interface WakeBunAdapter {
+export interface WakeApplicationAdapter {
   readonly applicationId: string;
   readonly artifacts: Readonly<{
     manifestDigest: string;
@@ -117,7 +117,7 @@ export interface WakeCursorConfiguration {
   readonly ttlMs?: number;
 }
 
-export interface WakeBunAdapterInput {
+export interface WakeApplicationAdapterInput {
   readonly applicationReceipt: WakeApplicationReceipt;
   readonly authorize: (
     context: WakeAuthorizationContext,
@@ -158,7 +158,68 @@ export interface InstallApplicationInput extends LoadApplicationReceiptInput {
   readonly schema: WakeSchemaClient;
 }
 
-export function createWakeBunAdapter(input: WakeBunAdapterInput): WakeBunAdapter;
+export function createWakeApplicationAdapter(
+  input: WakeApplicationAdapterInput,
+): WakeApplicationAdapter;
+
+/** @deprecated Use WakeApplicationAdapter. */
+export type WakeBunAdapter = WakeApplicationAdapter;
+
+/** @deprecated Use WakeApplicationAdapterInput. */
+export type WakeBunAdapterInput = WakeApplicationAdapterInput;
+
+/** @deprecated Use createWakeApplicationAdapter. */
+export const createWakeBunAdapter: typeof createWakeApplicationAdapter;
+
+export interface WakeWorkerExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException?(): void;
+}
+
+export interface WakeWorkerErrorContext {
+  readonly executionContext: WakeWorkerExecutionContext;
+  readonly phase:
+    | "fallback"
+    | "handle"
+    | "request"
+    | "route";
+}
+
+export interface WakeWorkerHost<Environment = unknown> {
+  fetch(
+    request: Request,
+    environment: Environment,
+    executionContext: WakeWorkerExecutionContext,
+  ): Promise<Response>;
+}
+
+export interface WakeWorkerHostInput<Environment = unknown> {
+  readonly fallback?: (
+    request: Request,
+    environment: Environment,
+    executionContext: WakeWorkerExecutionContext,
+  ) => Response | Promise<Response>;
+  readonly onError?: (
+    error: unknown,
+    context: WakeWorkerErrorContext,
+  ) => Response | Promise<Response>;
+  readonly handle: (
+    request: Request,
+    environment: Environment,
+    executionContext: WakeWorkerExecutionContext,
+  ) => Response | Promise<Response>;
+  readonly route: (
+    request: Request,
+    environment: Environment,
+    executionContext: WakeWorkerExecutionContext,
+  ) => boolean;
+}
+
+export class WakeWorkerConfigError extends TypeError {}
+
+export function createWakeWorkerHost<Environment = unknown>(
+  input: WakeWorkerHostInput<Environment>,
+): WakeWorkerHost<Environment>;
 
 export function loadApplicationReceipt(
   input: LoadApplicationReceiptInput,

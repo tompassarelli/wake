@@ -1,13 +1,15 @@
 # `@tompassarelli/wake-runtime`
 
-The production Bun boundary for running one checked Wake application against
-the official FRAM client. It contains the checked adapter and its internal HTTP,
-gateway, named-query, receipt, and canonical-JSON implementation. It contains
-no compiler, plugin implementation, dynamic plugin loader, or raw FRAM escape.
+The production Fetch boundary for running one checked Wake application against
+the official FRAM client. It contains the checked adapter, a Cloudflare Worker
+host, and the internal HTTP, gateway, named-query, receipt, and canonical-JSON
+implementation. It contains no compiler, plugin implementation, dynamic plugin
+loader, or raw FRAM escape.
 
 ```js
 import {
-  createWakeBunAdapter,
+  createWakeApplicationAdapter,
+  createWakeWorkerHost,
   installApplication,
   loadApplicationReceipt,
   rejectProviderInput,
@@ -33,7 +35,7 @@ await loadApplicationReceipt({
   plan,
 }); // Verifies the ready receipt without changing state.
 
-const runtime = createWakeBunAdapter({
+const runtime = createWakeApplicationAdapter({
   applicationReceipt,
   authorize,
   browserClient,
@@ -50,6 +52,21 @@ const runtime = createWakeBunAdapter({
   schema,
   serverValues,
 });
+
+const worker = createWakeWorkerHost({
+  route(request) {
+    return new URL(request.url).pathname === "/api/application";
+  },
+  async handle(request, env, ctx) {
+    // Verify host credentials and dispatch the application's closed API here.
+    return applicationApi.fetch(request, { env, ctx, runtime });
+  },
+  fallback(request, env) {
+    return env.ASSETS.fetch(request);
+  },
+});
+
+export default worker;
 
 const page = await runtime.executeQuery(
   "browse-articles",
@@ -88,6 +105,23 @@ non-function entries fail startup.
 `serverValues` is an optional static data registry whose own enumerable keys
 must exactly match checked server-value injections; Wake type-checks and
 freezes every value during startup and never invokes it as a callback.
+
+`createWakeWorkerHost` has the standard module Worker `fetch(request, env,
+ctx)` signature. The application supplies a synchronous `route` predicate and
+a closed `handle` boundary, so its public URL and protocol remain an application
+concern; Wake never forces the raw `/api/wake` protocol onto the internet.
+`fallback` can delegate every other route to a Cloudflare static-assets binding.
+The Worker host imports no Cloudflare module, does not inspect credentials, and
+does not select a FRAM transport. Applications inject the official FRAM client
+backed by either native FRAMRPC or a Durable Object transport.
+
+`fallback` is not authenticated by Wake. Use it only for deliberately public
+assets. A protected application should select every request in `route`, verify
+the request in `handle`, and call its Assets binding only after authentication
+and origin checks. The optional `onError` receives the caught error plus only
+the closed phase and execution context; it does not receive request headers or
+environment bindings. It must return a sanitized `Response` and must not expose
+or indiscriminately log error contents.
 
 Checked providers can call `rejectProviderInput(message, detail?)` to return a
 trusted, public `command/provider-rejected` error. Other thrown provider errors

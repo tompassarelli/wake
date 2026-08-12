@@ -7,8 +7,8 @@ import {
 
 const webRoot = `${import.meta.dir}/..`;
 const packer = `${webRoot}/bin/wake-runtime-pack`;
-const receiptPath = `${webRoot}/release/wake-runtime-1.0.0.receipt.json`;
-const archiveName = "tompassarelli-wake-runtime-1.0.0.tgz";
+const receiptPath = `${webRoot}/release/wake-runtime-1.1.0.receipt.json`;
+const archiveName = "tompassarelli-wake-runtime-1.1.0.tgz";
 const expectedFiles = [
   "package/LICENSE-APACHE",
   "package/LICENSE-MIT",
@@ -27,6 +27,7 @@ const expectedFiles = [
   "package/named-query.mjs",
   "package/package.json",
   "package/safe-document.mjs",
+  "package/worker-host.mjs",
 ];
 
 function run(command) {
@@ -70,7 +71,7 @@ describe("@tompassarelli/wake-runtime package", () => {
       });
       expect(receipt.package).toEqual({
         name: "@tompassarelli/wake-runtime",
-        version: "1.0.0",
+        version: "1.1.0",
       });
       expect(receipt.packer).toBe(`bun@${Bun.version}`);
       expect(receipt.schemaVersion).toBe(1);
@@ -91,8 +92,11 @@ describe("@tompassarelli/wake-runtime package", () => {
       const publicModule = await import(`${extracted}/package/index.mjs`);
       expect(Object.keys(publicModule).sort()).toEqual([
         "CheckedValueError",
+        "WakeWorkerConfigError",
         "compileCheckedValue",
+        "createWakeApplicationAdapter",
         "createWakeBunAdapter",
+        "createWakeWorkerHost",
         "installApplication",
         "loadApplicationReceipt",
         "normalizeCheckedValue",
