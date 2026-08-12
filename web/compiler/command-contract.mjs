@@ -18,6 +18,7 @@ function typeKey(type) {
 
 function sameType(left, right) {
   if (left?.kind === "string" && right?.kind === "string") return true;
+  if (left?.kind === "integer" && right?.kind === "integer") return true;
   if (left?.kind === "nullable" && right?.kind === "nullable") {
     return sameType(left.value, right.value);
   }

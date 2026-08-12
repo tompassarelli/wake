@@ -296,6 +296,20 @@ test("checker enforces exact provider input and output contracts", () => {
   );
 });
 
+test("checker accepts a literal integer for a bounded provider record field", () => {
+  const [{ value: form }] = sexpr.parse_all(source);
+  const command = parseCommand(form);
+  const bounded = structuredClone(checked);
+  bounded.providers[0].input_type.fields[0].type = {
+    kind: "integer",
+    maximum: 247,
+    minimum: 1,
+  };
+  command.injections[1].input.fields[0].value = { kind: "literal", value: 5 };
+
+  assert.doesNotThrow(() => checkCommandGraph([command], bounded));
+});
+
 test("parser rejects unknown command steps rather than accepting a no-op", () => {
   const [{ value: form }] = sexpr.parse_all(source.replace("(require entry", "(erase entry"));
   assert.throws(() => parseCommand(form), /unknown operation 'erase'/);
