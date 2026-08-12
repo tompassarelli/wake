@@ -127,22 +127,61 @@ function qualify(alias, name) {
   return `${alias}.${name}`;
 }
 
-function qualifyCommandType(type, qualifyExtensionPort) {
+function qualifyCommandType(type, qualifyExtensionPort, qualifyValueType) {
   if (type?.kind === "extension") {
     return qualifyExtensionPort(type.port, "command input extension");
   }
+  if (type?.kind === "named") {
+    return { ...type, name: qualifyValueType(type.name) };
+  }
   if (type?.kind === "nullable") {
-    return { ...type, value: qualifyCommandType(type.value, qualifyExtensionPort) };
+    return { ...type, value: qualifyCommandType(type.value, qualifyExtensionPort, qualifyValueType) };
   }
   if (type?.kind === "list") {
-    return { ...type, items: qualifyCommandType(type.items, qualifyExtensionPort) };
+    return { ...type, items: qualifyCommandType(type.items, qualifyExtensionPort, qualifyValueType) };
   }
   if (type?.kind === "record") {
     return {
       ...type,
       fields: type.fields.map(field => ({
         ...field,
-        type: qualifyCommandType(field.type, qualifyExtensionPort),
+        type: qualifyCommandType(field.type, qualifyExtensionPort, qualifyValueType),
+      })),
+    };
+  }
+  return type;
+}
+
+function qualifyProviderPortType(type, valueTypeNames, alias) {
+  if (type?.kind === "ref") {
+    return valueTypeNames.has(type.name)
+      ? { kind: "named", name: qualify(alias, type.name) }
+      : type;
+  }
+  if (type?.kind === "nullable") {
+    return { ...type, value: qualifyProviderPortType(type.value, valueTypeNames, alias) };
+  }
+  if (type?.kind === "list") {
+    return { ...type, items: qualifyProviderPortType(type.items, valueTypeNames, alias) };
+  }
+  if (type?.kind === "record") {
+    return {
+      ...type,
+      fields: type.fields.map(field => ({
+        ...field,
+        value: qualifyProviderPortType(field.value, valueTypeNames, alias),
+      })),
+    };
+  }
+  if (type?.kind === "tagged") {
+    return {
+      ...type,
+      variants: type.variants.map(variant => ({
+        ...variant,
+        fields: variant.fields.map(field => ({
+          ...field,
+          value: qualifyProviderPortType(field.value, valueTypeNames, alias),
+        })),
       })),
     };
   }
@@ -154,12 +193,14 @@ function qualifyPluginCommand(command, {
   declarations,
   entityNames,
   manifest,
+  valueTypeNames,
 }) {
   const localName = command.name;
   if (!manifest.exports.commands.includes(localName)) {
     fail(`plugin '${manifest.packageId}' declares unexported command '${localName}'`);
   }
   const qualifyEntityName = name => entityNames.has(name) ? qualify(alias, name) : name;
+  const qualifyValueTypeName = name => valueTypeNames.has(name) ? qualify(alias, name) : name;
   const extensionPort = (name, label, expectedTarget = null) => {
     const port = manifest.extensionPorts.find(candidate => candidate.name === name);
     if (port === undefined) {
@@ -220,7 +261,11 @@ function qualifyPluginCommand(command, {
       ...(field.targetEntity === undefined
         ? {}
         : { targetEntity: qualifyEntityName(field.targetEntity) }),
-      type: qualifyCommandType(field.type, name => extensionPort(name, "receipt result type")),
+      type: qualifyCommandType(
+        field.type,
+        name => extensionPort(name, "receipt result type"),
+        qualifyValueTypeName,
+      ),
     };
   });
   return {
@@ -229,16 +274,20 @@ function qualifyPluginCommand(command, {
     capabilities,
     input: command.input.map(field => ({
       ...field,
-      type: qualifyCommandType(field.type, name => extensionPort(name, "input")),
+      type: qualifyCommandType(field.type, name => extensionPort(name, "input"), qualifyValueTypeName),
     })),
     injections: command.injections.map(injection => ({
       ...injection,
-      type: qualifyCommandType(injection.type, name => extensionPort(name, "injection type")),
+      type: qualifyCommandType(
+        injection.type,
+        name => extensionPort(name, "injection type"),
+        qualifyValueTypeName,
+      ),
     })),
     steps: command.steps.map(qualifyStep),
     result: command.result.map(field => ({
       ...field,
-      type: qualifyCommandType(field.type, name => extensionPort(name, "result type")),
+      type: qualifyCommandType(field.type, name => extensionPort(name, "result type"), qualifyValueTypeName),
     })),
     receipt: {
       ...command.receipt,
@@ -573,6 +622,117 @@ function expandCommandComposition(commands, extensions, entities, defstates) {
   });
 }
 
+function resolvedExternalType(type, valueTypes, label, active = new Set()) {
+  if (type?.kind === "named" || type?.kind === "ref") {
+    const declaration = valueTypes.get(type.name);
+    if (declaration === undefined) fail(`${label} names unknown value type '${type.name}'`);
+    if (active.has(type.name)) fail(`${label} reaches cyclic external value type '${type.name}'`);
+    const next = new Set(active);
+    next.add(type.name);
+    return resolvedExternalType(declaration.descriptor, valueTypes, label, next);
+  }
+  if (type?.kind === "bounded") return structuredClone(type);
+  if (type?.kind === "nullable") {
+    return { ...type, value: resolvedExternalType(type.value, valueTypes, label, active) };
+  }
+  if (type?.kind === "list") {
+    return { ...type, items: resolvedExternalType(type.items, valueTypes, label, active) };
+  }
+  if (type?.kind === "record") {
+    return {
+      ...type,
+      fields: type.fields.map(field => ({
+        ...field,
+        [Object.hasOwn(field, "type") ? "type" : "value"]: resolvedExternalType(
+          field.type ?? field.value,
+          valueTypes,
+          `${label}.${field.name}`,
+          active,
+        ),
+      })),
+    };
+  }
+  if (type?.kind === "tagged") {
+    return {
+      ...type,
+      variants: type.variants.map(variant => ({
+        ...variant,
+        fields: variant.fields.map(field => ({
+          ...field,
+          value: resolvedExternalType(
+            field.value,
+            valueTypes,
+            `${label}.${field.name}`,
+            active,
+          ),
+        })),
+      })),
+    };
+  }
+  return type;
+}
+
+function resolveLinkedProviderTypes(linked) {
+  const declarations = linked.value_types ?? [];
+  const valueTypes = new Map();
+  for (const declaration of declarations) {
+    if (valueTypes.has(declaration.name)) fail(`value type '${declaration.name}' is declared twice`);
+    valueTypes.set(declaration.name, declaration);
+  }
+  const resolveCommand = command => ({
+    ...command,
+    input: command.input.map(field => ({
+      ...field,
+      type: resolvedExternalType(field.type, valueTypes, `command '${command.name}' input '${field.name}'`),
+    })),
+    injections: command.injections.map(injection => ({
+      ...injection,
+      type: resolvedExternalType(
+        injection.type,
+        valueTypes,
+        `command '${command.name}' injection '${injection.name}'`,
+      ),
+    })),
+    result: command.result.map(field => ({
+      ...field,
+      type: resolvedExternalType(field.type, valueTypes, `command '${command.name}' result '${field.name}'`),
+    })),
+    receipt: {
+      ...command.receipt,
+      resultFields: command.receipt.resultFields.map(field => ({
+        ...field,
+        type: resolvedExternalType(
+          field.type,
+          valueTypes,
+          `command '${command.name}' receipt '${field.name}'`,
+        ),
+      })),
+    },
+  });
+  return {
+    ...linked,
+    commands: (linked.commands ?? []).map(resolveCommand),
+    provider_ports: (linked.provider_ports ?? []).map(port => ({
+      ...port,
+      input: resolvedExternalType(port.input, valueTypes, `provider port '${port.name}' input`),
+      output: resolvedExternalType(port.output, valueTypes, `provider port '${port.name}' output`),
+    })),
+    providers: (linked.providers ?? []).map(provider => ({
+      ...provider,
+      input_type: resolvedExternalType(
+        provider.input_type,
+        valueTypes,
+        `provider '${provider.name}' input`,
+      ),
+      output_type: resolvedExternalType(
+        provider.output_type,
+        valueTypes,
+        `provider '${provider.name}' output`,
+      ),
+    })),
+  };
+}
+
 function applyApplicationComposition(linked, direct) {
   const providers = (linked.providers ?? []).map(provider => {
     const target = declaredCompositionTarget(
@@ -581,8 +741,15 @@ function applyApplicationComposition(linked, direct) {
       "provider",
       `provider '${provider.name}'`,
     );
+    const portName = qualify(target.target.alias, target.target.name);
+    const contract = (linked.provider_ports ?? []).find(candidate => candidate.name === portName);
+    if (contract === undefined) {
+      fail(`provider '${provider.name}' targets missing checked port '${portName}'`);
+    }
     return {
+      input_type: contract.input,
       name: provider.name,
+      output_type: contract.output,
       port: provider.port,
       package_id: target.manifest.packageId,
       port_name: target.target.name,
@@ -824,7 +991,7 @@ function applyApplicationComposition(linked, direct) {
     linked.defstates ?? [],
   );
 
-  return {
+  return resolveLinkedProviderTypes({
     ...linked,
     commands,
     components: filledComponents,
@@ -836,7 +1003,7 @@ function applyApplicationComposition(linked, direct) {
     queries,
     router,
     views: filledViews,
-  };
+  });
 }
 
 function qualifyEntity(
@@ -894,6 +1061,8 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
   const viewNames = new Set(program.views.map((view) => view.name));
   const queryNames = new Set((program.queries ?? []).map((query) => query.name));
   const commandNames = new Set((program.commands ?? []).map((command) => command.name));
+  const valueTypeNames = new Set((program.value_types ?? []).map((valueType) => valueType.name));
+  const providerPortNames = new Set((program.provider_ports ?? []).map((port) => port.name));
   const routeNames = new Set((program.router?.routes ?? []).map((route) => route.path));
 
   if (allow.has("schema")) {
@@ -901,6 +1070,28 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
       const localName = declarations.alias("entity", exported);
       if (!entityNames.has(localName)) {
         fail(`plugin '${manifest.packageId}' exports missing entity '${exported}'`);
+      }
+    }
+    for (const exported of manifest.exports.valueTypes ?? []) {
+      if (!valueTypeNames.has(exported)) {
+        fail(`plugin '${manifest.packageId}' exports missing value type '${exported}'`);
+      }
+    }
+    for (const declared of valueTypeNames) {
+      if (!(manifest.exports.valueTypes ?? []).includes(declared)) {
+        fail(`plugin '${manifest.packageId}' declares unexported value type '${declared}'`);
+      }
+    }
+  }
+  if (allow.has("capability")) {
+    for (const exported of manifest.exports.providerPorts) {
+      if (!providerPortNames.has(exported)) {
+        fail(`plugin '${manifest.packageId}' exports missing provider port '${exported}'`);
+      }
+    }
+    for (const declared of providerPortNames) {
+      if (!manifest.exports.providerPorts.includes(declared)) {
+        fail(`plugin '${manifest.packageId}' declares unexported provider port '${declared}'`);
       }
     }
   }
@@ -1032,6 +1223,21 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
         declarations,
         entityNames,
         manifest,
+        valueTypeNames,
+      }))
+    : [];
+  const valueTypes = allow.has("schema")
+    ? (program.value_types ?? []).map(valueType => ({
+        ...valueType,
+        name: qualify(alias, valueType.name),
+      }))
+    : [];
+  const providerPorts = allow.has("capability")
+    ? (program.provider_ports ?? []).map(port => ({
+        ...port,
+        name: qualify(alias, port.name),
+        input: qualifyProviderPortType(port.input, valueTypeNames, alias),
+        output: qualifyProviderPortType(port.output, valueTypeNames, alias),
       }))
     : [];
   const components = allow.has("ui")
@@ -1103,10 +1309,12 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
     layout: allow.has("ui") ? (program.layout ?? null) : null,
     listDetails,
     publications,
+    providerPorts,
     queries,
     routeTemplates,
     sourceUnit: program.source_unit,
     theme: allow.has("ui") ? (program.theme ?? null) : null,
+    valueTypes,
     views,
   };
 }
@@ -1239,6 +1447,16 @@ async function linkProgram(
     linked.entities = appendUnique(linked.entities, contribution.entities, "entity");
     linked.defstates = appendUnique(linked.defstates, contribution.defstates, "defstate");
     linked.publications = appendUnique(linked.publications, contribution.publications, "publication");
+    linked.value_types = appendUnique(
+      linked.value_types ?? [],
+      contribution.valueTypes,
+      "value type",
+    );
+    linked.provider_ports = appendUnique(
+      linked.provider_ports ?? [],
+      contribution.providerPorts,
+      "provider port",
+    );
     linked.queries = appendUnique(linked.queries ?? [], contribution.queries, "query");
     linked.commands = appendUnique(linked.commands ?? [], contribution.commands, "command");
     linked.components = appendUnique(linked.components, contribution.components, "component");
