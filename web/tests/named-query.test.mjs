@@ -104,6 +104,7 @@ describe("W1 checked named query compiler", () => {
         },
       }],
       result: { kind: "page", defaultLimit: 20, maxLimit: 64 },
+      resultProviders: [],
     });
     expect(plan.queries[0].select[0]).toEqual({
       name: "id",

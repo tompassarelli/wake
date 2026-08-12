@@ -183,6 +183,7 @@
      (.-bindings query))
    :where (mapv query-predicate-plan (.-predicates query))
    :select (mapv query-column-plan (.-columns query))
+   :resultProviders (or (.-result-providers query) [])
    :result (query-result-plan query)
    :dependencies
    (mapv
