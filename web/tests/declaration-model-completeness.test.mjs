@@ -82,6 +82,12 @@ test("public declarations represent every wiki value and composition invariant",
   expect(
     publicForm(program, "FieldValueType")["member-fields"].RefField,
   ).toEqual([{ name: "target", ann: prim("EntityReferenceTarget") }]);
+  expect(publicForm(program, "FieldWriteMode").members).toEqual([
+    "IdentityWrite",
+    "CreateWrite",
+    "CommandFieldWrite",
+    "ServerWrite",
+  ]);
 
   const valueTypes = publicForm(program, "ValueTypeSpec");
   expect(valueTypes.members).toEqual([

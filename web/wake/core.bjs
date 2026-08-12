@@ -295,7 +295,7 @@
   (defunion FieldWriteMode
     (IdentityWrite [unit: Nil])
     (CreateWrite [unit: Nil])
-    (CommandWrite [unit: Nil])
+    (CommandFieldWrite [unit: Nil])
     (ServerWrite [unit: Nil])))
 
 (js/export

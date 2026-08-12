@@ -218,7 +218,7 @@
 (defunion IrFieldWriteMode
   (IrIdentityWrite [unit: Nil])
   (IrCreateWrite [unit: Nil])
-  (IrCommandWrite [unit: Nil])
+  (IrCommandFieldWrite [unit: Nil])
   (IrServerWrite [unit: Nil]))
 (defunion IrFieldValueType
   (IrStringField [unit: Nil])
