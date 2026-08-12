@@ -174,6 +174,14 @@ function program(overrides = {}) {
   };
 }
 
+function listModeProgram(overrides = {}) {
+  return program({
+    router: null,
+    views: [],
+    ...overrides,
+  });
+}
+
 beforeAll(async () => {
   buildDir = mkdtempSync(join(tmpdir(), "wake-graph-ui-router-guards-"));
   const output = join(buildDir, "graph.js.tmp");
@@ -390,7 +398,7 @@ test("rejects duplicate and unresolved routes", () => {
 });
 
 test("resolves list-detail fields and explicit related relations", () => {
-  const checked = checkProgram(program({
+  const checked = checkProgram(listModeProgram({
     entities: [
       entity("page"),
       {
@@ -468,7 +476,10 @@ test("rejects invalid list-detail fields, searches, and relations", () => {
       relation_field: null, infer_relation: true, display_fields: ["id"],
     }] }), /cannot infer one relation/],
   ]) {
-    assert.throws(() => checkProgram(program({ ...base, list_details: [detail] })), expected);
+    assert.throws(
+      () => checkProgram(listModeProgram({ ...base, list_details: [detail] })),
+      expected,
+    );
   }
 });
 
@@ -594,7 +605,7 @@ test("rejects list-detail tab codegen collisions", () => {
   };
 
   assert.throws(
-    () => checkProgram(program({
+    () => checkProgram(listModeProgram({
       entities: [entity("page"), note],
       list_details: [listDetail({
         detail_tabs: [
@@ -606,7 +617,7 @@ test("rejects list-detail tab codegen collisions", () => {
     /repeats related entity 'note'/,
   );
   assert.throws(
-    () => checkProgram(program({
+    () => checkProgram(listModeProgram({
       entities: [entity("page"), note, event],
       list_details: [listDetail({
         detail_tabs: [related("Notes", "note", "page"), related("notes", "event", "page")],
@@ -615,7 +626,7 @@ test("rejects list-detail tab codegen collisions", () => {
     /tab labels collide case-insensitively at 'notes'/,
   );
   assert.throws(
-    () => checkProgram(program({
+    () => checkProgram(listModeProgram({
       entities: [entity("page"), note],
       list_details: [listDetail({
         detail_tabs: [related("OVERVIEW", "note", "page")],
@@ -624,7 +635,7 @@ test("rejects list-detail tab codegen collisions", () => {
     /related tab label 'OVERVIEW' conflicts with the built-in overview tab/,
   );
   assert.throws(
-    () => checkProgram(program({
+    () => checkProgram(listModeProgram({
       entities: [{
         name: "page",
         attrs: [
@@ -642,7 +653,7 @@ test("rejects list-detail tab codegen collisions", () => {
 
 test("rejects list details beyond the single generated application surface", () => {
   assert.throws(
-    () => checkProgram(program({
+    () => checkProgram(listModeProgram({
       entities: [entity("page"), entity("note")],
       list_details: [
         listDetail(),
@@ -651,4 +662,91 @@ test("rejects list details beyond the single generated application surface", () 
     })),
     /program may declare at most one list detail/,
   );
+});
+
+test("enforces one coherent generated UI root topology", () => {
+  const form = (name, entityName) => ({
+    name,
+    entity_name: entityName,
+    fields: ["id"],
+    required: ["id"],
+    submit_label: "Add",
+    on_success: ":clear",
+  });
+  const pageDetail = listDetail();
+
+  assert.doesNotThrow(() => checkProgram(listModeProgram({
+    forms: [form("add-page", "page")],
+    list_details: [pageDetail],
+  })));
+  assert.doesNotThrow(() => checkProgram(program({
+    components: [component("page-row"), component("note-row")],
+    entities: [entity("page"), entity("note")],
+    views: [view("pages", "page", "page-row"), view("notes", "note", "note-row")],
+    router: {
+      default_route: "pages",
+      routes: [route("pages", "pages"), route("notes", "notes")],
+    },
+  })));
+
+  const cases = [
+    [
+      listModeProgram({
+        forms: [form("add-page", "page"), form("add-another-page", "page")],
+        list_details: [pageDetail],
+      }),
+      /program may declare at most one list-detail form/,
+    ],
+    [
+      listModeProgram({ forms: [form("add-page", "page")] }),
+      /a form requires exactly one list detail/,
+    ],
+    [
+      listModeProgram({
+        entities: [entity("page"), entity("note")],
+        forms: [form("add-note", "note")],
+        list_details: [pageDetail],
+      }),
+      /form 'add-note' targets entity 'note' but the list detail owns 'page'/,
+    ],
+    [
+      program({ list_details: [pageDetail] }),
+      /program cannot combine view and list-detail UI roots/,
+    ],
+    [
+      program({ forms: [form("add-page", "page")] }),
+      /form declarations require list-detail UI mode/,
+    ],
+    [
+      program({
+        components: [component("page-row"), component("page-card")],
+        views: [view("pages", "page", "page-row"), view("cards", "page", "page-card")],
+        router: null,
+      }),
+      /multiple views require routes/,
+    ],
+    [
+      program({ layout: { style: "sidebar", title: "Pages", groups: [] }, router: null }),
+      /layout requires routes/,
+    ],
+    [
+      program({ layout: { style: "tabs", title: "Pages", groups: [] } }),
+      /layout uses unsupported style 'tabs'/,
+    ],
+    [
+      program({ layout: {
+        style: "sidebar",
+        title: "Pages",
+        groups: [{ label: "Main", items: ["missing"] }],
+      } }),
+      /layout group 'Main' names unknown view 'missing'/,
+    ],
+    [
+      program({ router: { default_route: "pages", routes: [] }, views: [] }),
+      /routes require at least one view/,
+    ],
+  ];
+  for (const [source, expected] of cases) {
+    assert.throws(() => checkProgram(source), expected);
+  }
 });

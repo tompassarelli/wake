@@ -1818,11 +1818,12 @@ async function wakeFramStart() {
    title: String
    ge: Any
    fram?: Bool] -> Any
-  (let [form-name (.-name form)
-        fields (.-fields form)
-        required (.-required form)
-        submit-label (.-label form)
-        field-info (.-field-info form)]
+  (let [has-form (some? form)
+        form-name (if has-form (.-name form) "")
+        fields (if has-form (.-fields form) [])
+        required (if has-form (.-required form) [])
+        submit-label (if has-form (.-label form) "")
+        field-info (if has-form (.-field-info form) [])]
     ;; Build form fields, threading counter
     (loop [i 0 c 2 code "" refs []]
       (if (>= i (count fields))
@@ -1845,12 +1846,15 @@ async function wakeFramStart() {
 
               rest-code (str
                 ;; Submit button
-                "  const el_" btn " = document.createElement(\"button\");\n"
-                "  el_" btn ".className = \"px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90\";\n"
-                "  el_" btn ".type = \"submit\";\n"
-                "  el_" btn ".textContent = " (q submit-label) ";\n"
-                "  el_2.appendChild(el_" btn ");\n"
-                "  el_1.appendChild(el_2);\n"
+                (if has-form
+                  (str
+                    "  const el_" btn " = document.createElement(\"button\");\n"
+                    "  el_" btn ".className = \"px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90\";\n"
+                    "  el_" btn ".type = \"submit\";\n"
+                    "  el_" btn ".textContent = " (q submit-label) ";\n"
+                    "  el_2.appendChild(el_" btn ");\n"
+                    "  el_1.appendChild(el_2);\n")
+                  "")
                 ;; Split pane
                 "  const el_" split " = document.createElement(\"div\");\n"
                 "  el_" split ".className = \"flex flex-1 min-h-0\";\n"
@@ -1896,9 +1900,12 @@ async function wakeFramStart() {
               full-code (str
                 "  const el_1 = document.createElement(\"div\");\n"
                 "  el_1.className = \"flex flex-col h-screen\";\n"
-                "  const el_2 = document.createElement(\"form\");\n"
-                "  el_2.id = " (q form-id) ";\n"
-                "  el_2.className = \"flex flex-col gap-3 p-4\";\n"
+                (if has-form
+                  (str
+                    "  const el_2 = document.createElement(\"form\");\n"
+                    "  el_2.id = " (q form-id) ";\n"
+                    "  el_2.className = \"flex flex-col gap-3 p-4\";\n")
+                  "")
                 code
                 rest-code)
 
@@ -1910,7 +1917,7 @@ async function wakeFramStart() {
                    (->LayoutRef stats-id (str "el_" stat))
                    (->LayoutRef search-id (str "el_" srch))]
                   (.reverse refs)
-                  [(->LayoutRef form-id "el_2")]))]
+                  (if has-form [(->LayoutRef form-id "el_2")] [])))]
           (->LayoutResult full-code all-refs))
 
         ;; Build one form field
@@ -1986,14 +1993,15 @@ async function wakeFramStart() {
 
 (defn gen-init-fn
   [en: String
-   form-name: String
+   form-name: String?
    store-name: String
    related-info: Any
    persist-key: Any
    layout-result: Any
    enable-undo: Bool
    fram?: Bool] -> String
-  (let [form-ref (id->ref (str "form-" form-name))
+  (let [has-form (some? form-name)
+        form-ref (if has-form (id->ref (str "form-" form-name)) "")
         search-ref (id->ref (str "ld-" en "-search"))
         ref-assigns (gen-ref-assigns (.-refs layout-result))
         related-watchers (.join
@@ -2032,7 +2040,9 @@ async function wakeFramStart() {
       "\n"
       "  buildDetailPanel();\n"
       "\n"
-      "  " form-ref ".addEventListener('submit', handleSubmit);\n"
+      (if has-form
+        (str "  " form-ref ".addEventListener('submit', handleSubmit);\n")
+        "")
       "  " search-ref ".addEventListener('input', filterRows);\n"
       "\n"
       "  " store-name ".watch((evt) => {\n"
@@ -3663,6 +3673,13 @@ async function wakeFramStart() {
 ;; --- Main entry point ---
 
 (defn gen-program! [g: Any] -> String
+  (if (and (= (count (or (.-views g) [])) 0)
+           (= (count (or (.-list-details g) [])) 0))
+    (throw
+      (ex-info
+        "wake: browser generation requires one view or one list detail"
+        {}))
+    nil)
   (if (and (not (nil? (.-views g))) (> (count (.-views g)) 0))
     (if (not (nil? (.-router g)))
       (gen-routed-program g)
@@ -3802,7 +3819,9 @@ async function wakeFramStart() {
 
       ;; Form
       "\n// ── Form ─────────────────────────────────────────────\n"
-      (gen-form-handler en (.-form ug) primary-ge is-fram) "\n"
+      (if (some? (.-form ug))
+        (gen-form-handler en (.-form ug) primary-ge is-fram)
+        "") "\n"
 
       ;; Persistence
       (cond
@@ -3825,7 +3844,7 @@ async function wakeFramStart() {
       "// ── Init ─────────────────────────────────────────────\n"
       (gen-init-fn
         en
-        (.-name (.-form ug))
+        (if (some? (.-form ug)) (.-name (.-form ug)) nil)
         store-name
         related-info
         persist-key

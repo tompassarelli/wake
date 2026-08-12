@@ -84,7 +84,7 @@
    related: (Vec UiRelated)
    stores: (Vec UiStore)
    states: (Vec UiState)
-   form: UiForm
+   form: UiForm?
    persist: Any
    all-field-info: (Vec UiFieldInfo)])
 
@@ -125,7 +125,7 @@
         form-fields (if (nil? sf) [] (or (.-fields sf) []))
         form-required (if (nil? sf) [] (or (.-required sf) []))
         form-label (if (nil? sf) "Submit" (or (.-submit-label sf) "Submit"))
-        form-name (if (nil? sf) "form" (.-name sf))
+        form-name (if (nil? sf) "" (.-name sf))
 
         stores (into
           [(->UiStore store-name en [])]
@@ -163,9 +163,15 @@
                 (->UiFieldInfo fname "text" []))))
 
         field-info (mapv build-fi form-fields)
+        form
+        (if (nil? sf)
+          nil
+          (->UiForm
+            form-name form-fields form-required form-label
+            status-default field-info))
         all-fi (mapv (fn [f] (build-fi (.-name f))) all-fields)]
 
     (->UiGraph en store-name title columns search-cols overview-fields
                derived related stores states
-               (->UiForm form-name form-fields form-required form-label status-default field-info)
+               form
                (.-persist graph) all-fi)))

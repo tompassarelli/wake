@@ -251,3 +251,83 @@ test("compiler rejects list-detail declarations it cannot all generate", () => {
     rmSync(temporary, { force: true, recursive: true });
   }
 }, COMPILER_TEST_TIMEOUT_MS);
+
+test("list-detail mode omits creation UI when no form is declared", async () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-list-without-form-"));
+  const sourcePath = join(temporary, "read-only-list.wake");
+  const source = readFileSync(
+    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.wake"),
+    "utf8",
+  ).replace(/\n\(form add-blog-post[\s\S]*\)\s*$/u, "\n");
+  writeFileSync(sourcePath, source);
+  try {
+    const generated = await compileAll(sourcePath, join(temporary, "out"));
+    assert.doesNotMatch(generated, /function handleSubmit/);
+    assert.doesNotMatch(generated, /\.addEventListener\('submit'/);
+    assert.doesNotMatch(generated, /undefined_val/);
+    assert.match(generated, /Blog posts/);
+  } finally {
+    rmSync(temporary, { force: true, recursive: true });
+  }
+}, COMPILER_TEST_TIMEOUT_MS);
+
+test("schema-only programs remain valid while browser generation needs a UI root", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-schema-only-"));
+  const sourcePath = join(temporary, "schema-only.wake");
+  writeFileSync(sourcePath, `(ns wake.tests.schema-only)
+(application :id "wake-schema-only")
+(backend :fram)
+(entity page
+  (id : String :identity)
+  (title : String))
+`);
+  try {
+    const fram = compileFram(sourcePath);
+    assert.equal(fram.status, 0, `${fram.stdout}\n${fram.stderr}`);
+    const browser = spawnSync(compile, [sourcePath, "-"], { cwd: webRoot });
+    assert.notEqual(browser.status, 0);
+    assert.match(
+      `${browser.stdout}\n${browser.stderr}`,
+      /browser generation requires one view or one list detail/,
+    );
+  } finally {
+    rmSync(temporary, { force: true, recursive: true });
+  }
+}, COMPILER_TEST_TIMEOUT_MS);
+
+test("compiler rejects ambiguous or mismatched UI root declarations", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-ui-root-topology-"));
+  const base = readFileSync(
+    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.wake"),
+    "utf8",
+  );
+  const form = base.match(/\n\(form add-blog-post[\s\S]*\)\s*$/u)?.[0];
+  assert.ok(form, "fixture must contain one smart form");
+  try {
+    for (const [name, source, expected] of [
+      [
+        "multiple-forms",
+        `${base}${form}`,
+        /program may declare at most one list-detail form/,
+      ],
+      [
+        "wrong-form-owner",
+        base.replace(":entity blog-post", ":entity blog-note"),
+        /targets entity 'blog-note' but the list detail owns 'blog-post'/,
+      ],
+      [
+        "view-and-list",
+        `${base}\n(component blog-row :props [id] (div :text id))\n(view blogs :entity blog-post :each blog-row :title "Blogs")\n`,
+        /program cannot combine view and list-detail UI roots/,
+      ],
+    ]) {
+      const sourcePath = join(temporary, `${name}.wake`);
+      writeFileSync(sourcePath, source);
+      const result = compileFram(sourcePath);
+      assert.notEqual(result.status, 0);
+      assert.match(`${result.stdout}\n${result.stderr}`, expected);
+    }
+  } finally {
+    rmSync(temporary, { force: true, recursive: true });
+  }
+}, 45_000);

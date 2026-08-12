@@ -884,6 +884,75 @@
                 resolved-tabs)))))
       details)))
 
+(defn validate-ui-root-topology [prog: IrProgram] -> Any
+  (let [views (or (.-views prog) [])
+        details (or (.-list-details prog) [])
+        forms (or (.-forms prog) [])
+        router (.-router prog)
+        layout (.-layout prog)]
+    (if (> (count forms) 1)
+      (graph-error "program may declare at most one list-detail form")
+      nil)
+    (if (and (> (count views) 0) (> (count details) 0))
+      (graph-error "program cannot combine view and list-detail UI roots")
+      nil)
+    (if (and (> (count views) 0) (> (count forms) 0))
+      (graph-error "form declarations require list-detail UI mode")
+      nil)
+    (if (and (> (count views) 1) (nil? router))
+      (graph-error "multiple views require routes")
+      nil)
+    (if (and (some? router) (= (count views) 0))
+      (graph-error "routes require at least one view")
+      nil)
+    (if (and (some? layout) (nil? router))
+      (graph-error "layout requires routes")
+      nil)
+    (if (and (some? layout) (not (= (.-style layout) "sidebar")))
+      (graph-error
+        (str "layout uses unsupported style '" (.-style layout) "'"))
+      nil)
+    (if (some? layout)
+      (let [groups (or (.-groups layout) [])
+            view-names (mapv (fn [view] (.-name view)) views)]
+        (validate-distinct-names
+          (mapv (fn [group] (.-label group)) groups)
+          "layout group label")
+        (reduce
+          (fn [seen group]
+            (reduce
+              (fn [items item]
+                (if (not (.includes view-names item))
+                  (graph-error
+                    (str "layout group '" (.-label group)
+                         "' names unknown view '" item "'"))
+                  nil)
+                (if (.includes items item)
+                  (graph-error
+                    (str "layout navigation repeats view '" item "'"))
+                  (conj items item)))
+              seen
+              (or (.-items group) [])))
+          []
+          groups))
+      nil)
+    (if (> (count forms) 0)
+      (do
+        (if (not (= (count details) 1))
+          (graph-error "a form requires exactly one list detail")
+          nil)
+        (if (and (= (count details) 1)
+                 (not (= (.-entity-name (first forms))
+                         (.-entity-name (first details)))))
+          (graph-error
+            (str "form '" (.-name (first forms)) "' targets entity '"
+                 (.-entity-name (first forms))
+                 "' but the list detail owns '"
+                 (.-entity-name (first details)) "'"))
+          nil))
+      nil))
+  nil)
+
 (defn validate-create-fields
   [label: String
    entity-name: String
@@ -1939,6 +2008,7 @@
         validated-declarations (validate-declaration-uniqueness prog entities)
         validated-storage-ids (validate-storage-id-uniqueness entities)
         validated (validate-backend prog entities)
+        validated-ui-root (validate-ui-root-topology prog)
         validated-create-forms (validate-fram-create-forms prog entities)
         validated-ui (validate-ui-references prog entities)
         validated-defstates (validate-defstates defstates)

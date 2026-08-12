@@ -53,6 +53,7 @@ function program({
   views = [],
   router = null,
   forms = [],
+  listDetails = [],
 }) {
   return {
     source_unit: sourceUnit,
@@ -67,7 +68,7 @@ function program({
     persist: null,
     defstates,
     publications,
-    list_details: [],
+    list_details: listDetails,
     forms,
     theme: null,
     components,
@@ -199,6 +200,13 @@ test("FRAM add forms require identity and exclude command-only fields", () => {
       }),
     ],
   };
+  const pageDetail = {
+    entity_name: "page",
+    title: "Pages",
+    columns: ["slug"],
+    search_cols: ["slug"],
+    detail_tabs: [],
+  };
 
   assert.throws(
     () => checkProgram(program({
@@ -230,6 +238,7 @@ test("FRAM add forms require identity and exclude command-only fields", () => {
         entity_name: "page",
         fields: ["title"],
       }],
+      listDetails: [pageDetail],
     })),
     /form 'add-page' must include identity field 'page\.slug'/,
   );
@@ -240,11 +249,15 @@ test("FRAM add forms require identity and exclude command-only fields", () => {
       entity_name: "page",
       add_fields: ["slug", "title"],
     }],
+  })));
+  assert.doesNotThrow(() => checkProgram(program({
+    entities: [entity],
     forms: [{
       name: "add-page",
       entity_name: "page",
       fields: ["slug", "title"],
     }],
+    listDetails: [pageDetail],
   })));
 });
 
