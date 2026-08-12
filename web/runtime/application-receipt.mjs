@@ -108,8 +108,12 @@ function checkedManifest(input) {
   }
   digest(value.checkedApplication.fingerprint, "manifest.checkedApplication.fingerprint");
   checkedProtocols(value.protocols, "manifest.protocols");
-  exactKeys(value.artifacts, ["browserJavaScript", "framPlan"], "manifest.artifacts");
-  for (const name of ["browserJavaScript", "framPlan"]) {
+  exactKeys(
+    value.artifacts,
+    ["browserClient", "browserJavaScript", "framPlan"],
+    "manifest.artifacts",
+  );
+  for (const name of ["browserClient", "browserJavaScript", "framPlan"]) {
     exactKeys(value.artifacts[name], ["path", "sha256"], `manifest.artifacts.${name}`);
     nonempty(value.artifacts[name].path, `manifest.artifacts.${name}.path`);
     digest(value.artifacts[name].sha256, `manifest.artifacts.${name}.sha256`);
@@ -150,6 +154,7 @@ function checkedDeploymentReceipt(input) {
   const value = exactKeys(artifact.value, [
     "applicationId",
     "applicationManifestDigest",
+    "browserClientDigest",
     "browserJavaScriptDigest",
     "framPlanDigest",
     "schemaVersion",
@@ -160,6 +165,7 @@ function checkedDeploymentReceipt(input) {
   nonempty(value.applicationId, "deploymentReceipt.applicationId");
   for (const name of [
     "applicationManifestDigest",
+    "browserClientDigest",
     "browserJavaScriptDigest",
     "framPlanDigest",
   ]) {
@@ -200,6 +206,11 @@ function expectedReceipt(applicationId, manifestArtifact, planArtifact, deployme
   const planDigest = sha256Digest(planArtifact.bytes);
   same(planDigest, manifest.artifacts.framPlan.sha256, "manifest FRAM plan digest");
   same(planDigest, deployment.framPlanDigest, "deployment FRAM plan digest");
+  same(
+    manifest.artifacts.browserClient.sha256,
+    deployment.browserClientDigest,
+    "deployment browser client digest",
+  );
   same(
     manifest.artifacts.browserJavaScript.sha256,
     deployment.browserJavaScriptDigest,

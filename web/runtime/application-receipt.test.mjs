@@ -8,6 +8,7 @@ const fingerprint = `sha256:${"1".repeat(64)}`;
 const operationDigest = `sha256:${"2".repeat(64)}`;
 const storageDigest = `sha256:${"3".repeat(64)}`;
 const browserDigest = `sha256:${"4".repeat(64)}`;
+const browserClientDigest = `sha256:${"7".repeat(64)}`;
 const protocols = Object.freeze({
   framPlanSchemaVersion: 2,
   httpOperationProtocolVersion: 2,
@@ -36,6 +37,7 @@ function artifacts() {
   const manifestValue = {
     applicationId,
     artifacts: {
+      browserClient: { path: "wake-client.js", sha256: browserClientDigest },
       browserJavaScript: { path: "app.js", sha256: browserDigest },
       framPlan: { path: "app.fram.json", sha256: sha256Digest(plan) },
     },
@@ -55,6 +57,7 @@ function artifacts() {
   const deploymentReceipt = canonicalDocument({
     applicationId,
     applicationManifestDigest: sha256Digest(manifest),
+    browserClientDigest,
     browserJavaScriptDigest: browserDigest,
     framPlanDigest: sha256Digest(plan),
     schemaVersion: 1,
