@@ -573,7 +573,7 @@ describe("wake-wiki K0C data contract", () => {
     expect(plan.pluginClosure).toHaveLength(1);
     expect(plan.pluginClosure[0]).toMatchObject({
       alias: "wiki",
-      allowedContributions: ["schema", "query", "capability", "ui", "route"],
+      allowedContributions: ["schema", "query", "command", "capability", "ui", "route"],
       packageId: "wake-wiki",
       version: "0.1.0",
     });
@@ -581,11 +581,13 @@ describe("wake-wiki K0C data contract", () => {
       "member",
       "wiki.entry",
       "wiki.edition",
+      "wake.core/command-receipt",
     ]);
     expect(plan.entities.map((entity) => entity.storageId)).toEqual([
       "wake-wiki-substrate-fixture/entity/member",
       "wake-wiki/entity/resource",
       "wake-wiki/entity/revision",
+      "wake/core/entity/command-receipt",
     ]);
     const resource = plan.entities.find((entity) => entity.name === "wiki.entry");
     const revision = plan.entities.find((entity) => entity.name === "wiki.edition");

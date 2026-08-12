@@ -255,6 +255,20 @@ test("checker accepts an absence CAS for a single command-written field", () => 
   assert.doesNotThrow(() => checkCommandGraph([command], provenanceChecked));
 });
 
+test("checker normalizes configured keyword state names", () => {
+  const [{ value: form }] = sexpr.parse_all(source);
+  const command = parseCommand(form);
+  const configured = structuredClone(checked);
+  configured.state_machines[0].initial = ":candidate";
+  configured.state_machines[0].transitions = {
+    ":candidate": [":released", ":superseded"],
+    ":released": [":superseded"],
+    ":superseded": [],
+  };
+
+  assert.doesNotThrow(() => checkCommandGraph([command], configured));
+});
+
 test("parser rejects unknown command steps rather than accepting a no-op", () => {
   const [{ value: form }] = sexpr.parse_all(source.replace("(require entry", "(erase entry"));
   assert.throws(() => parseCommand(form), /unknown operation 'erase'/);

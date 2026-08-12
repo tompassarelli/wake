@@ -50,6 +50,7 @@ const identity = Object.freeze({
 });
 
 const checked = Object.freeze({
+  application_id: "greywrought-wiki",
   commands: [{
     capabilities: [{ capability: "edit" }],
     input: [{
@@ -193,6 +194,7 @@ describe("generated browser client artifact", () => {
     expect(source).not.toContain("setTimeout");
     expect(source).not.toContain("setInterval");
     expect(client.semanticFingerprint).toBe(fingerprint);
+    expect(client.applicationId).toBe("greywrought-wiki");
     expect(Object.isFrozen(client.operations)).toBe(true);
     expect(Object.isFrozen(client.operations.queries)).toBe(true);
     expect(Object.isFrozen(client.operations.queries[0].result.columns[1].value)).toBe(true);

@@ -167,14 +167,19 @@ function checkCondition(condition, environment, label) {
   if (!nullable(type)) fail(`${label} must inspect a nullable expression`);
 }
 
+function stateName(value) {
+  return typeof value === "string" && value.startsWith(":") ? value.slice(1) : value;
+}
+
 function checkStateUpdate(field, machine, source, environment, label) {
   if (machine === undefined) return;
   if (source.value.kind !== "literal" || source.value.type !== "keyword") {
     fail(`${label} state value must be a literal keyword`);
   }
   if (!own(source, "allowedCurrent")) {
-    if (source.value.value !== machine.initial) {
-      fail(`${label} initial state must be '${machine.initial}'`);
+    const initial = stateName(machine.initial);
+    if (stateName(source.value.value) !== initial) {
+      fail(`${label} initial state must be '${initial}'`);
     }
     expressionType(source.value, environment, `${label}.value`);
     return;
@@ -183,9 +188,11 @@ function checkStateUpdate(field, machine, source, environment, label) {
       || source.allowedCurrent.type !== "keyword") {
     fail(`${label} state transition must use literal keyword current and target states`);
   }
-  const target = source.value.value;
-  const current = source.allowedCurrent.value;
-  const allowed = machine.transitions[current] ?? [];
+  const target = stateName(source.value.value);
+  const current = stateName(source.allowedCurrent.value);
+  const sourceState = Object.keys(machine.transitions)
+    .find(candidate => stateName(candidate) === current);
+  const allowed = (sourceState === undefined ? [] : machine.transitions[sourceState]).map(stateName);
   if (current !== target && !allowed.includes(target)) {
     fail(`${label} transition '${current}' -> '${target}' is not declared`);
   }
