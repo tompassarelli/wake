@@ -4,6 +4,7 @@ const MAX_VERSION = 9_223_372_036_854_775_807n;
 const MIN_I64 = -9_223_372_036_854_775_808n;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/;
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
+const MAX_CURSOR_BYTES = 16 * 1024;
 
 const ROUTES = new Set([
   "/api/wake/query",
@@ -273,8 +274,23 @@ function validateQuery(body) {
           "options.limit must be an integer from 1 through 247.",
         );
       }
-      if (Object.hasOwn(body.options, "cursor") && !Array.isArray(body.options.cursor)) {
-        throw new RequestError(400, "invalid_request", "options.cursor must be an opaque Term.");
+      if (Object.hasOwn(body.options, "cursor")) {
+        if (typeof body.options.cursor !== "string"
+            || body.options.cursor.length === 0
+            || new TextEncoder().encode(body.options.cursor).byteLength > MAX_CURSOR_BYTES) {
+          throw new RequestError(
+            400,
+            "invalid_request",
+            `options.cursor must be an opaque string of at most ${MAX_CURSOR_BYTES} bytes.`,
+          );
+        }
+        if (Object.hasOwn(body.options, "asOf")) {
+          throw new RequestError(
+            400,
+            "invalid_request",
+            "options.asOf must not accompany an opaque cursor.",
+          );
+        }
       }
       if (Object.hasOwn(body.options, "asOf")) {
         const asOf = parseSinceVersion(body.options.asOf);
@@ -373,6 +389,109 @@ function authorizationContext(request, route, payload) {
   };
 }
 
+function checkedCursorProvider(value) {
+  if (value === undefined) return null;
+  if (!isPlainObject(value) || typeof value.seal !== "function"
+      || typeof value.unseal !== "function") {
+    throw new TypeError("Wake HTTP cursorProvider must provide seal and unseal functions.");
+  }
+  return value;
+}
+
+function cursorContext(fingerprint, payload, decision) {
+  if (typeof decision.authorizationScope !== "string"
+      || decision.authorizationScope.length === 0) {
+    throw new RequestError(
+      500,
+      "cursor_scope_unavailable",
+      "Authorization did not provide a stable cursor scope.",
+    );
+  }
+  return Object.freeze({
+    authorizationScope: decision.authorizationScope,
+    fingerprint,
+    query: payload.query,
+    input: structuredClone(payload.input),
+    options: Object.freeze(
+      Object.hasOwn(payload.options ?? {}, "limit")
+        ? { limit: payload.options.limit }
+        : {},
+    ),
+  });
+}
+
+async function unwrapQueryCursor(payload, fingerprint, decision, cursorProvider) {
+  if (payload.op !== "execute" || !Object.hasOwn(payload.options ?? {}, "cursor")) {
+    return payload;
+  }
+  if (cursorProvider === null) {
+    throw new RequestError(500, "cursor_provider_unavailable", "Cursor provider is unavailable.");
+  }
+  let unsealed;
+  try {
+    unsealed = await cursorProvider.unseal(Object.freeze({
+      ...cursorContext(fingerprint, payload, decision),
+      token: payload.options.cursor,
+    }));
+  } catch {
+    throw new RequestError(400, "invalid_cursor", "Cursor is invalid or expired.");
+  }
+  if (!isPlainObject(unsealed)
+      || Object.keys(unsealed).length !== 2
+      || !Object.hasOwn(unsealed, "cursor")
+      || !Object.hasOwn(unsealed, "servedVersion")
+      || !Array.isArray(unsealed.cursor)) {
+    throw new RequestError(500, "cursor_provider_failure", "Cursor provider returned invalid data.");
+  }
+  let servedVersion;
+  try {
+    servedVersion = typeof unsealed.servedVersion === "bigint"
+      ? unsealed.servedVersion
+      : requireCanonicalI64(unsealed.servedVersion, "cursor servedVersion");
+  } catch {
+    throw new RequestError(500, "cursor_provider_failure", "Cursor provider returned invalid data.");
+  }
+  if (servedVersion < 0n || servedVersion > MAX_VERSION) {
+    throw new RequestError(500, "cursor_provider_failure", "Cursor provider returned invalid data.");
+  }
+  return {
+    ...payload,
+    options: {
+      ...payload.options,
+      cursor: structuredClone(unsealed.cursor),
+      asOf: servedVersion,
+    },
+  };
+}
+
+async function wrapQueryCursor(result, payload, fingerprint, decision, cursorProvider) {
+  if (payload.op !== "execute" || !isPlainObject(result)
+      || !isPlainObject(result.page) || result.page.nextCursor == null) {
+    return result;
+  }
+  if (cursorProvider === null) {
+    throw new RequestError(500, "cursor_provider_unavailable", "Cursor provider is unavailable.");
+  }
+  let token;
+  try {
+    token = await cursorProvider.seal(Object.freeze({
+      ...cursorContext(fingerprint, payload, decision),
+      servedVersion: result.servedVersion,
+      cursor: structuredClone(result.page.nextCursor),
+    }));
+  } catch {
+    throw new RequestError(500, "cursor_provider_failure", "Cursor provider failed to seal a cursor.");
+  }
+  if (typeof token !== "string" || token.length === 0
+      || new TextEncoder().encode(token).byteLength > MAX_CURSOR_BYTES) {
+    throw new RequestError(500, "cursor_provider_failure", "Cursor provider returned an invalid token.");
+  }
+  return {
+    ...result,
+    page: { ...result.page, nextCursor: token },
+  };
+}
+
 async function dispatch(gateway, route, payload, decision) {
   if (route === "/api/wake/query") {
     if (payload.op === "list") return gateway.list(payload.entity, decision);
@@ -400,11 +519,15 @@ async function dispatch(gateway, route, payload, decision) {
   return gateway.changes(payload.sinceVersion, decision);
 }
 
-export function createWakeHttpHandler(gateway, { authorize, expectedFingerprint } = {}) {
+export function createWakeHttpHandler(
+  gateway,
+  { authorize, cursorProvider: cursorProviderInput, expectedFingerprint } = {},
+) {
   const fingerprint = expectedFingerprint ?? gateway?.semanticFingerprint;
   if (typeof fingerprint !== "string" || !SHA256.test(fingerprint)) {
     throw new TypeError("Wake HTTP requires an expected application fingerprint.");
   }
+  const cursorProvider = checkedCursorProvider(cursorProviderInput);
   return async function handle(request) {
     const url = new URL(request.url);
     const route = url.pathname;
@@ -452,8 +575,22 @@ export function createWakeHttpHandler(gateway, { authorize, expectedFingerprint 
         return errorResponse(403, "forbidden", "Request is not authorized.");
       }
 
+      const dispatchPayload = await unwrapQueryCursor(
+        payload,
+        fingerprint,
+        decision,
+        cursorProvider,
+      );
+      const result = await dispatch(gateway, route, dispatchPayload, decision);
+      const publicResult = await wrapQueryCursor(
+        result,
+        payload,
+        fingerprint,
+        decision,
+        cursorProvider,
+      );
       return jsonResponse(
-        await dispatch(gateway, route, payload, decision),
+        publicResult,
         200,
         {},
         MAX_RESPONSE_BYTES,

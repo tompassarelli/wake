@@ -256,6 +256,110 @@ test("named queries use a closed envelope and preserve the authorization decisio
   }
 });
 
+test("paged query cursors are opaque, scope-bound, and reauthorized before opening", async () => {
+  const rawCursor = ["triple", ["keyword", "cursor"], ["string", "page"], ["integer", "1"]];
+  const events = [];
+  let page = 0;
+  const cursorProvider = {
+    async seal(context) {
+      events.push(["seal", context]);
+      return "opaque-cursor";
+    },
+    async unseal(context) {
+      events.push(["unseal", context]);
+      return { cursor: rawCursor, servedVersion: 17n };
+    },
+  };
+  const service = gateway({
+    executeQuery(_name, _input, options) {
+      events.push(["execute", options]);
+      page += 1;
+      return page === 1
+        ? {
+            rows: [{ id: "first" }],
+            page: { done: false, nextCursor: rawCursor },
+            servedVersion: 17n,
+          }
+        : {
+            rows: [{ id: "second" }],
+            page: { done: true, nextCursor: null },
+            servedVersion: 17n,
+          };
+    },
+  });
+  const authorize = () => {
+    events.push(["authorize"]);
+    return {
+      allowed: true,
+      actor: { id: "actor-1" },
+      authorizationScope: `sha256:${"a".repeat(64)}`,
+    };
+  };
+  const handle = createWakeHttpHandler(service, {
+    authorize,
+    cursorProvider,
+    expectedFingerprint: fingerprint,
+  });
+
+  const first = await handle(post("/api/wake/query", {
+    op: "execute",
+    query: "wiki.browse-published",
+    input: {},
+    options: { limit: 20 },
+  }));
+  assert.equal(first.status, 200);
+  assert.equal((await json(first)).page.nextCursor, "opaque-cursor");
+  assert.deepEqual(events.map(event => event[0]), ["authorize", "execute", "seal"]);
+  assert.equal(events[2][1].authorizationScope, `sha256:${"a".repeat(64)}`);
+  assert.deepEqual(events[2][1].options, { limit: 20 });
+
+  events.length = 0;
+  const second = await handle(post("/api/wake/query", {
+    op: "execute",
+    query: "wiki.browse-published",
+    input: {},
+    options: { limit: 20, cursor: "opaque-cursor" },
+  }));
+  assert.equal(second.status, 200);
+  assert.deepEqual((await json(second)).page, { done: true, nextCursor: null });
+  assert.deepEqual(events.map(event => event[0]), ["authorize", "unseal", "execute"]);
+  assert.equal(events[1][1].token, "opaque-cursor");
+  assert.deepEqual(events[2][1], { limit: 20, cursor: rawCursor, asOf: 17n });
+});
+
+test("invalid opaque cursors fail after authorization and before query dispatch", async () => {
+  let authorizeCalls = 0;
+  let dispatchCalls = 0;
+  const handle = createWakeHttpHandler(gateway({
+    executeQuery() {
+      dispatchCalls += 1;
+    },
+  }), {
+    authorize() {
+      authorizeCalls += 1;
+      return {
+        allowed: true,
+        actor: { id: "actor-1" },
+        authorizationScope: "scope-1",
+      };
+    },
+    cursorProvider: {
+      seal: async () => "unused",
+      unseal: async () => { throw new Error("tampered"); },
+    },
+  });
+  const response = await handle(post("/api/wake/query", {
+    op: "execute",
+    query: "wiki.browse-published",
+    input: {},
+    options: { cursor: "tampered" },
+  }));
+  assert.equal(response.status, 400);
+  assert.equal((await json(response)).error.code, "invalid_cursor");
+  assert.equal(authorizeCalls, 1);
+  assert.equal(dispatchCalls, 0);
+});
+
 test("success responses are bounded by encoded UTF-8 bytes", async () => {
   const handle = createWakeHttpHandler(gateway({
     list: () => ({ rows: [{ body: "界".repeat(256 * 1024) }], servedVersion: 1n }),
