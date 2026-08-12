@@ -1,0 +1,8 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Wake cursor v1 is a public wire-format marker, not key material"
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+regexes = ['''^wake-cursor-v1$''']
