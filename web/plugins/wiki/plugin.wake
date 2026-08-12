@@ -106,21 +106,36 @@
            (extension-fields revision-fields candidate)]
   :result :optional)
 
-(query history
+(query history-current
   :capability read-history
   :params [(resource-id : String)]
   :from [(entry : (config resource))
-         (edition : (config revision))
-         (prior : (config revision))]
+         (edition : (config revision))]
   :where [(= (field entry (config resource-id)) $resource-id)
           (= (field entry (config published-pointer)) edition)
           (= (field edition (config owner-field)) entry)
-          (= (field edition (config state-field)) (config published-state))
-          (= (field edition (config base-field)) prior)
-          (= (field prior (config owner-field)) entry)]
+          (= (field edition (config state-field)) (config published-state))]
   :select [(resource-id (field entry (config resource-id)))
            (revision-id (field edition (config revision-id)))
-           (based-on (field prior (config revision-id)))
+           (state (field edition (config state-field)))
+           (title (field edition (config title-field)))
+           (summary (field edition (config summary-field)))
+           (author (field edition (config author-field)))
+           (created-at (field edition (config created-at-field)))
+           (digest (field edition (config digest-field)))
+           (extension-fields revision-fields edition)]
+  :result :optional)
+
+(query history-superseded
+  :capability read-history
+  :params [(resource-id : String)]
+  :from [(entry : (config resource))
+         (edition : (config revision))]
+  :where [(= (field entry (config resource-id)) $resource-id)
+          (= (field edition (config owner-field)) entry)
+          (= (field edition (config state-field)) (config superseded-state))]
+  :select [(resource-id (field entry (config resource-id)))
+           (revision-id (field edition (config revision-id)))
            (state (field edition (config state-field)))
            (title (field edition (config title-field)))
            (summary (field edition (config summary-field)))
@@ -293,5 +308,5 @@
               [read-published :as published]]
     :params [resource-id]]
   [history history-view
-    :queries [history]
+    :queries [history-current]
     :params [resource-id]])

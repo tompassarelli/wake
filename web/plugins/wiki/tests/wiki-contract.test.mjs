@@ -205,7 +205,8 @@ describe("wake-wiki K0C data contract", () => {
       "read-published",
       "read-draft",
       "review",
-      "history",
+      "history-current",
+      "history-superseded",
       "backlinks",
     ]);
     expect(manifest.exports.capabilities).toEqual([
@@ -427,25 +428,31 @@ describe("wake-wiki K0C data contract", () => {
     );
     expect(published).not.toMatch(/draft|superseded/u);
 
-    const historyStart = entry.indexOf("(query history\n");
-    const historyEnd = entry.indexOf("\n(query backlinks\n", historyStart);
-    const history = entry.slice(historyStart, historyEnd);
-    expect(history).toContain(
+    const currentHistoryStart = entry.indexOf("(query history-current\n");
+    const supersededHistoryStart = entry.indexOf(
+      "\n(query history-superseded\n",
+      currentHistoryStart,
+    );
+    const historyEnd = entry.indexOf("\n(query backlinks\n", supersededHistoryStart);
+    const currentHistory = entry.slice(currentHistoryStart, supersededHistoryStart);
+    const supersededHistory = entry.slice(supersededHistoryStart, historyEnd);
+    expect(currentHistory).toContain(
       "(= (field entry (config published-pointer)) edition)",
     );
-    expect(history).toContain(
+    expect(currentHistory).toContain(
       "(= (field edition (config owner-field)) entry)",
     );
-    expect(history).toContain(
+    expect(currentHistory).toContain(
       "(= (field edition (config state-field)) (config published-state))",
     );
-    expect(history).toContain(
-      "(= (field edition (config base-field)) prior)",
+    expect(currentHistory).not.toMatch(/draft|superseded/u);
+    expect(supersededHistory).toContain(
+      "(= (field edition (config owner-field)) entry)",
     );
-    expect(history).toContain(
-      "(= (field prior (config owner-field)) entry)",
+    expect(supersededHistory).toContain(
+      "(= (field edition (config state-field)) (config superseded-state))",
     );
-    expect(history).not.toMatch(/draft|superseded/u);
+    expect(supersededHistory).not.toMatch(/draft|published-pointer/u);
 
     const backlinksStart = entry.indexOf("(query backlinks\n");
     const backlinksEnd = entry.indexOf("\n(component browse-page\n", backlinksStart);
@@ -541,7 +548,8 @@ describe("wake-wiki K0C data contract", () => {
       "wiki.read-published",
       "wiki.read-draft",
       "wiki.review",
-      "wiki.history",
+      "wiki.history-current",
+      "wiki.history-superseded",
       "wiki.backlinks",
     ]);
     expect(plan.queries.filter((query) => query.result.kind === "page")
@@ -551,7 +559,7 @@ describe("wake-wiki K0C data contract", () => {
         query.result.maxLimit,
       ])).toEqual([
       ["wiki.browse-published", 10, 20],
-      ["wiki.history", 10, 20],
+      ["wiki.history-superseded", 10, 20],
       ["wiki.backlinks", 10, 20],
     ]);
     for (const query of plan.queries) {
@@ -561,7 +569,8 @@ describe("wake-wiki K0C data contract", () => {
         "read-published": "wake-wiki/cap/read-published",
         "read-draft": "wake-wiki/cap/read-draft",
         review: "wake-wiki/cap/review-draft",
-        history: "wake-wiki/cap/read-history",
+        "history-current": "wake-wiki/cap/read-history",
+        "history-superseded": "wake-wiki/cap/read-history",
         backlinks: "wake-wiki/cap/read-backlinks",
       }[localName];
       expect(query.capabilities).toEqual([expectedCapability]);
@@ -572,8 +581,11 @@ describe("wake-wiki K0C data contract", () => {
       expect(query.dependencies.length).toBeGreaterThan(0);
     }
 
-    const history = plan.queries.find((query) => query.name === "wiki.history");
-    expect(history.where).toEqual(expect.arrayContaining([
+    const currentHistory = plan.queries.find(
+      (query) => query.name === "wiki.history-current",
+    );
+    expect(currentHistory.result).toEqual({ kind: "optional" });
+    expect(currentHistory.where).toEqual(expect.arrayContaining([
       expect.objectContaining({
         left: expect.objectContaining({
           binding: "entry",
@@ -596,6 +608,23 @@ describe("wake-wiki K0C data contract", () => {
         right: expect.objectContaining({
           kind: "literal",
           value: "released",
+        }),
+      }),
+    ]));
+    const supersededHistory = plan.queries.find(
+      (query) => query.name === "wiki.history-superseded",
+    );
+    expect(supersededHistory.where).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        left: expect.objectContaining({
+          binding: "edition",
+          field: "phase",
+          kind: "field",
+        }),
+        op: "eq",
+        right: expect.objectContaining({
+          kind: "literal",
+          value: "withdrawn",
         }),
       }),
     ]));
@@ -634,7 +663,8 @@ describe("wake-wiki K0C data contract", () => {
       "wiki.read-published",
       "wiki.read-draft",
       "wiki.review",
-      "wiki.history",
+      "wiki.history-current",
+      "wiki.history-superseded",
       "wiki.backlinks",
     ]) {
       expect(plan.queries.find(query => query.name === name).select)
@@ -699,7 +729,7 @@ describe("wake-wiki K0C data contract", () => {
         inputParameters: ["resource-id"],
         parameters: ["entry-id"],
         path: "/library/:entry-id/history",
-        queries: [{ name: "wiki.history", prefix: null }],
+        queries: [{ name: "wiki.history-current", prefix: null }],
         requiredProps: ["title", "state", "created-at"],
         view: "wiki.history-view",
       },

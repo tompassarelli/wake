@@ -15,14 +15,16 @@ never participate in storage identity.
 ## Materialization status
 
 `plugin.wake` currently materializes both durable entities, the three-state
-revision lifecycle, all six exported named queries, and all twelve exported UI
+revision lifecycle, all seven exported named queries, and all twelve exported UI
 components. A neutral substrate fixture is packed, digest-pinned, linked,
 checked, and emitted as a FRAM plan in the package tests. `review` returns the
 current draft half; a host composes it with `read-published` at the same served
-snapshot because named-query ABI 1 has no optional joined binding. `history`
-returns only the direct `based-on` edge rooted at the current published pointer.
-It never scans arbitrary revisions belonging to the resource; a complete
-lineage remains gated on a checked recursive-query declaration.
+snapshot because named-query ABI 1 has no optional joined binding. History is
+split into `history-current` and `history-superseded`: the host reads the exact
+current published revision first and then pages every superseded revision for
+the same resource at that served snapshot. This is complete for K0's three-state
+lifecycle without pretending the current query ABI has optional joins or
+recursive lineage.
 
 The remaining frozen exports—five commands, twelve capabilities, the
 content-parser provider port, extension ports, and six route slots—stay in the
@@ -126,10 +128,11 @@ Queries:
 | `read-published` | one current published revision rendered as safe blocks |
 | `read-draft` | current draft and raw source for authorized editing |
 | `review` | nullable published base and current draft at one snapshot |
-| `history` | current published revision's `based-on` lineage |
+| `history-current` | exact current published revision for snapshot pinning |
+| `history-superseded` | every superseded revision owned by the resource |
 | `backlinks` | current published sources linking to one published target |
 
-Browse, history, and backlinks use bounded opaque-cursor pages. Published reads
+Browse, superseded history, and backlinks use bounded opaque-cursor pages. Published reads
 never expose draft or superseded content. A link to an unpublished resource is
 an unavailable marker containing only its stable resource ID. Review is the
 version-1 comparison surface; there is no separate comparison query.
