@@ -8,10 +8,11 @@ const string = value => ["string", value];
 const triple = (t1, t2, t3) => ["triple", t1, t2, t3];
 const APP = "wiki.app";
 const SEMANTIC_FINGERPRINT = `sha256:${"a".repeat(64)}`;
+const storageId = (entity, field) => `app:${APP}/entity:${entity}/field:${field}`;
 const appScope = (app, value) => triple(keyword("wake/app"), keyword(app), value);
 const subjectTemplate = (entity, identityField, app = APP) => appScope(
   app,
-  triple(keyword("entity"), keyword(entity), { field: identityField }),
+  triple(keyword("entity"), keyword(entity), { field: storageId(entity, identityField) }),
 );
 const subject = (entity, identity, app = APP) => appScope(
   app,
@@ -48,16 +49,18 @@ const plan = {
       name: "page",
       identity: {
         field: "slug",
+        storageId: storageId("page", "slug"),
         type: "String",
         cardinality: "single",
         valueKind: "literal",
         subjectTemplate: subjectTemplate("page", "slug"),
       },
       fields: [
-        { name: "slug", type: "String", cardinality: "single", valueKind: "literal", write: "set", predicateTerm: PAGE.slug },
-        { name: "title", type: "String", cardinality: "single", valueKind: "literal", write: "set", predicateTerm: PAGE.title },
+        { name: "slug", storageId: storageId("page", "slug"), type: "String", cardinality: "single", valueKind: "literal", write: "set", predicateTerm: PAGE.slug },
+        { name: "title", storageId: storageId("page", "title"), type: "String", cardinality: "single", valueKind: "literal", write: "set", predicateTerm: PAGE.title },
         {
           name: "canonical-revision",
+          storageId: storageId("page", "canonical-revision"),
           type: "Ref",
           cardinality: "single",
           valueKind: "ref",
@@ -65,22 +68,24 @@ const plan = {
           predicateTerm: PAGE.canonical,
           targetEntity: "revision",
         },
-        { name: "aliases", type: "String", cardinality: "multi", valueKind: "literal", write: "set", predicateTerm: PAGE.aliases },
+        { name: "aliases", storageId: storageId("page", "aliases"), type: "String", cardinality: "multi", valueKind: "literal", write: "set", predicateTerm: PAGE.aliases },
       ],
     },
     {
       name: "revision",
       identity: {
         field: "revision-id",
+        storageId: storageId("revision", "revision-id"),
         type: "String",
         cardinality: "single",
         valueKind: "literal",
         subjectTemplate: subjectTemplate("revision", "revision-id"),
       },
       fields: [
-        { name: "revision-id", type: "String", cardinality: "single", valueKind: "literal", write: "set", predicateTerm: REVISION.id },
+        { name: "revision-id", storageId: storageId("revision", "revision-id"), type: "String", cardinality: "single", valueKind: "literal", write: "set", predicateTerm: REVISION.id },
         {
           name: "page",
+          storageId: storageId("revision", "page"),
           type: "Ref",
           cardinality: "single",
           valueKind: "ref",
@@ -88,9 +93,10 @@ const plan = {
           predicateTerm: REVISION.page,
           targetEntity: "page",
         },
-        { name: "body", type: "String", cardinality: "single", valueKind: "literal", write: "create", predicateTerm: REVISION.body },
+        { name: "body", storageId: storageId("revision", "body"), type: "String", cardinality: "single", valueKind: "literal", write: "create", predicateTerm: REVISION.body },
         {
           name: "status",
+          storageId: storageId("revision", "status"),
           type: "RevisionStatus",
           cardinality: "single",
           valueKind: "literal",
@@ -99,6 +105,7 @@ const plan = {
         },
         {
           name: "links-to",
+          storageId: storageId("revision", "links-to"),
           type: "Ref",
           cardinality: "multi",
           valueKind: "ref",
@@ -291,6 +298,7 @@ test("decoded rows preserve prototype-shaped field names as own data", async () 
   const page = special.entities.find(entity => entity.name === "page");
   const specialFields = ["__proto__", "constructor", "prototype"].map(name => ({
     name,
+    storageId: storageId("page", name),
     type: "String",
     cardinality: "single",
     valueKind: "literal",

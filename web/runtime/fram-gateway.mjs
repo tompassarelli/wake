@@ -343,6 +343,7 @@ function compilePlan(plan) {
     if (!plainObject(source.identity)) fail("gateway/invalid-plan", `entity ${name} needs an identity`);
     const identity = {
       field: requiredName(source.identity.field, `${name}.identity.field`),
+      storageId: requiredName(source.identity.storageId, `${name}.identity.storageId`),
       type: requiredName(source.identity.type, `${name}.identity.type`),
       cardinality: source.identity.cardinality,
       valueKind: source.identity.valueKind,
@@ -358,7 +359,7 @@ function compilePlan(plan) {
     const state = { holes: 0 };
     const template = compileTemplate(
       source.identity.subjectTemplate,
-      identity.field,
+      identity.storageId,
       `${name}.identity.subjectTemplate`,
       state,
     );
@@ -391,6 +392,7 @@ function compilePlan(plan) {
       );
       return {
         name: fieldName,
+        storageId: requiredName(field.storageId, `${name}.${fieldName}.storageId`),
         type: requiredName(field.type, `${name}.${fieldName}.type`),
         cardinality: field.cardinality,
         valueKind: field.valueKind,
@@ -404,7 +406,8 @@ function compilePlan(plan) {
       };
     });
     const identityField = fields.find(field => field.name === identity.field);
-    if (!identityField || identityField.type !== identity.type
+    if (!identityField || identityField.storageId !== identity.storageId
+        || identityField.type !== identity.type
         || identityField.cardinality !== "single" || identityField.valueKind !== "literal") {
       fail("gateway/invalid-plan", `entity ${name} identity does not match its field plan`);
     }
