@@ -37,9 +37,7 @@
   [(wake/select :id (wake/field :revision :id))
    (wake/select :page (wake/field :revision :page))
    (wake/select :status (wake/field :revision :status))]
-  :page
-  20
-  64)
+  (wake/page-result 20 64))
 
 (wake/component revision-row
   [id: String
@@ -56,4 +54,4 @@
 
 (wake/routes application-routes
   :revisions
-  [(wake/route :revisions :revisions)])
+  [(wake/route :home :revisions)])

@@ -191,7 +191,7 @@ test("consumer projection keeps exact query results and diagnostic markers", () 
 
   expect(firstProjection).not.toContain('"node":"raw"');
   expect(createHash("sha256").update(firstProjection).digest("hex")).toBe(
-    "e346217509e5488d2cc427c087a2af076bb7328330182dbc89b83667d47ed055",
+    "fe529946c0db1dd288f807c58361cddafcdd3e79fae5d04abd9b5f8a7e70d9ea",
   );
 });
 

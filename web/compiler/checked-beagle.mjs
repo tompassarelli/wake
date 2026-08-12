@@ -1,3 +1,5 @@
+import { canonicalJson, sha256Digest } from "./canonical.mjs";
+
 function fail(message) {
   throw new TypeError(`wake checked Beagle: ${message}`);
 }
@@ -7,14 +9,256 @@ const CHECKED_PROGRAM_SCHEMA_VERSION = 1;
 const WAKE_PROVIDER_NAMESPACE = "wake.core";
 const CHECKED_PROGRAM_KEYS = new Set([
   "externs", "forms", "gen-class", "kind", "mode", "namespace", "phase",
-  "requires", "schemaVersion", "sourceId", "target",
+  "projectionSha256", "requires", "schemaVersion", "sourceId", "sourceSha256", "target",
 ]);
+const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const HTML_TAGS = new Set([
   "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6",
   "button", "input", "form", "label", "textarea", "select", "option",
   "ul", "ol", "li", "a", "img", "section", "header", "footer", "nav",
   "main", "table", "tr", "td", "th", "thead", "tbody",
 ]);
+const STATIC_UI_ATTRIBUTES = new Set(["class", "placeholder", "text", "type"]);
+
+function exactKeys(value, keys, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    fail(`${label} must be an object`);
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  if (actual.length !== expected.length
+      || actual.some((key, index) => key !== expected[index])) {
+    fail(`${label} has unsupported fields`);
+  }
+}
+
+function sameType(left, right) {
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") {
+    return false;
+  }
+  if (left.kind !== right.kind) return false;
+  switch (left.kind) {
+    case "prim":
+    case "var":
+      return left.name === right.name;
+    case "app":
+      return left.name === right.name
+        && left.args.length === right.args.length
+        && left.args.every((item, index) => sameType(item, right.args[index]));
+    case "fn":
+      return left.params.length === right.params.length
+        && left.params.every((item, index) => sameType(item, right.params[index]))
+        && ((left.rest === null && right.rest === null) || sameType(left.rest, right.rest))
+        && sameType(left.ret, right.ret);
+    case "poly":
+      return left.vars.length === right.vars.length
+        && left.vars.every((item, index) => item === right.vars[index])
+        && left.bounds.length === right.bounds.length
+        && left.bounds.every((item, index) => sameType(item, right.bounds[index]))
+        && sameType(left.body, right.body);
+    case "union":
+      return left.members.length === right.members.length
+        && left.members.every((item, index) => sameType(item, right.members[index]));
+    default:
+      return false;
+  }
+}
+
+function validateType(type, label) {
+  if (type === null || typeof type !== "object" || Array.isArray(type)) {
+    fail(`${label} is not a checked type`);
+  }
+  switch (type.kind) {
+    case "prim":
+    case "var":
+      exactKeys(type, ["kind", "name"], label);
+      if (typeof type.name !== "string" || type.name.length === 0) {
+        fail(`${label} has an invalid type name`);
+      }
+      return;
+    case "app":
+      exactKeys(type, ["args", "kind", "name"], label);
+      if (typeof type.name !== "string" || type.name.length === 0 || !Array.isArray(type.args)) {
+        fail(`${label} has an invalid applied type`);
+      }
+      type.args.forEach((item, index) => validateType(item, `${label} argument ${index + 1}`));
+      return;
+    case "fn":
+      exactKeys(type, ["kind", "params", "rest", "ret"], label);
+      if (!Array.isArray(type.params)) fail(`${label} has invalid function parameters`);
+      type.params.forEach((item, index) => validateType(item, `${label} parameter ${index + 1}`));
+      if (type.rest !== null) validateType(type.rest, `${label} rest parameter`);
+      validateType(type.ret, `${label} return`);
+      return;
+    case "poly":
+      exactKeys(type, ["body", "bounds", "kind", "vars"], label);
+      if (!Array.isArray(type.vars) || !type.vars.every((name) => typeof name === "string")
+          || !Array.isArray(type.bounds)) {
+        fail(`${label} has an invalid polymorphic type`);
+      }
+      type.bounds.forEach((item, index) => validateType(item, `${label} bound ${index + 1}`));
+      validateType(type.body, `${label} body`);
+      return;
+    case "union":
+      exactKeys(type, ["kind", "members"], label);
+      if (!Array.isArray(type.members) || type.members.length === 0) {
+        fail(`${label} has an invalid union type`);
+      }
+      type.members.forEach((item, index) => validateType(item, `${label} member ${index + 1}`));
+      return;
+    default:
+      fail(`${label} uses unsupported checked type '${type.kind ?? "missing"}'`);
+  }
+}
+
+function validateProvenanceShape(provenance, label) {
+  exactKeys(provenance, ["macroExpansion", "source"], label);
+  exactKeys(provenance.macroExpansion, ["chain"], `${label} macro expansion`);
+  if (!Array.isArray(provenance.macroExpansion.chain)) {
+    fail(`${label} has an invalid macro expansion chain`);
+  }
+  provenance.macroExpansion.chain.forEach((entry, index) => {
+    exactKeys(entry, ["depth", "name"], `${label} macro expansion ${index + 1}`);
+  });
+  exactKeys(
+    provenance.source,
+    ["canonical", "col", "line", "origin", "pos", "sourceId", "span"],
+    `${label} source`,
+  );
+}
+
+function inferredCompatible(actual, expected, node) {
+  if (sameType(actual, expected)) return true;
+  if (node.node === "vec" && node.items.length === 0
+      && actual?.kind === "app" && actual.name === "Vec"
+      && actual.args.length === 1 && isInferredType(actual.args[0], "Any")
+      && expected?.kind === "app" && expected.name === "Vec") {
+    return true;
+  }
+  if (node.node === "map" && node.pairs.length === 0
+      && actual?.kind === "app" && actual.name === "Map"
+      && actual.args.length === 2 && actual.args.every((type) => isInferredType(type, "Any"))
+      && expected?.kind === "app" && expected.name === "Map") {
+    return true;
+  }
+  return false;
+}
+
+function validateCheckedStructure(ast) {
+  const externs = new Map();
+  for (const [index, entry] of ast.externs.entries()) {
+    exactKeys(entry, ["name", "type"], `extern ${index + 1}`);
+    if (typeof entry.name !== "string" || entry.name.length === 0 || externs.has(entry.name)) {
+      fail(`projection has an invalid or repeated extern '${entry.name ?? "missing"}'`);
+    }
+    validateType(entry.type, `extern '${entry.name}' type`);
+    externs.set(entry.name, entry.type);
+  }
+
+  for (const [index, entry] of ast.requires.entries()) {
+    exactKeys(entry, ["alias", "ns", "refer"], `require ${index + 1}`);
+  }
+
+  const validateExpression = (node, label) => {
+    if (node === null || typeof node !== "object" || Array.isArray(node)) {
+      fail(`${label} is not a checked expression`);
+    }
+    switch (node.node) {
+      case "literal": {
+        const keys = node.kind === "nil"
+          ? ["kind", "node", "provenance"]
+          : ["kind", "node", "provenance", "value"];
+        exactKeys(node, keys, label);
+        validateProvenanceShape(node.provenance, `${label} provenance`);
+        return;
+      }
+      case "ref":
+        exactKeys(node, ["name", "node", "provenance"], label);
+        if (typeof node.name !== "string" || node.name.length === 0) {
+          fail(`${label} has an invalid checked reference`);
+        }
+        validateProvenanceShape(node.provenance, `${label} provenance`);
+        if (node.name.includes("/") && !externs.has(node.name)) {
+          fail(`${label} names missing checked extern '${node.name}'`);
+        }
+        return;
+      case "call": {
+        exactKeys(node, ["args", "fn", "inferredType", "node", "provenance"], label);
+        if (!Array.isArray(node.args)) fail(`${label} is missing checked arguments`);
+        validateType(node.inferredType, `${label} inferred type`);
+        validateProvenanceShape(node.provenance, `${label} provenance`);
+        validateExpression(node.fn, `${label} callee`);
+        node.args.forEach((argument, index) =>
+          validateExpression(argument, `${label} argument ${index + 1}`));
+        const externalType = externs.get(node.fn.name);
+        if (externalType !== undefined) {
+          const callable = externalType.kind === "poly" ? externalType.body : externalType;
+          if (callable.kind !== "fn" || callable.rest !== null
+              || callable.params.length !== node.args.length) {
+            fail(`${label} does not match checked extern '${node.fn.name}'`);
+          }
+          if (!sameType(node.inferredType, callable.ret)) {
+            fail(`${label} inferred type does not match checked extern '${node.fn.name}'`);
+          }
+          node.args.forEach((argument, index) => {
+            if (argument.inferredType !== undefined
+                && !inferredCompatible(argument.inferredType, callable.params[index], argument)) {
+              fail(`${label} argument ${index + 1} type does not match checked extern '${node.fn.name}'`);
+            }
+          });
+        }
+        return;
+      }
+      case "vec":
+        exactKeys(node, ["inferredType", "items", "node", "provenance"], label);
+        if (!Array.isArray(node.items)) fail(`${label} is not a checked vector`);
+        validateType(node.inferredType, `${label} inferred type`);
+        validateProvenanceShape(node.provenance, `${label} provenance`);
+        node.items.forEach((item, index) => validateExpression(item, `${label} item ${index + 1}`));
+        return;
+      case "map":
+        exactKeys(node, ["inferredType", "node", "pairs", "provenance"], label);
+        if (!Array.isArray(node.pairs)) fail(`${label} is not a checked map`);
+        validateType(node.inferredType, `${label} inferred type`);
+        validateProvenanceShape(node.provenance, `${label} provenance`);
+        node.pairs.forEach((pair, index) => {
+          exactKeys(pair, ["key", "val"], `${label} pair ${index + 1}`);
+          validateExpression(pair.key, `${label} key ${index + 1}`);
+          validateExpression(pair.val, `${label} value ${index + 1}`);
+        });
+        return;
+      default:
+        fail(`${label} uses unsupported checked expression node '${node.node ?? "missing"}'`);
+    }
+  };
+
+  for (const [index, form] of ast.forms.entries()) {
+    const label = `top-level form ${index + 1}`;
+    if (form?.node === "def") {
+      exactKeys(form, ["ann", "doc", "dynamic", "name", "node", "provenance", "value"], label);
+      validateType(form.ann, `${label} annotation`);
+      validateProvenanceShape(form.provenance, `${label} provenance`);
+      validateExpression(form.value, `${label} value`);
+    } else if (form?.node === "record") {
+      exactKeys(form, ["fields", "name", "node", "provenance"], label);
+      if (!Array.isArray(form.fields)) fail(`${label} has invalid record fields`);
+      validateProvenanceShape(form.provenance, `${label} provenance`);
+      form.fields.forEach((field, fieldIndex) => {
+        exactKeys(field, ["ann", "name"], `${label} field ${fieldIndex + 1}`);
+        validateType(field.ann, `${label} field ${fieldIndex + 1} annotation`);
+      });
+    } else if (form?.node === "defenum") {
+      exactKeys(form, ["name", "node", "provenance", "values"], label);
+      if (!Array.isArray(form.values) || !form.values.every((value) => typeof value === "string")) {
+        fail(`${label} has invalid enum values`);
+      }
+      validateProvenanceShape(form.provenance, `${label} provenance`);
+    } else {
+      fail(`${label} uses unsupported checked form '${form?.node ?? "missing"}'`);
+    }
+  }
+  return externs;
+}
 
 function basename(path) {
   const end = path.lastIndexOf("/");
@@ -179,7 +423,13 @@ function recordNamed(records, name, label) {
   return record;
 }
 
-function wakeFieldType(type, alias, entityByRecord, label) {
+function wakeFieldType(
+  type,
+  alias,
+  entityByRecord,
+  label,
+  { allowDerived = false, allowDiagnosticMarkers = false } = {},
+) {
   let cardinality = "single";
   let valueType = type;
   if (type?.kind === "app" && type.name === "Vec") {
@@ -199,8 +449,25 @@ function wakeFieldType(type, alias, entityByRecord, label) {
     return { cardinality, targetEntity, type: "Ref" };
   }
 
+  if (valueType?.kind === "app" && valueType.name === `${alias}/Derived`) {
+    if (!allowDerived || cardinality !== "single" || valueType.args.length !== 1) {
+      fail(`${label} has unsupported wake/Derived placement`);
+    }
+    const [memberType] = valueType.args;
+    if (memberType?.kind !== "prim" || memberType.name.includes("/")) {
+      fail(`${label} wake/Derived must wrap one local scalar type`);
+    }
+    return { cardinality, targetEntity: null, type: "Derived" };
+  }
+
   if (valueType?.kind !== "prim") {
     fail(`${label} has unsupported Beagle type shape '${valueType?.kind ?? "missing"}'`);
+  }
+  if (allowDiagnosticMarkers && valueType.name === `${alias}/UntargetedRef`) {
+    return { cardinality, targetEntity: null, type: "Ref" };
+  }
+  if (allowDiagnosticMarkers && valueType.name === `${alias}/Opaque`) {
+    return { cardinality, targetEntity: null, type: "Opaque" };
   }
   if (valueType.name.includes("/")) {
     fail(`${label} has unsupported imported type '${valueType.name}'`);
@@ -246,6 +513,55 @@ function sourcePosition(sourceText, utf16Offset) {
   return { column, line };
 }
 
+function invocationSpan(sourceText, characterOffset, expectedHead, label) {
+  const characters = Array.from(sourceText);
+  if (characters[characterOffset] !== "(") {
+    fail(`${label} provenance does not begin at a list invocation`);
+  }
+  let headEnd = characterOffset + 1;
+  while (headEnd < characters.length
+         && !/\s|\(|\)|\[|\]|\{|\}/u.test(characters[headEnd])) {
+    headEnd += 1;
+  }
+  if (characters.slice(characterOffset + 1, headEnd).join("") !== expectedHead) {
+    fail(`${label} provenance does not name ${expectedHead}`);
+  }
+  const opening = new Map([["(", ")"], ["[", "]"], ["{", "}"]]);
+  const closing = new Set(opening.values());
+  const stack = [];
+  let inString = false;
+  let escaped = false;
+  let inComment = false;
+  for (let index = characterOffset; index < characters.length; index += 1) {
+    const character = characters[index];
+    if (inComment) {
+      if (character === "\n") inComment = false;
+      continue;
+    }
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === ";") {
+      inComment = true;
+    } else if (character === "\"") {
+      inString = true;
+    } else if (opening.has(character)) {
+      stack.push(opening.get(character));
+    } else if (closing.has(character)) {
+      if (stack.pop() !== character) fail(`${label} source delimiters are unbalanced`);
+      if (stack.length === 0) return index + 1 - characterOffset;
+    }
+  }
+  fail(`${label} source invocation is unterminated`);
+}
+
 function invocationSource(node, alias, macro, expectedSourceId, sourceText, label) {
   const provenance = node?.provenance;
   const source = provenance?.source;
@@ -272,6 +588,15 @@ function invocationSource(node, alias, macro, expectedSourceId, sourceText, labe
   const projected = projectedPosition(sourceText, source.pos - 1);
   if (projected.line !== source.line || projected.column !== source.col) {
     fail(`${label} projection provenance does not match its source position`);
+  }
+  const exactSpan = invocationSpan(
+    sourceText,
+    source.pos - 1,
+    `${alias}/${macro}`,
+    label,
+  );
+  if (source.span !== exactSpan) {
+    fail(`${label} projection provenance does not cover its exact source invocation`);
   }
   projectedPosition(sourceText, source.pos - 1 + source.span);
   return source;
@@ -492,6 +817,36 @@ function querySelection(node, alias, label) {
   };
 }
 
+function queryResult(node, alias, label) {
+  const name = wakeName(callName(node, label), alias, label);
+  if (name === "page-result") {
+    const args = callArguments(node, alias, name, "QueryResult", label);
+    if (args.length !== 2) fail(`${label} wake/page-result has wrong arity`);
+    const defaultLimit = integerLiteral(args[0], `${label} default limit`);
+    const maxLimit = integerLiteral(args[1], `${label} max limit`);
+    if (defaultLimit <= 0 || defaultLimit > maxLimit || maxLimit > 247) {
+      fail(`${label} page limits must be positive integers with default <= max <= 247`);
+    }
+    return {
+      resultKind: "page",
+      page: {
+        _tag: "IrQueryPage",
+        default_limit: defaultLimit,
+        max_limit: maxLimit,
+      },
+    };
+  }
+  if (name === "optional-result" || name === "one-result") {
+    const args = callArguments(node, alias, name, "QueryResult", label);
+    if (args.length !== 0) fail(`${label} wake/${name} has wrong arity`);
+    return {
+      resultKind: name === "optional-result" ? "optional" : "one",
+      page: null,
+    };
+  }
+  fail(`${label} uses unsupported Wake query result '${name}'`);
+}
+
 function uiAttribute(node, alias, label) {
   const name = wakeName(callName(node, label), alias, label);
   if (name === "static-attr") {
@@ -513,6 +868,12 @@ function uiElement(node, alias, props, label) {
   const attrs = uniqueObject(mapPairs(args[1], `${label} attributes`).map(({ key, val }) => {
     const attrName = keywordLiteral(key, `${label} attribute name`);
     const attr = uiAttribute(val, alias, `${label} :${attrName}`);
+    if (!STATIC_UI_ATTRIBUTES.has(attrName)) {
+      fail(`${label} uses unsupported UI attribute ':${attrName}'`);
+    }
+    if (attr.type === "bind" && attrName !== "text") {
+      fail(`${label} :${attrName} does not support a bound value`);
+    }
     if (attr.type === "bind" && !props.has(attr.prop)) {
       fail(`${label} :${attrName} binds unknown component prop '${attr.prop}'`);
     }
@@ -572,6 +933,45 @@ export function programFromCheckedAst(
       || typeof expectedSourceId !== "string"
       || typeof sourceText !== "string") {
     fail("projection is missing namespace or forms");
+  }
+  if (!SHA256.test(ast.sourceSha256)
+      || ast.sourceSha256 !== sha256Digest(sourceText)) {
+    fail("projection source digest does not match the checked input bytes");
+  }
+  const projection = { ...ast };
+  delete projection.projectionSha256;
+  if (!SHA256.test(ast.projectionSha256)
+      || ast.projectionSha256 !== sha256Digest(canonicalJson(projection))) {
+    fail("projection digest does not match its canonical checked-program payload");
+  }
+  if (typeof sourcePath !== "string" || !sourcePath.startsWith("/")) {
+    fail("checked source path must be absolute");
+  }
+  if (expectedSourceId.startsWith("/")) {
+    if (sourcePath !== expectedSourceId) {
+      fail("checked source path does not match its absolute projection identity");
+    }
+  } else if (expectedSourceId.startsWith("../")
+      || expectedSourceId === ".."
+      || !sourcePath.endsWith(`/${expectedSourceId}`)) {
+    fail("checked source path does not end in its repository-relative projection identity");
+  }
+  validateCheckedStructure(ast);
+  const seenNamespaces = new Set();
+  const seenAliases = new Set();
+  for (const entry of ast.requires) {
+    if (typeof entry.ns !== "string" || entry.ns.length === 0
+        || !(entry.alias === false || (typeof entry.alias === "string" && entry.alias.length > 0))
+        || !(entry.refer === false || (Array.isArray(entry.refer)
+          && entry.refer.every((name) => typeof name === "string" && name.length > 0)))) {
+      fail("projection contains an invalid require entry");
+    }
+    if (seenNamespaces.has(entry.ns)) fail(`projection requires '${entry.ns}' more than once`);
+    seenNamespaces.add(entry.ns);
+    if (entry.alias !== false) {
+      if (seenAliases.has(entry.alias)) fail(`projection reuses require alias '${entry.alias}'`);
+      seenAliases.add(entry.alias);
+    }
   }
   const wakeImports = (ast.requires ?? []).filter((entry) =>
     entry?.ns === WAKE_PROVIDER_NAMESPACE);
@@ -693,7 +1093,11 @@ export function programFromCheckedAst(
         wakeAlias,
         entityByRecord,
         `field '${spec.name}.${field.name}'`,
+        { allowDerived: true },
       );
+      if (decoded.type === "Derived" && spec.writes[field.name] !== undefined) {
+        fail(`Derived field '${spec.name}.${field.name}' cannot declare a write policy`);
+      }
       const opts = {};
       if (field.name === spec.identity) opts.identity = true;
       if (decoded.cardinality === "multi") opts.many = true;
@@ -779,7 +1183,7 @@ export function programFromCheckedAst(
       "QuerySpec",
       `query '${form.name}'`,
     );
-    if (args.length !== 9) fail(`query '${form.name}' has an invalid checked descriptor`);
+    if (args.length !== 7) fail(`query '${form.name}' has an invalid checked descriptor`);
     const name = descriptorName(
       form,
       stringLiteral(args[0], `query '${form.name}' name`),
@@ -810,17 +1214,7 @@ export function programFromCheckedAst(
       "defquery",
       `query '${form.name}' bindings record '${bindingsRecordName}'`,
     );
-    const resultKind = keywordLiteral(args[6], `query '${form.name}' result`);
-    if (resultKind !== "page") {
-      fail(`query '${form.name}' checked slice currently supports only :page`);
-    }
-    const defaultLimit = integerLiteral(args[7], `query '${form.name}' default limit`);
-    const maxLimit = integerLiteral(args[8], `query '${form.name}' max limit`);
-    if (defaultLimit <= 0 || defaultLimit > maxLimit || maxLimit > 247) {
-      fail(
-        `query '${form.name}' page limits must be positive integers with default <= max <= 247`,
-      );
-    }
+    const result = queryResult(args[6], wakeAlias, `query '${form.name}'`);
     const capabilities = vectorItems(
       args[3],
       `query '${form.name}' capabilities`,
@@ -834,6 +1228,7 @@ export function programFromCheckedAst(
         wakeAlias,
         entityByRecord,
         `query '${form.name}' param '${field.name}'`,
+        { allowDiagnosticMarkers: true },
       ).type,
     }));
     const bindings = bindingsRecord.fields.map((field) => {
@@ -874,12 +1269,8 @@ export function programFromCheckedAst(
         ),
       ),
       selection,
-      result_kind: resultKind,
-      page: {
-        _tag: "IrQueryPage",
-        default_limit: defaultLimit,
-        max_limit: maxLimit,
-      },
+      result_kind: result.resultKind,
+      page: result.page,
     };
   });
   repeatedName(queries.map((query) => query.name), "query declaration");
@@ -992,8 +1383,8 @@ export function programFromCheckedAst(
       }
     }
     const defaultRoute = keywordLiteral(args[0], "routes default");
-    if (!routes.some((entry) => entry.path === defaultRoute)) {
-      fail(`routes default names unknown route '${defaultRoute}'`);
+    if (!routes.some((entry) => entry.view_name === defaultRoute)) {
+      fail(`routes default names unknown view '${defaultRoute}'`);
     }
     return {
       _tag: "IrRouter",

@@ -40,4 +40,4 @@
   :title "Published revisions")
 
 (routes :default revisions
-  [revisions revisions])
+  [home revisions])

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 
 import { programFromCheckedAst } from "../compiler/checked-beagle.mjs";
+import { canonicalJson, sha256Digest } from "../compiler/canonical.mjs";
 
 const webRoot = `${import.meta.dir}/..`;
 const compile = `${webRoot}/bin/wake-compile`;
@@ -28,19 +29,26 @@ function form(ast, name) {
   return value;
 }
 
-function project(ast = checkedAst) {
+function project(ast = checkedAst, overrides = {}) {
   return programFromCheckedAst(ast, {
     compilerVersion: "0.1.0",
-    expectedSourceId,
-    sourcePath: checkedSourcePath,
-    sourceText: checkedSourceText,
+    expectedSourceId: overrides.expectedSourceId ?? expectedSourceId,
+    sourcePath: overrides.sourcePath ?? checkedSourcePath,
+    sourceText: overrides.sourceText ?? checkedSourceText,
   });
+}
+
+function reseal(ast) {
+  const projection = { ...ast };
+  delete projection.projectionSha256;
+  ast.projectionSha256 = sha256Digest(canonicalJson(projection));
 }
 
 function rejected(label, mutate, message) {
   test(label, () => {
     const ast = structuredClone(checkedAst);
     mutate(ast);
+    reseal(ast);
     expect(() => project(ast)).toThrow(message);
   });
 }
@@ -186,9 +194,99 @@ test("projects exact source spans, names, tokens, and Beagle types", () => {
 
   const intAst = structuredClone(checkedAst);
   form(intAst, "Page").fields[1].ann = { kind: "prim", name: "Int" };
+  reseal(intAst);
   expect(project(intAst).entities.find((entity) => entity.name === "page")
     .attrs.find((field) => field.name === "title").type).toBe("Int");
+  expect(program.router).toMatchObject({
+    default_route: "revisions",
+    routes: [{ path: "home", view_name: "revisions" }],
+  });
 });
+
+test("rejects stale checked AST for same-length source bytes", () => {
+  expect(() => project(checkedAst, {
+    sourceText: checkedSourceText.replace(
+      "wake-checked-beagle-fixture",
+      "zzzz-checked-beagle-fixture",
+    ),
+  })).toThrow("projection source digest does not match the checked input bytes");
+});
+
+test("rejects an AST payload changed after Beagle projection", () => {
+  const ast = structuredClone(checkedAst);
+  form(ast, "Page").fields[1].name = "renamed";
+  form(ast, "page").value.args[3].pairs[0].key.value = "renamed";
+  expect(() => project(ast)).toThrow(
+    "projection digest does not match its canonical checked-program payload",
+  );
+});
+
+test("projects each closed query result helper", () => {
+  for (const [helper, resultKind] of [
+    ["optional-result", "optional"],
+    ["one-result", "one"],
+  ]) {
+    const ast = structuredClone(checkedAst);
+    const result = form(ast, "published-revisions").value.args[6];
+    result.fn.name = `wake/${helper}`;
+    result.args = [];
+    reseal(ast);
+    expect(project(ast).queries[0]).toMatchObject({ page: null, result_kind: resultKind });
+  }
+});
+
+test("rejects a source path outside the projected repository identity", () => {
+  expect(() => project(checkedAst, {
+    sourcePath: "/different/location/forged.bjs",
+  })).toThrow("does not end in its repository-relative projection identity");
+});
+
+rejected("rejects shifted macro provenance spans", (ast) => {
+  const application = form(ast, "application");
+  const visit = (value) => {
+    if (value === null || typeof value !== "object") return;
+    if (value.provenance?.source !== undefined) value.provenance.source.span += 1;
+    for (const child of Object.values(value)) visit(child);
+  };
+  visit(application);
+}, "does not cover its exact source invocation");
+
+rejected("rejects require alias collisions", (ast) => {
+  ast.requires.push({ alias: "wake", ns: "evil.provider", refer: false });
+}, "reuses require alias 'wake'");
+
+rejected("rejects forged constructor extern types", (ast) => {
+  ast.externs.find((entry) => entry.name === "wake/->ApplicationSpec").type = {
+    kind: "prim",
+    name: "Any",
+  };
+}, "does not match checked extern 'wake/->ApplicationSpec'");
+
+rejected("rejects extra callee type claims", (ast) => {
+  form(ast, "application").value.fn.inferredType = { kind: "prim", name: "Any" };
+}, "callee has unsupported fields");
+
+rejected("rejects extra literal type claims", (ast) => {
+  form(ast, "application").value.args[0].inferredType = {
+    kind: "prim",
+    name: "Keyword",
+  };
+}, "argument 1 has unsupported fields");
+
+rejected("rejects forged container inferred types", (ast) => {
+  form(ast, "page").value.args[3].inferredType = { kind: "prim", name: "Any" };
+}, "argument 4 type does not match checked extern 'wake/->EntitySpec'");
+
+rejected("rejects unknown checked expression fields", (ast) => {
+  form(ast, "application").value.unrecognized = true;
+}, "value has unsupported fields");
+
+rejected("rejects UI attributes outside the codegen surface", (ast) => {
+  const attrs = form(ast, "revision-row").value.args[2].items[0].args[1].pairs;
+  const extra = structuredClone(attrs[0]);
+  extra.key.value = "on-click";
+  attrs.push(extra);
+}, "uses unsupported UI attribute ':on-click'");
 
 rejected("rejects gen-class programs", (ast) => {
   ast["gen-class"] = true;
@@ -219,7 +317,12 @@ rejected("rejects unrelated top-level definitions", (ast) => {
     name: "unrelated",
     node: "def",
     provenance: structuredClone(form(ast, "application").provenance),
-    value: { kind: "string", node: "literal", value: "ignored" },
+    value: {
+      kind: "string",
+      node: "literal",
+      provenance: structuredClone(form(ast, "application").provenance),
+      value: "ignored",
+    },
   });
 }, "unsupported top-level checked form def 'unrelated'");
 
@@ -252,12 +355,12 @@ rejected("rejects duplicate decoded map keys", (ast) => {
 rejected("rejects wrong helper inferred types", (ast) => {
   const route = form(ast, "application-routes").value.args[1].items[0];
   route.inferredType = { kind: "prim", name: "UiNode" };
-}, "must infer exact RouteSpec");
+}, "inferred type does not match checked extern 'wake/route'");
 
 rejected("rejects helper calls without projection provenance", (ast) => {
   const route = form(ast, "application-routes").value.args[1].items[0];
   delete route.provenance;
-}, "lacks exact canonical macro invocation provenance");
+}, "has unsupported fields");
 
 rejected("rejects duplicate UI attributes", (ast) => {
   const component = form(ast, "revision-row");
@@ -282,12 +385,12 @@ rejected("rejects views with unknown components", (ast) => {
 rejected("rejects duplicate routes", (ast) => {
   const routes = form(ast, "application-routes").value.args[1].items;
   routes.push(structuredClone(routes[0]));
-}, "route path repeats 'revisions'");
+}, "route path repeats 'home'");
 
 rejected("rejects unknown default routes", (ast) => {
   form(ast, "application-routes").value.args[0].value = "ghost";
-}, "routes default names unknown route 'ghost'");
+}, "routes default names unknown view 'ghost'");
 
 rejected("rejects unsafe page bounds with the legacy diagnostic", (ast) => {
-  form(ast, "published-revisions").value.args[8].value = 300;
+  form(ast, "published-revisions").value.args[6].args[1].value = 300;
 }, "page limits must be positive integers with default <= max <= 247");
