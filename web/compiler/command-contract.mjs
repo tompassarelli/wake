@@ -202,6 +202,7 @@ function checkFieldExpression({
   label,
   allowNull,
 }) {
+  if (allowNull && expression?.kind === "literal" && expression.value === null) return;
   const actual = expressionType(expression, environment, label);
   const expected = fieldValueType(field, entities, stateNames);
   if (field.cardinality === "multi") {

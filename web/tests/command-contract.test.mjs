@@ -233,6 +233,28 @@ test("checker rejects undeclared capability, unguarded command update, and inval
   assert.throws(() => checkCommandGraph([invalidTransition], checked), /is not declared/);
 });
 
+test("checker accepts an absence CAS for a single command-written field", () => {
+  const [{ value: form }] = sexpr.parse_all(source);
+  const command = parseCommand(form);
+  const provenanceChecked = structuredClone(checked);
+  provenanceChecked.entities
+    .find(entity => entity.name === "version")
+    .fields.push(field("published-at", "Instant", { write: "command" }));
+  command.steps.push({
+    entity: "version",
+    fields: [{
+      allowedCurrent: { kind: "literal", value: null },
+      field: "published-at",
+      value: { kind: "receipt-time" },
+    }],
+    identity: { kind: "input", name: "expected" },
+    op: "update",
+    when: { kind: "non-null", value: { kind: "input", name: "expected" } },
+  });
+
+  assert.doesNotThrow(() => checkCommandGraph([command], provenanceChecked));
+});
+
 test("parser rejects unknown command steps rather than accepting a no-op", () => {
   const [{ value: form }] = sexpr.parse_all(source.replace("(require entry", "(erase entry"));
   assert.throws(() => parseCommand(form), /unknown operation 'erase'/);
