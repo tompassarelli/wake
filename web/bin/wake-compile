@@ -131,7 +131,7 @@ if [[ $# -ge 1 && "$1" == "--all" ]]; then
   run_driver all "$wake_file" "$out_dir"
   "$wake_root/bin/wake-lint-output" "$out_dir/app.js" >&2
   "$wake_root/bin/wake-lint-output" "$out_dir/wake-client.js" >&2
-  echo "$wake_file -> $out_dir/ (wake-client.js + app.js + app.fram.json + app.wake.manifest.json)" >&2
+  echo "$wake_file -> $out_dir/ (wake-client.js + app.js + app.fram.json + app.wake.manifest.json + app.wake.deployment.json)" >&2
 elif [[ $# -ge 1 && "$1" == "--fram" ]]; then
   [[ $# -ge 2 && $# -le 3 ]] || usage
   run_driver fram "$2" "${3:--}"

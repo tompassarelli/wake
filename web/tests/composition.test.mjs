@@ -215,6 +215,16 @@ describe("W3 checked application composition", () => {
       path: "wake-client.js",
       sha256: sha256Digest(clientText),
     });
+    const deploymentText = await Bun.file(`${root}/out/app.wake.deployment.json`).text();
+    const deployment = parseCanonicalDocument(deploymentText, "fixture deployment receipt");
+    expect(deployment).toEqual({
+      applicationId: manifest.applicationId,
+      applicationManifestDigest: sha256Digest(manifestText),
+      browserClientDigest: sha256Digest(clientText),
+      browserJavaScriptDigest: sha256Digest(await Bun.file(`${root}/out/app.js`).text()),
+      framPlanDigest: sha256Digest(await Bun.file(`${root}/out/app.fram.json`).text()),
+      schemaVersion: 1,
+    });
     expect(manifest.digests.operationSurface).toMatch(/^sha256:[0-9a-f]{64}$/u);
     expect(manifest.digests.storageProjection).not.toBe(sha256Digest(JSON.stringify({
       applicationId: "not-the-real-canonical-document",
@@ -292,6 +302,6 @@ describe("W3 checked application composition", () => {
     root = await fixture(incompatible);
     result = runCompile(root);
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("lacks required props: state");
+    expect(result.stderr.toString()).toContain("lacks required props: current-state");
   }, 30_000);
 });

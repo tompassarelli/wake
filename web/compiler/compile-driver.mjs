@@ -8,6 +8,7 @@ import {
   readPluginArtifact,
   validateWakeLock,
 } from "./plugin-package.mjs";
+import { generateDeploymentReceipt } from "./deployment-receipt.mjs";
 
 const DRIVER_SCHEMA_VERSION = 1;
 const FRAM_PLAN_SCHEMA_VERSION = 2;
@@ -974,10 +975,18 @@ async function main() {
     generatedJavaScript,
     resolved,
   });
+  const manifestDocument = canonicalDocument(manifest);
+  const deploymentReceipt = generateDeploymentReceipt({
+    browserClient,
+    browserJavaScript: generatedJavaScript,
+    framPlan,
+    manifest: manifestDocument,
+  });
   await Bun.write(join(options.output, "app.js"), generatedJavaScript);
   await Bun.write(join(options.output, "wake-client.js"), browserClient);
   await Bun.write(join(options.output, "app.fram.json"), framPlan);
-  await Bun.write(join(options.output, "app.wake.manifest.json"), canonicalDocument(manifest));
+  await Bun.write(join(options.output, "app.wake.manifest.json"), manifestDocument);
+  await Bun.write(join(options.output, "app.wake.deployment.json"), deploymentReceipt);
 }
 
 await main();
