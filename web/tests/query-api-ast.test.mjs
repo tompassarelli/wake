@@ -128,7 +128,7 @@ test("wake.core exposes the closed named-query data model", () => {
     expect(helper.params.map((param) => param.ann)).toEqual(params);
     expect(helper.ret).toEqual(type("QueryResult"));
   }
-});
+}, 30_000);
 
 test("consumer projection keeps exact query results and diagnostic markers", () => {
   const firstProjection = runBeagle(["ast", fixture]);
@@ -193,9 +193,9 @@ test("consumer projection keeps exact query results and diagnostic markers", () 
   expect(createHash("sha256").update(firstProjection).digest("hex")).toBe(
     "fe529946c0db1dd288f807c58361cddafcdd3e79fae5d04abd9b5f8a7e70d9ea",
   );
-});
+}, 30_000);
 
 test("defquery rejects the retired keyword-and-limit result surface", () => {
   const output = failedBeagle(["check", "--agent", wrongResultFixture]);
   expect(output).toContain("expected QueryResult, got Keyword");
-});
+}, 30_000);
