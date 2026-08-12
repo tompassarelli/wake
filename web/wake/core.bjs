@@ -9,6 +9,16 @@
     (WakeRef [id: String])))
 
 (js/export
+  (defunion (Derived T)
+    (WakeDerived [value: T])))
+
+(js/export
+  (defrecord UntargetedRef [id: String]))
+
+(js/export
+  (defrecord Opaque [value: String]))
+
+(js/export
   (defrecord ApplicationSpec [id: String]))
 
 (js/export
@@ -46,6 +56,15 @@
   (defrecord QuerySelection [name: Keyword field: QueryOperand]))
 
 (js/export
+  (defrecord QueryPage [default-limit: Int max-limit: Int]))
+
+(js/export
+  (defunion QueryResult
+    (PageResult [page: QueryPage])
+    (OptionalResult [unit: Nil])
+    (OneResult [unit: Nil])))
+
+(js/export
   (defrecord QuerySpec
     [name: String
      params-record: String
@@ -53,9 +72,7 @@
      capabilities: (Vec String)
      predicates: (Vec QueryPredicate)
      selection: (Vec QuerySelection)
-     result-kind: Keyword
-     default-limit: Int
-     max-limit: Int]))
+     result: QueryResult]))
 
 (js/export
   (defunion UiAttr
@@ -125,6 +142,18 @@
     (->QuerySelection name field-value)))
 
 (js/export
+  (defn page-result [default-limit: Int max-limit: Int] -> QueryResult
+    (->PageResult (->QueryPage default-limit max-limit))))
+
+(js/export
+  (defn optional-result [] -> QueryResult
+    (->OptionalResult nil)))
+
+(js/export
+  (defn one-result [] -> QueryResult
+    (->OneResult nil)))
+
+(js/export
   (defn static-attr [value: String] -> UiAttr
     (->StaticAttr value)))
 
@@ -189,23 +218,21 @@
    capabilities
    predicates
    selection
-   result-kind
-   default-limit
-   max-limit]
+   result]
   (let [params-record (format-symbol "~a-params" binding)
         bindings-record (format-symbol "~a-bindings" binding)
+        capabilities-value
+        (if (pair? capabilities) capabilities (vec capabilities))
         declaration
         `(def ~binding: QuerySpec
            (->QuerySpec
              ~(str binding)
              ~(if (= (count params) 0) "" (str params-record))
              ~(str bindings-record)
-             ~capabilities
+             ~capabilities-value
              ~predicates
              ~selection
-             ~result-kind
-             ~default-limit
-             ~max-limit))]
+             ~result))]
     (if (= (count params) 0)
       `(do
          (defrecord ~bindings-record ~bindings)

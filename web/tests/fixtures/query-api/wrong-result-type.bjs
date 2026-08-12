@@ -1,0 +1,16 @@
+#lang beagle/js
+(ns wake.fixtures.wrong-query-result
+  (:require [wake.core :as wake]))
+
+(wake/defentity release Release
+  [id: String]
+  :id
+  {})
+
+(wake/defquery invalid-result
+  []
+  [release: Release]
+  "wake-tests/cap/read-release"
+  []
+  [(wake/select :id (wake/field :release :id))]
+  :page)

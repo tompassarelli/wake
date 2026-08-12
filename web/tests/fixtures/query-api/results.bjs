@@ -1,0 +1,62 @@
+#lang beagle/js
+(ns wake.fixtures.query-results
+  (:require [wake.core :as wake]))
+
+(wake/defentity release Release
+  [id: String
+   name: String
+   aliases: (Vec String)
+   label: (wake/Derived String)]
+  :id
+  {:name :create
+   :aliases :create})
+
+(wake/defquery release-page
+  []
+  [release: Release]
+  "wake-tests/cap/read-release"
+  []
+  [(wake/select :id (wake/field :release :id))]
+  (wake/page-result 20 64))
+
+(wake/defquery release-optional
+  [release-id: String]
+  [release: Release]
+  ["wake-tests/cap/read-release"]
+  [(wake/eq
+    (wake/field :release :id)
+    (wake/parameter :release-id))]
+  [(wake/select :id (wake/field :release :id))
+   (wake/select :aliases (wake/field :release :aliases))]
+  (wake/optional-result))
+
+(wake/defquery release-one
+  [release-id: String]
+  [release: Release]
+  ["wake-tests/cap/read-release"]
+  [(wake/eq
+    (wake/field :release :id)
+    (wake/parameter :release-id))]
+  [(wake/select :id (wake/field :release :id))
+   (wake/select :name (wake/field :release :name))]
+  (wake/one-result))
+
+(wake/defquery untargeted-ref-marker
+  [owner: wake/UntargetedRef]
+  [release: Release]
+  ["wake-tests/cap/read-release"]
+  [(wake/eq
+    (wake/field :release :id)
+    (wake/string-value "release-1"))]
+  [(wake/select :id (wake/field :release :id))]
+  (wake/page-result 10 20))
+
+(wake/defquery opaque-marker
+  [opaque: wake/Opaque]
+  [release: Release]
+  ["wake-tests/cap/read-release"]
+  [(wake/eq
+    (wake/field :release :id)
+    (wake/string-value "release-1"))]
+  [(wake/select :id (wake/field :release :id))]
+  (wake/page-result 10 20))
