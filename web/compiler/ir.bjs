@@ -31,11 +31,30 @@
    allow: (Vec String)
    config: (Vec IrUseConfig)
    span: SourceSpan])
+(defrecord IrProvider
+  [name: String
+   port: String
+   package-id: String
+   port-name: String
+   span: SourceSpan])
+(defrecord IrFill
+  [port: String
+   component: String
+   span: SourceSpan])
+(defrecord IrMount
+  [port: String
+   path: String
+   parameters: (Vec String)
+   span: SourceSpan])
 (defrecord IrAttr
   [name: String
    storage-id: String?
    type: String
    opts: Any])
+(defrecord IrExtend
+  [port: String
+   fields: (Vec IrAttr)
+   span: SourceSpan])
 (defrecord IrEntity
   [name: String
    storage-id: String?
@@ -131,7 +150,14 @@
    tabs: (Vec IrRelatedTab)
    filters: (Vec String)
    date-filters: (Vec String)])
-(defrecord IrRoute [path: String view-name: String])
+(defrecord IrRouteQuery [name: String prefix: String?])
+(defrecord IrRoute
+  [path: String
+   view-name: String
+   queries: (Vec IrRouteQuery)
+   parameters: (Vec String)
+   input-parameters: (Vec String)
+   required-props: (Vec String)])
 (defrecord IrRouter [default-route: String routes: (Vec IrRoute)])
 (defrecord IrNavGroup [label: String items: (Vec String)])
 (defrecord IrLayout
@@ -142,6 +168,10 @@
   [source-unit: IrSourceUnit
    application: IrApplication?
    uses: (Vec IrUse)
+   providers: (Vec IrProvider)
+   extends: (Vec IrExtend)
+   fills: (Vec IrFill)
+   mounts: (Vec IrMount)
    declaration-provenance: (Vec IrDeclarationProvenance)
    ns: String
    backend: IrBackend?

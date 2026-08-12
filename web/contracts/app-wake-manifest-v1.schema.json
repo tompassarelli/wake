@@ -110,8 +110,9 @@
     "artifacts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["browserJavaScript", "framPlan"],
+      "required": ["browserClient", "browserJavaScript", "framPlan"],
       "properties": {
+        "browserClient": { "$ref": "#/$defs/artifact" },
         "browserJavaScript": { "$ref": "#/$defs/artifact" },
         "framPlan": { "$ref": "#/$defs/artifact" }
       }

@@ -145,6 +145,296 @@ function qualify(alias, name) {
   return `${alias}.${name}`;
 }
 
+function splitQualified(value, label) {
+  if (typeof value !== "string") fail(`${label} must be ALIAS.PORT`);
+  const first = value.indexOf(".");
+  if (first <= 0 || first !== value.lastIndexOf(".") || first === value.length - 1) {
+    fail(`${label} must be ALIAS.PORT`);
+  }
+  return { alias: value.slice(0, first), name: value.slice(first + 1) };
+}
+
+function declaredCompositionTarget(direct, reference, kind, label) {
+  const target = splitQualified(reference, label);
+  const resolved = direct.find(candidate => candidate.use.alias === target.alias);
+  if (resolved === undefined) fail(`${label} names unknown plugin alias '${target.alias}'`);
+  const allowed = new Set(resolved.use.allow);
+  const requiredContribution = kind === "provider"
+    ? "capability"
+    : kind === "mount"
+      ? "route"
+      : kind === "extend"
+        ? "schema"
+        : "ui";
+  if (!allowed.has(requiredContribution)) {
+    fail(`${label} requires allowed contribution '${requiredContribution}'`);
+  }
+  const manifest = resolved.artifact.manifest;
+  if (kind === "provider") {
+    if (!manifest.exports.providerPorts.includes(target.name)) {
+      fail(`${label} names unexported provider port '${target.name}'`);
+    }
+    return { manifest, resolved, target };
+  }
+  const port = manifest.extensionPorts.find(candidate => candidate.name === target.name);
+  if (port === undefined) fail(`${label} names unknown extension port '${target.name}'`);
+  const expectedKind = kind === "mount" ? "route-slot" : kind === "fill" ? "component-slot" : "entity-fields";
+  if (port.kind !== expectedKind) {
+    fail(`${label} targets ${port.kind}, not ${expectedKind}`);
+  }
+  return { manifest, port, resolved, target };
+}
+
+function checkedRoutePattern(path, parameters, label) {
+  const segments = path === "/" ? [] : path.slice(1).split("/");
+  const derived = segments
+    .filter(segment => segment.startsWith(":"))
+    .map(segment => segment.slice(1));
+  if (derived.length !== parameters.length
+      || derived.some((parameter, index) => parameter !== parameters[index])) {
+    fail(`${label} route parameters do not match its checked path`);
+  }
+  return segments.map(segment => segment.startsWith(":") ? ":" : segment).join("/");
+}
+
+function applyApplicationComposition(linked, direct) {
+  const providers = (linked.providers ?? []).map(provider => {
+    const target = declaredCompositionTarget(
+      direct,
+      provider.port,
+      "provider",
+      `provider '${provider.name}'`,
+    );
+    return {
+      name: provider.name,
+      port: provider.port,
+      package_id: target.manifest.packageId,
+      port_name: target.target.name,
+    };
+  });
+  const providerNames = new Set();
+  const providerPorts = new Set();
+  for (const provider of providers) {
+    if (providerNames.has(provider.name)) fail(`provider '${provider.name}' is declared twice`);
+    if (providerPorts.has(provider.port)) fail(`provider port '${provider.port}' is bound twice`);
+    providerNames.add(provider.name);
+    providerPorts.add(provider.port);
+  }
+  for (const { artifact, use } of direct) {
+    for (const port of artifact.manifest.exports.providerPorts) {
+      const required = artifact.manifest.requiredHostCapabilities.includes(port)
+        || artifact.manifest.requiredHostCapabilities.includes(`provider:${port}`);
+      if (required && !providerPorts.has(qualify(use.alias, port))) {
+        fail(`plugin '${artifact.manifest.packageId}' requires provider port '${use.alias}.${port}'`);
+      }
+    }
+  }
+
+  const extensions = (linked.extends ?? []).map(extension => {
+    const target = declaredCompositionTarget(
+      direct,
+      extension.port,
+      "extend",
+      `extend '${extension.port}'`,
+    );
+    const allowed = new Set(target.port.accepts);
+    const fieldNames = new Set();
+    for (const field of extension.fields) {
+      if (fieldNames.has(field.name)) fail(`extend '${extension.port}' repeats field '${field.name}'`);
+      fieldNames.add(field.name);
+      if (typeof field.storage_id !== "string" || field.storage_id.length === 0) {
+        fail(`extend '${extension.port}' field '${field.name}' requires an explicit storage ID`);
+      }
+      if (!allowed.has("explicit-storage-id")) {
+        fail(`extend '${extension.port}' does not accept explicit storage fields`);
+      }
+      if (field.opts?.required === true && !allowed.has("immutable")) {
+        fail(`extend '${extension.port}' does not accept caller-required immutable fields`);
+      }
+      if (field.opts?.server === true && !allowed.has("server-injected")) {
+        fail(`extend '${extension.port}' does not accept server-injected fields`);
+      }
+    }
+    return {
+      fields: extension.fields,
+      kind: target.port.kind,
+      package_id: target.manifest.packageId,
+      port: extension.port,
+      target: target.port.target,
+    };
+  });
+  const extensionPorts = new Set();
+  const extensionStorageIds = new Set();
+  for (const extension of extensions) {
+    if (extensionPorts.has(extension.port)) fail(`extension port '${extension.port}' is supplied twice`);
+    extensionPorts.add(extension.port);
+    for (const field of extension.fields) {
+      if (extensionStorageIds.has(field.storage_id)) fail(`application extensions repeat storage ID '${field.storage_id}'`);
+      extensionStorageIds.add(field.storage_id);
+    }
+  }
+
+  let entities = linked.entities;
+  const existingStorageIds = new Set();
+  for (const entity of entities) {
+    if (typeof entity.storage_id === "string") existingStorageIds.add(entity.storage_id);
+    for (const field of entity.attrs) {
+      if (typeof field.storage_id === "string") existingStorageIds.add(field.storage_id);
+    }
+  }
+  for (const extension of extensions) {
+    const targetAlias = splitQualified(extension.port, `extend '${extension.port}'`).alias;
+    const targetEntityName = extension.target.includes("/")
+      ? extension.target
+      : qualify(targetAlias, extension.target);
+    const targetEntity = entities.find(entity => entity.name === targetEntityName);
+    if (targetEntity === undefined) {
+      fail(`extend '${extension.port}' targets missing entity '${extension.target}'`);
+    }
+    const fieldNames = new Set(targetEntity.attrs.map(field => field.name));
+    const additions = extension.fields.map(field => {
+      if (fieldNames.has(field.name)) {
+        fail(`extend '${extension.port}' collides with field '${targetEntityName}.${field.name}'`);
+      }
+      if (existingStorageIds.has(field.storage_id)) {
+        fail(`extend '${extension.port}' repeats storage ID '${field.storage_id}'`);
+      }
+      fieldNames.add(field.name);
+      existingStorageIds.add(field.storage_id);
+      const opts = { ...field.opts };
+      if (opts.server === true) opts.write = "command";
+      else opts.write = "create";
+      delete opts.required;
+      delete opts.server;
+      return { ...field, opts };
+    });
+    entities = entities.map(entity => entity.name === targetEntityName
+      ? { ...entity, attrs: [...entity.attrs, ...additions] }
+      : entity);
+  }
+
+  const componentNames = new Set(linked.components.map(component => component.name));
+  const fills = (linked.fills ?? []).map(fill => {
+    const target = declaredCompositionTarget(direct, fill.port, "fill", `fill '${fill.port}'`);
+    if (!componentNames.has(fill.component)) {
+      fail(`fill '${fill.port}' names unknown application component '${fill.component}'`);
+    }
+    const targetName = qualify(target.target.alias, target.port.target);
+    const targetComponent = linked.components.find(component => component.name === targetName);
+    const replacement = linked.components.find(component => component.name === fill.component);
+    if (targetComponent === undefined) {
+      fail(`fill '${fill.port}' targets missing plugin component '${target.port.target}'`);
+    }
+    const missing = targetComponent.props.filter(prop => !replacement.props.includes(prop));
+    if (missing.length > 0) {
+      fail(`fill '${fill.port}' component '${fill.component}' lacks required props: ${missing.join(", ")}`);
+    }
+    return {
+      component: fill.component,
+      package_id: target.manifest.packageId,
+      port: fill.port,
+      target_component: targetName,
+    };
+  });
+
+  const mounts = (linked.mounts ?? []).map(mount => {
+    const target = declaredCompositionTarget(direct, mount.port, "mount", `mount '${mount.port}'`);
+    const targetRoute = qualify(target.target.alias, target.port.target);
+    const template = (linked.route_templates ?? []).find(route => route.path === targetRoute);
+    if (template === undefined) {
+      fail(`mount '${mount.port}' targets missing plugin route template '${target.port.target}'`);
+    }
+    const parameterContracts = target.port.accepts.filter(value => value !== "route-path");
+    const templateParameters = template.parameters ?? [];
+    if (parameterContracts.length !== templateParameters.length) {
+      fail(`mount '${mount.port}' manifest and route template disagree on parameter arity`);
+    }
+    if (parameterContracts.some((parameter, index) => parameter !== templateParameters[index])) {
+      fail(`mount '${mount.port}' manifest and route template disagree on parameter names`);
+    }
+    if (mount.parameters.length !== templateParameters.length) {
+      fail(`mount '${mount.port}' requires exactly ${templateParameters.length} route parameters`);
+    }
+    const pattern = checkedRoutePattern(mount.path, mount.parameters, `mount '${mount.port}'`);
+    const view = linked.views.find(candidate => candidate.name === template.view_name);
+    if (view === undefined) {
+      fail(`mount '${mount.port}' targets missing plugin route view '${template.view_name}'`);
+    }
+    const component = linked.components.find(candidate => candidate.name === view.component);
+    if (component === undefined) {
+      fail(`mount '${mount.port}' route view names missing component '${view.component}'`);
+    }
+    return {
+      input_parameters: templateParameters,
+      package_id: target.manifest.packageId,
+      parameters: mount.parameters,
+      path: mount.path,
+      pattern,
+      port: mount.port,
+      queries: template.queries ?? [],
+      required_props: component.props,
+      target_route: targetRoute,
+      view_name: template.view_name,
+    };
+  });
+  const mountPorts = new Set();
+  const mountPaths = new Set();
+  const mountPatterns = new Set();
+  for (const mount of mounts) {
+    if (mountPorts.has(mount.port)) fail(`route slot '${mount.port}' is mounted twice`);
+    if (mountPaths.has(mount.path)) fail(`route path '${mount.path}' is mounted twice`);
+    if (mountPatterns.has(mount.pattern)) fail(`route pattern '${mount.pattern}' is mounted twice`);
+    mountPorts.add(mount.port);
+    mountPaths.add(mount.path);
+    mountPatterns.add(mount.pattern);
+  }
+
+  const existingRoutes = new Set((linked.router?.routes ?? []).map(route => route.path));
+  for (const mount of mounts) {
+    if (existingRoutes.has(mount.path)) fail(`route path '${mount.path}' collides with an application route`);
+  }
+  const mountedRoutes = mounts.map(mount => ({
+    input_parameters: mount.input_parameters,
+    parameters: mount.parameters,
+    path: mount.path,
+    queries: mount.queries,
+    required_props: mount.required_props,
+    view_name: mount.view_name,
+  }));
+  const router = mountedRoutes.length === 0
+    ? linked.router
+    : linked.router == null
+      ? { default_route: mountedRoutes[0].view_name, routes: mountedRoutes }
+      : { ...linked.router, routes: [...linked.router.routes, ...mountedRoutes] };
+
+  const filledComponents = linked.components.map(component => {
+    const fill = fills.find(candidate => candidate.target_component === component.name);
+    if (fill === undefined) return component;
+    return linked.components.find(candidate => candidate.name === fill.component);
+  }).filter((component, index, all) => all.findIndex(candidate => candidate.name === component.name) === index);
+  const filledViews = linked.views.map(view => {
+    const componentFill = fills.find(candidate => candidate.target_component === view.component);
+    const selectFill = fills.find(candidate => candidate.target_component === view.select_component);
+    return {
+      ...view,
+      component: componentFill?.component ?? view.component,
+      select_component: selectFill?.component ?? view.select_component,
+    };
+  });
+
+  return {
+    ...linked,
+    components: filledComponents,
+    entities,
+    extends: extensions,
+    fills,
+    mounts,
+    providers,
+    router,
+    views: filledViews,
+  };
+}
+
 function qualifyEntity(entity, alias, manifest, entityNames, stateNames) {
   const localName = entity.name;
   const entityStorageId = manifest.storageIds.entities[localName];
@@ -187,6 +477,7 @@ function qualifyPluginProgram(program, use, manifest) {
   const componentNames = new Set(program.components.map((component) => component.name));
   const viewNames = new Set(program.views.map((view) => view.name));
   const queryNames = new Set((program.queries ?? []).map((query) => query.name));
+  const routeNames = new Set((program.router?.routes ?? []).map((route) => route.path));
 
   if (allow.has("schema")) {
     for (const exported of manifest.exports.entities) {
@@ -204,6 +495,18 @@ function qualifyPluginProgram(program, use, manifest) {
     for (const declared of queryNames) {
       if (!manifest.exports.queries.includes(declared)) {
         fail(`plugin '${manifest.packageId}' declares unexported query '${declared}'`);
+      }
+    }
+  }
+  if (allow.has("route")) {
+    for (const exported of manifest.exports.routes) {
+      if (!routeNames.has(exported)) {
+        fail(`plugin '${manifest.packageId}' exports missing route template '${exported}'`);
+      }
+    }
+    for (const declared of routeNames) {
+      if (!manifest.exports.routes.includes(declared)) {
+        fail(`plugin '${manifest.packageId}' declares unexported route template '${declared}'`);
       }
     }
   }
@@ -230,6 +533,12 @@ function qualifyPluginProgram(program, use, manifest) {
     ? (program.queries ?? []).map((query) => ({
         ...query,
         name: qualify(alias, query.name),
+        params: query.params.map((parameter) => ({
+          ...parameter,
+          type: stateNames.has(parameter.type)
+            ? qualify(alias, parameter.type)
+            : parameter.type,
+        })),
         bindings: query.bindings.map((binding) => ({
           ...binding,
           entity_name: entityNames.has(binding.entity_name)
@@ -274,18 +583,17 @@ function qualifyPluginProgram(program, use, manifest) {
         name: qualify(alias, form.name),
       }))
     : [];
-  const router = allow.has("route") && program.router != null
-    ? {
-        ...program.router,
-        default_route: viewNames.has(program.router.default_route)
-          ? qualify(alias, program.router.default_route)
-          : program.router.default_route,
-        routes: program.router.routes.map((route) => ({
-          ...route,
-          view_name: viewNames.has(route.view_name) ? qualify(alias, route.view_name) : route.view_name,
+  const routeTemplates = allow.has("route") && program.router != null
+    ? program.router.routes.map((route) => ({
+        ...route,
+        path: qualify(alias, route.path),
+        queries: (route.queries ?? []).map((query) => ({
+          ...query,
+          name: queryNames.has(query.name) ? qualify(alias, query.name) : query.name,
         })),
-      }
-    : null;
+        view_name: viewNames.has(route.view_name) ? qualify(alias, route.view_name) : route.view_name,
+      }))
+    : [];
 
   const renamed = new Map();
   for (const kind of ["entity", "defstate", "publication", "query", "component", "view", "form"]) {
@@ -308,7 +616,7 @@ function qualifyPluginProgram(program, use, manifest) {
     listDetails,
     publications,
     queries,
-    router,
+    routeTemplates,
     sourceUnit: program.source_unit,
     theme: allow.has("ui") ? (program.theme ?? null) : null,
     views,
@@ -416,6 +724,7 @@ async function linkProgram(root, sourcePath, compilerVersion, parseProgramAt) {
 
   let linked = { ...root };
   let router = root.router;
+  let routeTemplates = [];
   let theme = root.theme;
   let layout = root.layout;
   const sourceUnits = [root.source_unit];
@@ -434,7 +743,12 @@ async function linkProgram(root, sourcePath, compilerVersion, parseProgramAt) {
       "list detail",
       (detail) => detail.entity_name,
     );
-    router = mergeRouter(router, contribution.router, artifact.manifest.packageId);
+    routeTemplates = appendUnique(
+      routeTemplates,
+      contribution.routeTemplates,
+      "route template",
+      (route) => route.path,
+    );
     if (contribution.theme !== null) {
       if (theme !== null) fail(`plugin '${artifact.manifest.packageId}' conflicts with application theme`);
       theme = contribution.theme;
@@ -459,16 +773,17 @@ async function linkProgram(root, sourcePath, compilerVersion, parseProgramAt) {
     source: { ...entry.source },
     version: artifact.manifest.version,
   }));
-  linked = {
+  linked = applyApplicationComposition({
     ...linked,
     declaration_provenance: declarationProvenance,
     layout,
     plugin_closure: closure,
+    route_templates: routeTemplates,
     router,
     semantic_fingerprint: null,
     source_units: sourceUnits,
     theme,
-  };
+  }, direct);
   return { linked, resolved: direct };
 }
 
@@ -530,6 +845,12 @@ function operationSurface(resolved) {
 
 function checkedOperationSurface(checked, resolved) {
   return {
+    composition: {
+      extensions: semanticValue(checked.extensions ?? []),
+      fills: semanticValue(checked.fills ?? []),
+      mounts: semanticValue(checked.mounts ?? []),
+      providers: semanticValue(checked.providers ?? []),
+    },
     exports: operationSurface(resolved),
     queries: semanticValue(checked.queries ?? []),
   };
@@ -548,6 +869,7 @@ function compilerSourceCommit(webRoot) {
 }
 
 function applicationManifest({
+  browserClient,
   checked,
   compilerCommit,
   compilerVersion,
@@ -574,6 +896,7 @@ function applicationManifest({
   return {
     applicationId: checked.application_id,
     artifacts: {
+      browserClient: { path: "wake-client.js", sha256: sha256Digest(browserClient) },
       browserJavaScript: { path: "app.js", sha256: sha256Digest(generatedJavaScript) },
       framPlan: { path: "app.fram.json", sha256: sha256Digest(framPlan) },
     },
@@ -614,6 +937,7 @@ async function main() {
   const { check_program: checkProgram } = await import(new URL("graph.js", distUrl).href);
   const { gen_program_bang: generateProgram } = await import(new URL("codegen.js", distUrl).href);
   const { gen_fram: generateFram } = await import(new URL("emit-fram.js", distUrl).href);
+  const { generateWakeClient } = await import("./emit-client.mjs");
 
   const sourceText = await Bun.file(options.source).text();
   const root = parseProgramAt(sourceText, basename(options.source), "application", compilerVersion);
@@ -638,8 +962,10 @@ async function main() {
   }
 
   const generatedJavaScript = `// wake: checked-application ${fingerprint}\n${generateProgram(checkedWithFingerprint)}`;
+  const browserClient = generateWakeClient(checkedWithFingerprint);
   const framPlan = generateFram(checkedWithFingerprint);
   const manifest = applicationManifest({
+    browserClient,
     checked: checkedWithFingerprint,
     compilerCommit: compilerSourceCommit(webRoot),
     compilerVersion,
@@ -649,6 +975,7 @@ async function main() {
     resolved,
   });
   await Bun.write(join(options.output, "app.js"), generatedJavaScript);
+  await Bun.write(join(options.output, "wake-client.js"), browserClient);
   await Bun.write(join(options.output, "app.fram.json"), framPlan);
   await Bun.write(join(options.output, "app.wake.manifest.json"), canonicalDocument(manifest));
 }

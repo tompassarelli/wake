@@ -60,6 +60,7 @@
 (defrecord GQueryOperand
   [kind: String
    type: String
+   target-entity: String?
    binding: String?
    entity: String?
    field: String?
@@ -96,6 +97,11 @@
    source-units: (Vec IrSourceUnit)
    plugin-closure: (Vec Any)
    semantic-fingerprint: String?
+   providers: (Vec IrProvider)
+   extensions: (Vec IrExtend)
+   fills: (Vec IrFill)
+   mounts: (Vec IrMount)
+   route-templates: (Vec IrRoute)
    ns: String
    backend: IrBackend?
    entities: (Vec GEntity)
@@ -762,7 +768,13 @@
     (if (nil? field)
       (graph-error
         (str label " names unknown field '" (.-name entity) "." name "'"))
-      field)))
+      nil)
+    (if (.-derived field)
+      (graph-error
+        (str label " cannot read derived field '" (.-name entity) "." name
+             "' from FRAM"))
+      nil)
+    field))
 
 (defn query-type-family [type: String] -> String
   (cond
@@ -788,7 +800,7 @@
             (graph-error (str label " names unknown parameter '$" name "'"))
             nil)
           (->GQueryOperand
-            "parameter" (.-type parameter) nil nil nil name nil))
+            "parameter" (.-type parameter) nil nil nil nil name nil))
       (= kind "binding")
         (let [name (or (.-binding raw) "")
               entity (get bindings name)]
@@ -796,7 +808,7 @@
             (graph-error (str label " names unknown binding '" name "'"))
             nil)
           (->GQueryOperand
-            "binding" "Ref" name (.-name entity) nil nil nil))
+            "binding" "Ref" (.-name entity) name (.-name entity) nil nil nil))
       (= kind "field")
         (let [binding (or (.-binding raw) "")
               entity (get bindings binding)]
@@ -805,11 +817,11 @@
             nil)
           (let [field (query-field entity (or (.-field raw) "") label)]
             (->GQueryOperand
-              "field" (.-type field) binding (.-name entity)
+              "field" (.-type field) (.-target-entity field) binding (.-name entity)
               (.-name field) nil nil)))
       (= kind "literal")
         (->GQueryOperand
-          "literal" (or (.-name raw) "") nil nil nil nil (.-value raw))
+          "literal" (or (.-name raw) "") nil nil nil nil nil (.-value raw))
       :else (graph-error (str label " has unknown operand kind '" kind "'")))))
 
 (defn query-state [defstates: Any type: String] -> Any
@@ -833,10 +845,10 @@
                 (str label " names unknown " expected-type " value '" value "'"))
               nil)
             (->GQueryOperand
-              "literal" expected-type nil nil nil nil (strip-colon value)))
+              "literal" expected-type nil nil nil nil nil (strip-colon value)))
           (if (= expected-type "Keyword")
             (->GQueryOperand
-              "literal" "Keyword" nil nil nil nil (strip-colon value))
+              "literal" "Keyword" nil nil nil nil nil (strip-colon value))
             operand))
         operand))))
 
@@ -859,6 +871,14 @@
         (if (= (.-kind right0) "literal")
           (coerce-query-literal right0 (.-type left0) defstates label)
           right0)]
+    (if (and (= (.-type left) "Ref")
+             (= (.-type right) "Ref")
+             (not (= (.-target-entity left) (.-target-entity right))))
+      (graph-error
+        (str label " compares references to different entity targets '"
+             (or (.-target-entity left) "unknown") "' and '"
+             (or (.-target-entity right) "unknown") "'"))
+      nil)
     (if (and (= (.-kind left) "binding") (= (.-kind right) "field"))
       (let [field-entity (get bindings (or (.-binding right) ""))
             field (query-field field-entity (or (.-field right) "") label)]
@@ -990,6 +1010,20 @@
                 nil)
               (assoc result (.-name binding) entity)))
           {} raw-bindings)]
+    (doseq [parameter raw-params]
+      (let [type (.-type parameter)]
+        (if (= type "Ref")
+          (graph-error
+            (str label " parameter '" (.-name parameter)
+                 "' cannot use Ref without a target entity"))
+          nil)
+        (if (not
+              (or (fram-literal-type? type)
+                  (some? (query-state defstates type))))
+          (graph-error
+            (str label " parameter '" (.-name parameter)
+                 "' has unsupported type '" type "'"))
+          nil)))
     (if (= (count raw-bindings) 0)
       (graph-error (str label " requires at least one entity binding"))
       nil)
@@ -1100,6 +1134,127 @@
     (query-name-map queries (fn [query] (.-name query)) "query")
     (mapv (fn [query] (analyze-query query entities defstates)) queries)))
 
+(defn query-named [queries: (Vec GQuery) name: String] -> GQuery?
+  (first (filterv (fn [query] (= (.-name query) name)) queries)))
+
+(defn view-named [views: Any name: String] -> Any
+  (first (filterv (fn [view] (= (.-name view) name)) views)))
+
+(defn component-named [components: Any name: String] -> Any
+  (first (filterv (fn [component] (= (.-name component) name)) components)))
+
+(defn checked-route-templates [prog: Any queries: (Vec GQuery)] -> (Vec IrRoute)
+  (mapv
+    (fn [route]
+      (let [label (str "route template '" (.-path route) "'")
+            view (view-named (or (.-views prog) []) (.-view-name route))
+            parameters (or (.-parameters route) [])
+            query-names (or (.-queries route) [])]
+        (if (nil? view)
+          (graph-error
+            (str label " names unknown view '" (.-view-name route) "'"))
+          nil)
+        (let [resolved-view (or view (first (or (.-views prog) [])))
+              component
+              (component-named
+                (or (.-components prog) []) (.-component resolved-view))
+              resolved-queries
+              (mapv
+                (fn [reference]
+                  (let [query (query-named queries (.-name reference))]
+                    (if (nil? query)
+                      (graph-error
+                        (str label " names unknown query '"
+                             (.-name reference) "'"))
+                      nil)
+                    {:query (or query (first queries))
+                     :reference reference}))
+                query-names)]
+          (if (nil? component)
+            (graph-error
+              (str label " view names unknown component '"
+                   (.-component resolved-view) "'"))
+            nil)
+          (doseq [resolved resolved-queries]
+            (let [query (get resolved :query)
+                  query-params
+                  (mapv (fn [parameter] (.-name parameter)) (.-params query))]
+              (if (not (= query-params parameters))
+                (graph-error
+                  (str label " parameters must exactly match query '"
+                       (.-name query) "' parameters"))
+                nil)))
+          (let [columns
+                (reduce
+                  (fn [result resolved]
+                    (reduce
+                      (fn [names column]
+                        (let [prefix (.-prefix (get resolved :reference))
+                              name
+                              (if (nil? prefix)
+                                (.-name column)
+                                (str prefix "-" (.-name column)))]
+                          (if (.includes names name)
+                            (graph-error
+                              (str label " query projections collide on '" name "'"))
+                            (conj names name))))
+                      result
+                      (.-columns (get resolved :query))))
+                  [] resolved-queries)
+                missing
+                (filterv
+                  (fn [prop] (not (.includes columns prop)))
+                  (.-props (or component (first (or (.-components prog) [])))))]
+            (if (> (count missing) 0)
+              (graph-error
+                (str label " queries do not provide component props: "
+                     (.join missing ", ")))
+              nil)
+            (ir/->IrRoute
+              (.-path route)
+              (.-view-name route)
+              query-names
+              parameters
+              (or (.-input-parameters route) parameters)
+              (.-props (or component (first (or (.-components prog) [])))))))))
+    (or (.-route-templates prog) [])))
+
+(defn check-composition [prog: Any] -> Any
+  (let [providers (or (.-providers prog) [])
+        extensions (or (.-extends prog) [])
+        fills (or (.-fills prog) [])
+        mounts (or (.-mounts prog) [])]
+    (reduce
+      (fn [seen provider]
+        (let [name (.-name provider)]
+          (validate-generated-name "provider" name)
+          (if (.includes seen name)
+            (graph-error (str "duplicate provider '" name "'"))
+            (conj seen name))))
+      [] providers)
+    (reduce
+      (fn [seen extension]
+        (let [port (.-port extension)]
+          (if (.includes seen port)
+            (graph-error (str "extension port '" port "' is supplied twice"))
+            (conj seen port))))
+      [] extensions)
+    (reduce
+      (fn [seen fill]
+        (let [port (.-port fill)]
+          (if (.includes seen port)
+            (graph-error (str "component port '" port "' is filled twice"))
+            (conj seen port))))
+      [] fills)
+    (reduce
+      (fn [seen mount]
+        (let [path (.-path mount)]
+          (if (.includes seen path)
+            (graph-error (str "route path '" path "' is mounted twice"))
+            (conj seen path))))
+      [] mounts)
+    nil))
+
 (defn check-program [prog: Any] -> CheckedApplication
   (let [app-id (application-id prog)
         entities
@@ -1113,17 +1268,24 @@
         validated (validate-backend prog entities)
         validated-create-forms (validate-fram-create-forms prog entities)
         validated-defstates (validate-defstates defstates)
+        validated-composition (check-composition prog)
         fk-edges (resolve-fk-edges entities)
         state-machines
         (resolve-state-machines entities defstates)
         publications (resolve-publications prog entities state-machines)
-        queries (resolve-queries prog entities defstates)]
+        queries (resolve-queries prog entities defstates)
+        route-templates (checked-route-templates prog queries)]
     (->CheckedApplication
       1
       app-id
       (checked-source-units prog)
       (or (.-plugin-closure prog) [])
       (.-semantic-fingerprint prog)
+      (or (.-providers prog) [])
+      (or (.-extends prog) [])
+      (or (.-fills prog) [])
+      (or (.-mounts prog) [])
+      route-templates
       (or (.-ns prog) "wake.app")
       (.-backend prog)
       entities

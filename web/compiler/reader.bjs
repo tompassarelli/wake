@@ -349,6 +349,235 @@
                     (assoc opts "write" (subs policy 1))
                     (conj seen option))))))))))
 
+;; --- Application composition ---
+
+(defn qualified-port [value: Any label: String] -> String
+  (let [name (require-symbol value label)
+        first-dot (.indexOf name ".")]
+    (if (or (<= first-dot 0)
+            (not (= first-dot (.lastIndexOf name ".")))
+            (>= first-dot (- (count name) 1)))
+      (parse-error (str label " must be ALIAS.PORT"))
+      name)))
+
+(defn parse-provider [form: Any span: SourceSpan] -> IrProvider
+  (if (not (= (count form) 4))
+    (parse-error
+      "provider must be declared as (provider NAME :implements ALIAS.PORT)")
+    nil)
+  (let [name (require-symbol (nth form 1 nil) "provider name")]
+    (if (not (kw= (nth form 2 nil) ":implements"))
+      (parse-error (str "provider '" name "' accepts only :implements"))
+      nil)
+    (ir/->IrProvider
+      name
+      (qualified-port
+        (nth form 3 nil) (str "provider '" name "' :implements"))
+      ""
+      ""
+      span)))
+
+(defn parse-extension-field [form: Any port: String] -> IrAttr
+  (if (or (not (vector? form)) (< (count form) 3))
+    (parse-error (str "extend '" port "' children must be field declarations"))
+    nil)
+  (let [name (require-symbol (nth form 0 nil) (str "extend '" port "' field"))
+        separator (nth form 1 nil)
+        type-name
+        (require-symbol
+          (nth form 2 nil) (str "extend '" port "' field '" name "' type"))]
+    (if (not (kw= separator ":"))
+      (parse-error
+        (str "extend field '" name "' must separate name and type with :"))
+      nil)
+    (loop [index: Int 3
+           storage-id: String? nil
+           opts: Any {}
+           seen: (Vec String) []]
+      (if (>= index (count form))
+        (do
+          (if (nil? storage-id)
+            (parse-error
+              (str "extend field '" name "' requires :storage-id"))
+            nil)
+          (if (and (= (get opts "required") true)
+                   (= (get opts "server") true))
+            (parse-error
+              (str "extend field '" name
+                   "' cannot be both caller-required and server-injected"))
+            nil)
+          (ir/->IrAttr name storage-id type-name opts))
+        (let [option
+              (require-keyword
+                (nth form index nil) (str "extend field '" name "' option"))]
+          (if (not
+                (.includes
+                  [":storage-id" ":required" ":server" ":many" ":to"]
+                  option))
+            (parse-error
+              (str "unknown option on extend field '" name "': " option))
+            nil)
+          (if (.includes seen option)
+            (parse-error
+              (str "duplicate option " option " on extend field '" name "'"))
+            nil)
+          (cond
+            (= option ":storage-id")
+              (let [value
+                    (require-string
+                      (require-option-value
+                        form index (str "extend field '" name "' :storage-id"))
+                      (str "extend field '" name "' :storage-id"))]
+                (if (= (count value) 0)
+                  (parse-error
+                    (str "extend field '" name "' :storage-id must be nonempty"))
+                  nil)
+                (recur
+                  (+ index 2) value opts (conj seen option)))
+            (= option ":required")
+              (let [value
+                    (require-option-value
+                      form index (str "extend field '" name "' :required"))]
+                (if (not (or (sym= value "true") (sym= value "false")))
+                  (parse-error
+                    (str "extend field '" name "' :required must be boolean"))
+                  nil)
+                (recur
+                  (+ index 2) storage-id
+                  (assoc opts "required" (sym= value "true"))
+                  (conj seen option)))
+            (= option ":server")
+              (let [value
+                    (require-option-value
+                      form index (str "extend field '" name "' :server"))]
+                (if (not (or (sym= value "true") (sym= value "false")))
+                  (parse-error
+                    (str "extend field '" name "' :server must be boolean"))
+                  nil)
+                (recur
+                  (+ index 2) storage-id
+                  (assoc opts "server" (sym= value "true"))
+                  (conj seen option)))
+            (= option ":many")
+              (recur
+                (+ index 1) storage-id (assoc opts "many" true)
+                (conj seen option))
+            :else
+              (recur
+                (+ index 2)
+                storage-id
+                (assoc
+                  opts
+                  "target-entity"
+                  (require-symbol
+                    (require-option-value
+                      form index (str "extend field '" name "' :to"))
+                    (str "extend field '" name "' :to")))
+                (conj seen option))))))))
+
+(defn parse-extend [form: Any span: SourceSpan] -> IrExtend
+  (if (< (count form) 3)
+    (parse-error "extend requires ALIAS.PORT and at least one field")
+    nil)
+  (let [port (qualified-port (nth form 1 nil) "extend target")]
+    (ir/->IrExtend
+      port
+      (mapv
+        (fn [field] (parse-extension-field field port))
+        (subvec form 2))
+      span)))
+
+(defn parse-fill [form: Any span: SourceSpan] -> IrFill
+  (if (not (= (count form) 4))
+    (parse-error "fill must be declared as (fill ALIAS.PORT :with COMPONENT)")
+    nil)
+  (let [port (qualified-port (nth form 1 nil) "fill target")]
+    (if (not (kw= (nth form 2 nil) ":with"))
+      (parse-error (str "fill '" port "' accepts only :with"))
+      nil)
+    (ir/->IrFill
+      port
+      (require-symbol (nth form 3 nil) (str "fill '" port "' :with"))
+      span)))
+
+(defn route-parameter-name? [name: String] -> Bool
+  (and (> (count name) 0)
+       (let [first-code (.charCodeAt name 0)]
+         (and (>= first-code 97) (<= first-code 122)))
+       (loop [index: Int 1]
+         (if (>= index (count name))
+           true
+           (let [code (.charCodeAt name index)]
+             (if (or (and (>= code 97) (<= code 122))
+                     (and (>= code 48) (<= code 57))
+                     (= code 45))
+               (recur (+ index 1))
+               false))))))
+
+(defn route-literal-segment? [segment: String] -> Bool
+  (and (> (count segment) 0)
+       (loop [index: Int 0]
+         (if (>= index (count segment))
+           true
+           (let [code (.charCodeAt segment index)]
+             (if (or (and (>= code 65) (<= code 90))
+                     (and (>= code 97) (<= code 122))
+                     (and (>= code 48) (<= code 57))
+                     (.includes [45 46 95 126] code))
+               (recur (+ index 1))
+               false))))))
+
+(defn route-parameters [path: String port: String] -> (Vec String)
+  (if (or (= (count path) 0)
+          (not (= (.charAt path 0) "/"))
+          (and (> (count path) 1) (= (.charAt path (- (count path) 1)) "/"))
+          (.includes path "//")
+          (.includes path "?")
+          (.includes path "#")
+          (.includes path "%")
+          (.includes path "\\"))
+    (parse-error
+      (str "mount '" port "' :path must be a canonical absolute route path"))
+    nil)
+  (let [segments (if (= path "/") [] (rest (.split path "/")))]
+    (loop [remaining: Any segments
+           parameters: (Vec String) []]
+      (if (= (count remaining) 0)
+        parameters
+        (let [segment (first remaining)]
+          (if (= (.charAt segment 0) ":")
+            (let [parameter (subs segment 1)]
+              (if (not (route-parameter-name? parameter))
+                (parse-error
+                  (str "mount '" port "' has invalid route parameter '"
+                       parameter "'"))
+                nil)
+              (if (.includes parameters parameter)
+                (parse-error
+                  (str "mount '" port "' repeats route parameter '"
+                       parameter "'"))
+                nil)
+              (recur (rest remaining) (conj parameters parameter)))
+            (do
+              (if (not (route-literal-segment? segment))
+                (parse-error
+                  (str "mount '" port "' has invalid literal route segment '"
+                       segment "'"))
+                nil)
+              (recur (rest remaining) parameters))))))))
+
+(defn parse-mount [form: Any span: SourceSpan] -> IrMount
+  (if (not (= (count form) 4))
+    (parse-error "mount must be declared as (mount ALIAS.ROUTE :path \"/path\")")
+    nil)
+  (let [port (qualified-port (nth form 1 nil) "mount target")]
+    (if (not (kw= (nth form 2 nil) ":path"))
+      (parse-error (str "mount '" port "' accepts only :path"))
+      nil)
+    (let [path
+          (require-string (nth form 3 nil) (str "mount '" port "' :path"))]
+      (ir/->IrMount port path (route-parameters path port) span))))
+
 ;; --- Entity parsing ---
 
 (defn parse-entity [form: Any] -> Any
@@ -657,7 +886,18 @@
     :else (parse-error "query equality operands must be names or scalar literals")))
 
 (defn parse-query-operand [value: Any query-name: String] -> IrQueryOperand
-  (if (sym? value)
+  (if (and (vector? value)
+           (= (count value) 3)
+           (sym= (nth value 0 nil) "field"))
+    (ir/->IrQueryOperand
+      "field"
+      nil
+      (require-query-local-name
+        (nth value 1 nil) (str "query '" query-name "' field binding"))
+      (require-query-local-name
+        (nth value 2 nil) (str "query '" query-name "' field name"))
+      nil)
+    (if (sym? value)
     (let [name (sym-name value)]
       (if (.startsWith name "$")
         (let [parameter (subs name 1)]
@@ -674,7 +914,7 @@
               (ir/->IrQueryOperand "binding" nil name nil nil)
               (parse-error
                 (str "query '" query-name "' has invalid operand '" name "'")))))))
-    (query-literal-operand value)))
+      (query-literal-operand value))))
 
 (defn parse-query-predicate [value: Any query-name: String] -> IrQueryPredicate
   (if (or (not (vector? value))
@@ -702,7 +942,7 @@
     (if (not (= (.-kind operand) "field"))
       (parse-error
         (str "query '" query-name "' projection '" output
-             "' must select a bound field"))
+             "' must select a bound field with BINDING.FIELD or (field BINDING FIELD)"))
       nil)
     (ir/->IrQuerySelect output (or (.-binding operand) "") (or (.-field operand) ""))))
 
@@ -1256,6 +1496,76 @@
 
 ;; --- Router parsing ---
 
+(defn parse-route-query [value: Any path: String] -> IrRouteQuery
+  (if (sym? value)
+    (ir/->IrRouteQuery (sym-name value) nil)
+    (if (vec? value)
+      (let [items (vec-items value)]
+        (if (not (= (count items) 3))
+          (parse-error
+            (str "route '" path "' query binding must be [QUERY :as PREFIX]"))
+          nil)
+        (if (not (kw= (nth items 1 nil) ":as"))
+          (parse-error
+            (str "route '" path "' query binding accepts only :as"))
+          nil)
+        (ir/->IrRouteQuery
+          (require-symbol (nth items 0 nil) (str "route '" path "' query"))
+          (require-symbol (nth items 2 nil) (str "route '" path "' query prefix"))))
+      (parse-error
+        (str "route '" path "' :queries accepts QUERY or [QUERY :as PREFIX]")))))
+
+(defn parse-route-entry [items: Any] -> IrRoute
+  (if (< (count items) 2)
+    (parse-error
+      "route entries must begin with [ROUTE VIEW]")
+    nil)
+  (let [path (require-symbol (nth items 0 nil) "route name")
+        view (require-symbol (nth items 1 nil) "route view")]
+    (loop [i: Int 2
+           queries: (Vec IrRouteQuery) []
+           parameters: (Vec String) []
+           seen: (Vec String) []]
+      (if (>= i (count items))
+        (ir/->IrRoute path view queries parameters parameters [])
+        (let [option-value (nth items i nil)]
+          (if (not (kw? option-value))
+            (parse-error
+              (str "route '" path "' expects :queries or :params at position " i))
+            nil)
+          (let [option (kw-name option-value)
+                value (nth items (+ i 1) nil)]
+            (if (.includes seen option)
+              (parse-error (str "route '" path "' repeats " option))
+              nil)
+            (if (>= (+ i 1) (count items))
+              (parse-error (str "route '" path "' " option " requires a value"))
+              nil)
+            (cond
+              (= option ":queries")
+                (let [names
+                      (mapv
+                        (fn [query] (parse-route-query query path))
+                        (require-vector value (str "route '" path "' :queries")))]
+                  (duplicate-name-error
+                    (str "route '" path "' query")
+                    (mapv (fn [query] (.-name query)) names))
+                  (duplicate-name-error
+                    (str "route '" path "' query prefix")
+                    (filterv
+                      some?
+                      (mapv (fn [query] (.-prefix query)) names)))
+                  (recur (+ i 2) names parameters (conj seen option)))
+              (= option ":params")
+                (let [names
+                      (symbol-vector value (str "route '" path "' :params"))]
+                  (duplicate-name-error
+                    (str "route '" path "' parameter") names)
+                  (recur (+ i 2) queries names (conj seen option)))
+              :else
+                (parse-error
+                  (str "route '" path "' has unknown option " option)))))))))
+
 (defn parse-routes [form: Any] -> Any
   (loop [i: Int 1
          dflt: String? nil
@@ -1277,14 +1587,10 @@
             true))
         (if (vec? (nth form i))
           (let [items (vec-items (nth form i))]
-            (if (not (= (count items) 2))
-              (parse-error "route entries must be [PATH VIEW]")
-              nil)
-            (let [path (require-symbol (nth items 0 nil) "route path")
-                  view (require-symbol (nth items 1 nil) "route view")]
+            (let [route (parse-route-entry items)]
               (recur
                 (+ i 1) dflt
-                (conj routes (ir/->IrRoute path view))
+                (conj routes route)
                 default-seen)))
           (parse-error
             (str "unknown routes form at position " i)))))))
@@ -1393,6 +1699,18 @@
           (= form-name "use")
             (let [value (parse-use form span)]
               (->ParseResult "use" (.-alias value) value provenance))
+          (= form-name "provider")
+            (let [value (parse-provider form span)]
+              (->ParseResult "provider" (.-name value) value provenance))
+          (= form-name "extend")
+            (let [value (parse-extend form span)]
+              (->ParseResult "extend" (.-port value) value provenance))
+          (= form-name "fill")
+            (let [value (parse-fill form span)]
+              (->ParseResult "fill" (.-port value) value provenance))
+          (= form-name "mount")
+            (let [value (parse-mount form span)]
+              (->ParseResult "mount" (.-port value) value provenance))
           (= form-name "entity")
             (let [value (parse-entity form)]
               (->ParseResult "entity" (.-name value) value provenance))
@@ -1501,6 +1819,10 @@
           ns-count  (count (filterv (fn [p] (= (.-type p) "ns")) parsed))
           applications (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "application")) parsed))
           uses      (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "use")) parsed))
+          providers (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "provider")) parsed))
+          extends   (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "extend")) parsed))
+          fills     (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "fill")) parsed))
+          mounts    (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "mount")) parsed))
           backends  (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "backend")) parsed))
           entities  (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "entity")) parsed))
           persists  (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "persist")) parsed))
@@ -1529,7 +1851,8 @@
       (validate-program
         ns-name ns-count applications uses backends persists entities defstates)
       (ir/->IrProgram
-        source-unit application uses declaration-provenance
+        source-unit application uses providers extends fills mounts
+        declaration-provenance
         (or ns-name "wake.app")
         backend entities persist defstates publications queries lds smart-forms theme components views
         router layout))))

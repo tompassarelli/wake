@@ -128,11 +128,15 @@
       (= kind "binding")
         {:kind "binding" :binding (.-binding operand) :entity (.-entity operand)}
       (= kind "field")
-        {:kind "field"
-         :binding (.-binding operand)
-         :entity (.-entity operand)
-         :field (.-field operand)
-         :type (.-type operand)}
+        (let [plan
+              {:kind "field"
+               :binding (.-binding operand)
+               :entity (.-entity operand)
+               :field (.-field operand)
+               :type (.-type operand)}]
+          (if (= (.-type operand) "Ref")
+            (assoc plan :targetEntity (.-target-entity operand))
+            plan))
       :else
         {:kind "literal" :type (.-type operand) :value (.-value operand)})))
 
@@ -160,6 +164,9 @@
      :defaultLimit (.-default-limit query)
      :maxLimit (.-max-limit query)}
     {:kind (.-result-kind query)}))
+
+(defn route-query-plan [query: Any] -> Any
+  {:name (.-name query) :prefix (.-prefix query)})
 
 (defn query-plan [query: Any] -> Any
   {:name (.-name query)
@@ -189,6 +196,23 @@
      :backend "fram"
      :semanticFingerprint (.-semantic-fingerprint checked)
      :pluginClosure (or (.-plugin-closure checked) [])
+     :composition
+     {:providers (or (.-providers checked) [])
+      :extensions (or (.-extensions checked) [])
+      :fills (or (.-fills checked) [])
+      :mounts (or (.-mounts checked) [])}
+     :routes
+     (if (nil? (.-router checked))
+       []
+       (mapv
+         (fn [route: Any] -> Any
+           {:path (.-path route)
+            :parameters (or (.-parameters route) [])
+            :inputParameters (or (.-input-parameters route) [])
+            :queries (mapv route-query-plan (or (.-queries route) []))
+            :requiredProps (or (.-required-props route) [])
+            :view (.-view-name route)})
+         (.-routes (.-router checked))))
      :entities (mapv
                  (fn [entity: Any] -> Any
                    (entity-plan application-id entity))

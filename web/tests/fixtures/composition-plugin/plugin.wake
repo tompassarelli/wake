@@ -1,0 +1,29 @@
+(ns wake.fixtures.composition-plugin)
+
+(entity release
+  (id : String :identity)
+  (state : String))
+
+(query release-by-id
+  :params [(release-id : String)]
+  :from [(item : release)]
+  :where [(= item.id $release-id)]
+  :select [(id item.id)
+           (state item.state)]
+  :result :optional)
+
+(component release-card
+  :props [current-id current-state]
+  (div :class "release-card"
+    (h2 :text current-id)
+    (p :text current-state)))
+
+(view release-detail
+  :entity release
+  :each release-card
+  :title "Release")
+
+(routes :default release-detail
+  [release-detail release-detail
+    :queries [[release-by-id :as current]]
+    :params [release-id]])

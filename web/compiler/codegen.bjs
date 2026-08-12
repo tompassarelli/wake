@@ -3161,11 +3161,78 @@ async function wakeFramStart() {
       "    main.appendChild(viewEl);\n"
       view-close)))
 
+(defn query-route? [route: Any] -> Bool
+  (or (some? (.-parameters route))
+      (some? (.-required-props route))
+      (> (count (or (.-queries route) [])) 0)))
+
+(defn route-query-definition
+  [route: Any
+   queries: Any
+   views: Any] -> String
+  (let [view
+        (first
+          (filterv (fn [candidate] (= (.-name candidate) (.-view-name route))) views))
+        query-definitions
+        (.join
+          (mapv
+            (fn [query-reference]
+              (let [query
+                    (first
+                      (filterv
+                        (fn [candidate]
+                          (= (.-name candidate) (.-name query-reference)))
+                        queries))]
+                (str "{ name: " (q (.-name query-reference))
+                     ", prefix: "
+                     (if (nil? (.-prefix query-reference))
+                       "null"
+                       (q (.-prefix query-reference)))
+                     ", kind: " (q (.-result-kind query))
+                     ", defaultLimit: "
+                     (if (nil? (.-default-limit query)) "null" (str (.-default-limit query)))
+                     ", maxLimit: "
+                     (if (nil? (.-max-limit query)) "null" (str (.-max-limit query)))
+                     ", columns: ["
+                     (.join
+                       (mapv (fn [column] (q (.-name column))) (.-columns query))
+                       ", ")
+                     "]"
+                     " }")))
+            (.-queries route))
+          ", ")
+        strings
+        (fn [items]
+          (str "[" (.join (mapv q (or items [])) ", ") "]"))]
+    (str "{ path: " (q (.-path route))
+         ", view: " (q (.-view-name route))
+         ", component: " (id->ref (.-component view)) "_create"
+         ", parameters: " (strings (.-parameters route))
+         ", inputParameters: " (strings (.-input-parameters route))
+         ", requiredProps: " (strings (.-required-props route))
+         ", queries: [" query-definitions "] }")))
+
+(defn gen-query-route-section [route: Any] -> String
+  (str
+    "  (function() {\n"
+    "    const viewEl = document.createElement('section');\n"
+    "    viewEl.className = 'view-card wake-query-route';\n"
+    "    viewEl.setAttribute('aria-live', 'polite');\n"
+    "    viewEl.tabIndex = -1;\n"
+    "    viewContainers[" (q (.-view-name route)) "] = viewEl;\n"
+    "    main.appendChild(viewEl);\n"
+    "  })();"))
+
 (defn gen-routed-program [g: Any] -> String
   (let [components (or (.-components g) [])
         views (or (.-views g) [])
         router (.-router g)
         routes (.-routes router)
+        query-routes (filterv query-route? routes)
+        query-route-views (mapv (fn [route] (.-view-name route)) query-routes)
+        static-views
+        (filterv
+          (fn [view] (not (.includes query-route-views (.-name view)))) views)
         default-route (.-default-route router)
         is-fram (fram-graph? g)
         persist (.-persist g)
@@ -3187,7 +3254,7 @@ async function wakeFramStart() {
                 acc
                 (let [ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities g)))]
                   (conj acc ge)))))
-          [] views)
+          [] static-views)
         unique-entities (publication-entities g view-entities)
         all-stores (mapv (fn [e] (store-ref (.-store-name e))) unique-entities)
 
@@ -3227,7 +3294,18 @@ async function wakeFramStart() {
               (gen-view-section
                 v components ge store-name (.-entities g) views
                 (.-publications g) is-fram)))
-            views) "\n")
+            static-views) "\n")
+
+        query-route-sections
+        (.join (mapv gen-query-route-section query-routes) "\n")
+
+        query-route-definitions
+        (.join
+          (mapv
+            (fn [route]
+              (route-query-definition route (or (.-queries g) []) views))
+            query-routes)
+          ",\n  ")
 
         undo-watchers
         (if is-fram ""
@@ -3256,12 +3334,12 @@ async function wakeFramStart() {
 
         navigate-fn #r#"
   let currentView = '';
-  function navigate(name) {
+  function navigate(name, updateHash = true) {
     for (const [n, el] of Object.entries(viewContainers)) {
       el.style.display = n !== name ? 'none' : '';
     }
     currentView = name;
-    location.hash = '#' + name;
+    if (updateHash) location.hash = '#' + name;
     for (const [n, btn] of Object.entries(navButtons)) {
       btn.classList.toggle('active', n === name);
     }
@@ -3373,18 +3451,160 @@ async function wakeFramStart() {
   main.className = 'sidebar-main';
   const viewContainers = Object.create(null);
 "#
-      "\n" view-sections "\n\n"
+      "\n" view-sections "\n" query-route-sections "\n\n"
       #r#"
   app.appendChild(main);
   root.appendChild(app);
 "#
       "\n" navigate-fn "\n"
-      "  const hash = location.hash.slice(1) || " (q default-route) ";\n"
+      "  const wakeQueryRoutes = [\n  " query-route-definitions "\n  ];\n"
       #r#"
-  navigate(hash);
-  window.addEventListener('hashchange', () => {
-    const h = location.hash.slice(1);
-    if (h && viewContainers[h]) navigate(h);
+  let wakeRouteGeneration = 0;
+  function wakeRouteErrorKind(error) {
+    const status = error && typeof error.message === 'string'
+      ? /^Wake gateway ([0-9]{3}):/.exec(error.message)
+      : null;
+    if (status && (status[1] === '401' || status[1] === '403')) return 'denied';
+    return 'network';
+  }
+  function wakeRouteStatus(container, kind) {
+    container.replaceChildren();
+    const status = document.createElement('p');
+    status.className = 'wake-route-state wake-route-state--' + kind;
+    status.setAttribute('role', kind === 'loading' ? 'status' : 'alert');
+    status.textContent = kind === 'loading'
+      ? 'Loading…'
+      : kind === 'empty'
+        ? 'Nothing to show.'
+        : kind === 'denied'
+          ? 'You do not have access to this page.'
+          : 'This page could not be loaded.';
+    container.appendChild(status);
+  }
+  function wakeDecodePathSegment(segment) {
+    try { return decodeURIComponent(segment); } catch { return null; }
+  }
+  function wakeMatchRoute(pathname) {
+    for (const route of wakeQueryRoutes) {
+      const expected = route.path === '/' ? [] : route.path.slice(1).split('/');
+      const actual = pathname === '/' ? [] : pathname.slice(1).split('/');
+      if (expected.length !== actual.length) continue;
+      const parameters = Object.create(null);
+      let matched = true;
+      let parameterIndex = 0;
+      for (let index = 0; index < expected.length; index += 1) {
+        if (expected[index].startsWith(':')) {
+          const value = wakeDecodePathSegment(actual[index]);
+          if (value == null || value === '' || value.includes('/')) { matched = false; break; }
+          parameters[route.inputParameters[parameterIndex]] = value;
+          parameterIndex += 1;
+        } else if (expected[index] !== actual[index]) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) return { route, parameters };
+    }
+    return null;
+  }
+  async function wakeRenderMatchedRoute(match) {
+    const generation = ++wakeRouteGeneration;
+    const { route, parameters } = match;
+    const container = viewContainers[route.view];
+    navigate(route.view, false);
+    wakeRouteStatus(container, 'loading');
+    try {
+      const results = [];
+      let servedVersion = null;
+      for (let index = 0; index < route.queries.length; index += 1) {
+        const descriptor = route.queries[index];
+        const options = Object.create(null);
+        if (descriptor.kind === 'page') options.limit = descriptor.defaultLimit;
+        if (servedVersion !== null) options.asOf = servedVersion;
+        const result = await wakeFramPost('/api/wake/query', {
+          op: 'execute',
+          query: descriptor.name,
+          input: parameters,
+          ...(Object.keys(options).length > 0 ? { options } : {}),
+        });
+        if (generation !== wakeRouteGeneration) return;
+        if (servedVersion === null) servedVersion = result.servedVersion;
+        else if (String(result.servedVersion) !== String(servedVersion)) {
+          throw new Error('Wake route queries were served at different snapshots');
+        }
+        results.push(result);
+      }
+      if (generation !== wakeRouteGeneration) return;
+      const primary = results[0] || null;
+      const rows = primary == null
+        ? [{}]
+        : Array.isArray(primary.rows)
+          ? primary.rows
+          : primary.row == null
+            ? []
+            : [primary.row];
+      container.replaceChildren();
+      if (rows.length === 0) { wakeRouteStatus(container, 'empty'); return; }
+      for (const row of rows) {
+        const props = Object.create(null);
+        function wakeMergeRouteRow(source, prefix) {
+          for (const [name, value] of Object.entries(source)) {
+            const target = prefix == null ? name : prefix + '-' + name;
+            if (Object.prototype.hasOwnProperty.call(props, target)) {
+              throw new Error(`Wake route result repeats component prop ${target}`);
+            }
+            props[target] = value;
+          }
+        }
+        wakeMergeRouteRow(row, route.queries[0] ? route.queries[0].prefix : null);
+        for (let index = 1; index < results.length; index += 1) {
+          const result = results[index];
+          if (result && result.row) wakeMergeRouteRow(result.row, route.queries[index].prefix);
+          else if (result && Array.isArray(result.rows)) {
+            for (const auxiliary of result.rows) {
+              wakeMergeRouteRow(auxiliary, route.queries[index].prefix);
+            }
+          } else {
+            for (const name of route.queries[index].columns) {
+              const target = route.queries[index].prefix == null
+                ? name
+                : route.queries[index].prefix + '-' + name;
+              if (Object.prototype.hasOwnProperty.call(props, target)) {
+                throw new Error(`Wake route result repeats component prop ${target}`);
+              }
+              props[target] = null;
+            }
+          }
+        }
+        for (const prop of route.requiredProps) {
+          if (!Object.prototype.hasOwnProperty.call(props, prop)) {
+            throw new Error(`Wake route result omitted component prop ${prop}`);
+          }
+        }
+        const instance = route.component(props, null);
+        container.appendChild(instance.el);
+      }
+      container.focus({ preventScroll: true });
+    } catch (error) {
+      if (generation !== wakeRouteGeneration) return;
+      console.error('Wake route load failed:', error);
+      wakeRouteStatus(container, wakeRouteErrorKind(error));
+    }
+  }
+  function wakeRenderLocation() {
+    const match = wakeMatchRoute(location.pathname);
+    if (match) { void wakeRenderMatchedRoute(match); return true; }
+    return false;
+  }
+  function wakeNavigatePath(path) {
+    history.pushState(null, '', path);
+    if (!wakeRenderLocation()) throw new Error(`Wake generated no route for ${path}`);
+  }
+"#
+      "  if (!wakeRenderLocation()) navigate(" (q default-route) ", false);\n"
+      #r#"
+  window.addEventListener('popstate', () => {
+    if (!wakeRenderLocation()) navigate("" || Object.keys(viewContainers)[0], false);
   });
 "#
       (if is-fram "" #r#"
