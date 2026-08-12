@@ -1,13 +1,14 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { programFromCheckedAst } from "../compiler/checked-beagle.mjs";
 import { canonicalJson, sha256Digest } from "../compiler/canonical.mjs";
 
 const webRoot = `${import.meta.dir}/..`;
+const wakeCompile = join(webRoot, "bin", "wake-compile");
 const core = join(webRoot, "wake", "core.bjs");
 const fixture = join(webRoot, "tests", "fixtures", "query-api", "results.bjs");
 const derivedStringFixture = join(
@@ -481,6 +482,30 @@ test("checked decoder rejects forged list-detail helpers and provenance", () => 
     mutate(ast);
     reseal(ast);
     expect(() => decodeFixture(ast), label).toThrow(message);
+  }
+}, 30_000);
+
+test("checked derived detail fields produce bundleable browser JavaScript", async () => {
+  const output = mkdtempSync(join(tmpdir(), "wake-query-api-bundle-"));
+  try {
+    const compiled = Bun.spawnSync(
+      [wakeCompile, "--all", fixture, output],
+      {
+        cwd: webRoot,
+        env: { ...process.env, BEAGLE_ROOT: beagleRoot },
+        stderr: "pipe",
+        stdout: "pipe",
+      },
+    );
+    expect(compiled.exitCode, compiled.stderr.toString()).toBe(0);
+    const browser = await Bun.build({
+      entrypoints: [join(output, "app.js")],
+      outdir: join(output, "bundle"),
+      target: "browser",
+    });
+    expect(browser.success, browser.logs.join("\n")).toBeTrue();
+  } finally {
+    rmSync(output, { force: true, recursive: true });
   }
 }, 30_000);
 

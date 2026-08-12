@@ -102,7 +102,14 @@
         detail-tabs (or (.-detail-tabs ld) [])
         overview-tab (first (filterv (fn [t] (= (.-content-type t) "fields")) detail-tabs))
         related-tabs (filterv (fn [t] (= (.-content-type t) "related")) detail-tabs)
-        overview-fields (if (nil? overview-tab) columns (.-fields overview-tab))
+        requested-overview-fields
+        (if (nil? overview-tab) columns (.-fields overview-tab))
+        derived (.-derived-fields ge)
+        derived-names (mapv (fn [field] (.-name field)) derived)
+        overview-fields
+        (filterv
+          (fn [field] (not (.includes derived-names field)))
+          requested-overview-fields)
         title (or (.-title ld) en)
 
         related (mapv (fn [rt]
@@ -114,8 +121,6 @@
                          (.toLowerCase (.-label rt)) (.-label rt)
                          (or rel-display []))))
           related-tabs)
-
-        derived (.-derived-fields ge)
 
         form-fields (if (nil? sf) [] (or (.-fields sf) []))
         form-required (if (nil? sf) [] (or (.-required sf) []))
