@@ -48,6 +48,43 @@ function join(root, relative) {
   return `${root.replace(/\/+$/u, "")}/${relative}`;
 }
 
+function sourceIdentity(path) {
+  const repository = Bun.spawnSync(["git", "-C", dirname(path), "rev-parse", "--show-toplevel"], {
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  if (repository.exitCode !== 0) return path;
+  const root = repository.stdout.toString().trim().replace(/\/+$/u, "");
+  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+}
+
+function projectCheckedBeagle(source, sourceText, compilerVersion) {
+  const beagleRoot = process.env.BEAGLE_ROOT ?? `${process.env.HOME}/code/beagle/main`;
+  const beagle = process.env.BEAGLE ?? join(beagleRoot, "bin/beagle");
+  const projected = Bun.spawnSync([beagle, "ast", source], {
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  if (projected.exitCode !== 0) {
+    const diagnostic = projected.stderr.toString().trim();
+    fail(`Beagle checked projection failed${diagnostic.length === 0 ? "" : `: ${diagnostic}`}`);
+  }
+  let ast;
+  try {
+    ast = JSON.parse(projected.stdout.toString());
+  } catch (error) {
+    throw new TypeError("wake-compile: Beagle produced invalid checked-program JSON", {
+      cause: error,
+    });
+  }
+  return programFromCheckedAst(ast, {
+    compilerVersion,
+    expectedSourceId: sourceIdentity(source),
+    sourcePath: source,
+    sourceText,
+  });
+}
+
 function nonempty(value, label) {
   if (typeof value !== "string" || value.length === 0) {
     fail(`${label} must be a nonempty string`);
@@ -60,8 +97,8 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const option = argv[index];
     const value = argv[index + 1];
-    if (!["--ast", "--dist", "--mode", "--source", "--source-id", "--output"].includes(option) || value === undefined) {
-      fail("driver requires --dist, --mode, --source, and --output");
+    if (!["--dist", "--mode", "--source", "--output"].includes(option) || value === undefined) {
+      fail(`driver rejects unsupported option ${option ?? "<missing>"}`);
     }
     if (values.has(option)) fail(`driver repeats ${option}`);
     values.set(option, value);
@@ -73,20 +110,11 @@ function parseArguments(argv) {
   if (!["all", "fram", "js"].includes(mode)) fail(`unknown driver mode ${mode}`);
   const source = nonempty(values.get("--source"), "source path");
   if (!source.startsWith("/")) fail("source path must be absolute");
-  const ast = values.has("--ast") ? nonempty(values.get("--ast"), "checked AST path") : null;
-  const sourceId = values.has("--source-id")
-    ? nonempty(values.get("--source-id"), "checked source identity")
-    : null;
-  if ((ast === null) !== (sourceId === null)) {
-    fail("--ast and --source-id must be supplied together");
-  }
   return {
     dist: nonempty(values.get("--dist"), "compiler distribution"),
-    ast,
     mode,
     output: nonempty(values.get("--output"), "output path"),
     source,
-    sourceId,
   };
 }
 
@@ -1704,21 +1732,13 @@ async function main() {
   const { generateWakeClient } = await import("./emit-client.mjs");
   const sourceText = await Bun.file(options.source).text();
 
-  const root = options.ast === null
-    ? parseProgramAt(
+  const root = /^#lang[ \t]+beagle\/js[ \t]*$/u.test(sourceText.split("\n", 1)[0])
+    ? projectCheckedBeagle(options.source, sourceText, compilerVersion)
+    : parseProgramAt(
         sourceText,
         basename(options.source),
         "application",
         compilerVersion,
-      )
-    : programFromCheckedAst(
-        JSON.parse(await Bun.file(options.ast).text()),
-        {
-          compilerVersion,
-          expectedSourceId: options.sourceId,
-          sourcePath: options.source,
-          sourceText,
-        },
       );
   const { linked, resolved } = await linkProgram(
     root,

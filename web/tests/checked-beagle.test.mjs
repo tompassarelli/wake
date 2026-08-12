@@ -23,6 +23,15 @@ const projectionResult = Bun.spawnSync(
 if (projectionResult.exitCode !== 0) throw new Error(projectionResult.stderr.toString());
 const checkedAst = JSON.parse(projectionResult.stdout.toString());
 
+function compileDriver(arguments_, env = process.env) {
+  return Bun.spawnSync(["bun", "--no-install", `${webRoot}/compiler/compile-driver.mjs`, ...arguments_], {
+    cwd: webRoot,
+    env,
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+}
+
 function form(ast, name) {
   const value = ast.forms.find((candidate) => candidate.name === name);
   if (value === undefined) throw new Error(`missing test form ${name}`);
@@ -167,7 +176,7 @@ test("checked Beagle input reaches Wake graph and codegen unchanged", () => {
   } finally {
     rmSync(temporary, { force: true, recursive: true });
   }
-}, 30_000);
+}, 60_000);
 
 test("projects exact source spans, names, tokens, and Beagle types", () => {
   const program = project();
@@ -219,6 +228,18 @@ test("rejects an AST payload changed after Beagle projection", () => {
   expect(() => project(ast)).toThrow(
     "projection digest does not match its canonical checked-program payload",
   );
+});
+
+test("compile driver exposes no caller-supplied checked AST route", () => {
+  const result = compileDriver([
+    "--ast", "/tmp/forged.json",
+    "--dist", "/tmp/unreachable",
+    "--mode", "fram",
+    "--source", checkedSourcePath,
+    "--output", "-",
+  ]);
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr.toString()).toContain("driver rejects unsupported option --ast");
 });
 
 test("projects each closed query result helper", () => {
