@@ -1,0 +1,73 @@
+#lang beagle/js
+(ns wake.config-reference)
+
+;; Plugin configuration references are eliminated before declaration parsing.
+;; Every later compiler phase therefore sees only ordinary source values.
+
+(defn config-error [message: String] -> Any
+  (throw (ex-info (str "wake: " message) {})))
+
+(defn sym? [value: Any] -> Bool
+  (and (some? value) (= (.-_tag value) "Sym")))
+
+(defn vec? [value: Any] -> Bool
+  (and (some? value) (= (.-_tag value) "SexprVec")))
+
+(defn config-form? [value: Any] -> Bool
+  (and (vector? value)
+       (> (count value) 0)
+       (sym? (nth value 0 nil))
+       (= (.-name (nth value 0 nil)) "config")))
+
+(defn valid-path? [path: String] -> Bool
+  (and (> (count path) 0)
+       (not (.startsWith path "."))
+       (not (.endsWith path "."))
+       (not (.includes path ".."))))
+
+(declare-extern resolve-value [Any Any -> Any])
+
+(defn resolve-reference [form: Any references: Any] -> Any
+  (if (not (= (count form) 2))
+    (config-error "configuration reference must be (config PATH)")
+    nil)
+  (let [path-value (nth form 1 nil)]
+    (if (not (sym? path-value))
+      (config-error "configuration reference PATH must be a dotted symbol")
+      nil)
+    (let [path (.-name path-value)]
+      (if (not (valid-path? path))
+        (config-error "configuration reference PATH must be a dotted symbol")
+        nil)
+      (if (nil? references)
+        (config-error
+          (str "configuration reference '" path
+               "' is available only in a configured plugin source"))
+        nil)
+      (if (not (.has references path))
+        (config-error (str "unknown configuration reference '" path "'"))
+        nil)
+      (.get references path))))
+
+(defn resolve-value [value: Any references: Any] -> Any
+  (cond
+    (vector? value)
+      (if (config-form? value)
+        (resolve-reference value references)
+        (mapv (fn [item] (resolve-value item references)) value))
+    (vec? value)
+      {"_tag" "SexprVec"
+       "items"
+       (mapv
+         (fn [item] (resolve-value item references))
+         (.-items value))
+       "span" (.-span value)}
+    :else value))
+
+(defn resolve-source-forms [forms: Any references: Any] -> Any
+  (mapv
+    (fn [source-form]
+      {"_tag" "SourceForm"
+       "value" (resolve-value (.-value source-form) references)
+       "span" (.-span source-form)})
+    forms))
