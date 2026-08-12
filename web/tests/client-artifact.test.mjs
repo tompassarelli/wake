@@ -3,6 +3,46 @@ import { generateWakeClient } from "../compiler/emit-client.mjs";
 
 const fingerprint = `sha256:${"a".repeat(64)}`;
 
+const field = (name, value) => ({ name, required: true, value });
+const ref = name => ({ kind: "ref", name });
+const safeDocumentDescriptor = Object.freeze({
+  definitions: [{
+    name: "Document",
+    value: { fields: [
+      field("tag", { kind: "literal", value: "document" }),
+      field("blocks", { items: ref("Block"), kind: "list", maxItems: 8 }),
+    ], kind: "record" },
+  }, {
+    name: "Block",
+    value: { kind: "tagged", tag: "tag", variants: [
+      { tag: "paragraph", fields: [field("inlines", {
+        items: ref("Inline"), kind: "list", maxItems: 8,
+      })] },
+      { tag: "thematicBreak", fields: [] },
+    ] },
+  }, {
+    name: "Inline",
+    value: { kind: "tagged", tag: "tag", variants: [
+      { tag: "text", fields: [field("text", { kind: "string" })] },
+      { tag: "link", fields: [
+        field("href", ref("SafeUrl")),
+        field("inlines", { items: ref("Inline"), kind: "list", maxItems: 8 }),
+      ] },
+    ] },
+  }, {
+    name: "SafeUrl",
+    value: { kind: "tagged", tag: "kind", variants: [
+      { tag: "external", fields: [field("href", { kind: "string", minLength: 1 })] },
+      { tag: "internal", fields: [field("reference", { kind: "string", minLength: 1 })] },
+    ] },
+  }],
+  kind: "bounded",
+  maxBytes: 256,
+  maxDepth: 8,
+  maxNodes: 32,
+  value: ref("Document"),
+});
+
 const identity = Object.freeze({
   name: "id",
   type: "String",
@@ -76,6 +116,7 @@ const checked = Object.freeze({
     result_kind: "optional",
   }],
   semantic_fingerprint: fingerprint,
+  value_types: [{ descriptor: safeDocumentDescriptor, name: "SafeDocument" }],
 });
 
 function ownRecord(entries) {
@@ -84,6 +125,46 @@ function ownRecord(entries) {
     Object.defineProperty(result, name, { enumerable: true, value });
   }
   return result;
+}
+
+class FakeNode {
+  constructor(kind, name = null) {
+    this.attributes = Object.create(null);
+    this.children = [];
+    this.className = "";
+    this.kind = kind;
+    this.name = name;
+    this.textContent = "";
+  }
+
+  appendChild(child) {
+    this.children.push(child);
+    return child;
+  }
+
+  setAttribute(name, value) {
+    this.attributes[name] = String(value);
+  }
+}
+
+class FakeDocument {
+  constructor() {
+    this.baseURI = "https://wiki.test/base";
+  }
+
+  createDocumentFragment() {
+    return new FakeNode("fragment");
+  }
+
+  createElement(name) {
+    return new FakeNode("element", name);
+  }
+
+  createTextNode(value) {
+    const node = new FakeNode("text");
+    node.textContent = value;
+    return node;
+  }
 }
 
 async function generatedClient(value = checked) {
@@ -107,7 +188,7 @@ describe("generated browser client artifact", () => {
     expect(built.success, built.logs.join("\n")).toBe(true);
     expect(source).not.toContain("fetch(");
     expect(source).not.toContain("/api/");
-    expect(source).not.toContain("document.");
+    expect(source).not.toContain("globalThis.document.");
     expect(source).not.toContain("location.");
     expect(source).not.toContain("setTimeout");
     expect(source).not.toContain("setInterval");
@@ -260,6 +341,38 @@ describe("generated browser client artifact", () => {
       body: "\ud800",
       meta: { tags: [] },
     })).toThrow("unpaired surrogate");
+  });
+
+  test("exports a closed SafeDocument codec and exhaustive DOM-only renderer", async () => {
+    const { client, source } = await generatedClient();
+    expect(Object.isFrozen(client.safeDocumentDescriptor)).toBe(true);
+    const value = {
+      tag: "document",
+      blocks: [{
+        tag: "paragraph",
+        inlines: [{ tag: "text", text: "safe" }, {
+          tag: "link",
+          href: { kind: "internal", reference: "entry:one" },
+          inlines: [{ tag: "text", text: "inside" }],
+        }],
+      }, { tag: "thematicBreak" }],
+    };
+    const normalized = client.normalizeSafeDocument(value);
+    expect(Object.getPrototypeOf(normalized)).toBe(null);
+    expect(Object.isFrozen(normalized.blocks)).toBe(true);
+    const fragment = client.renderSafeDocument(value, {
+      document: new FakeDocument(),
+      resolveSafeUrl(url) {
+        expect(url).toEqual({ kind: "internal", reference: "entry:one" });
+        return { kind: "canonical", href: "/entry/one" };
+      },
+    });
+    expect(fragment.children.map(node => node.name)).toEqual(["p", "hr"]);
+    expect(fragment.children[0].children[0].children[1].attributes.href).toBe("/entry/one");
+    expect(() => client.normalizeSafeDocument({ ...value, html: "<b>bad</b>" }))
+      .toThrow("unsupported property html");
+    expect(source).not.toContain("innerHTML");
+    expect(source).not.toContain("DOMParser");
   });
 
   test("fails generation for unknown query types and unresolved references", () => {
