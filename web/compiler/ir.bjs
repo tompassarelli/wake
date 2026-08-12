@@ -51,6 +51,11 @@
    storage-id: String?
    type: String
    opts: Any])
+(defrecord IrDerivedExpr
+  [kind: String
+   field: String?
+   value: String?
+   parts: (Vec IrDerivedExpr)])
 (defrecord IrExtend
   [port: String
    fields: (Vec IrAttr)
@@ -92,7 +97,10 @@
    binding: String
    field: String])
 (defrecord IrQueryFieldSplice [port: String binding: String])
-(defrecord IrQueryProvided [name: String provider: String input: Any])
+(defrecord IrQueryProvided
+  [name: String
+   provider: String
+   input: Any])
 (defrecord IrQueryPage [default-limit: Int max-limit: Int])
 (defrecord IrQuery
   [name: String
@@ -106,7 +114,11 @@
 (defrecord IrDetailTab
   [label: String
    content-type: String
-   content-spec: Any])
+   fields: (Vec String)
+   entity-name: String?
+   relation-field: String?
+   infer-relation: Bool
+   display-fields: (Vec String)])
 (defrecord IrListDetail
   [entity-name: String
    title: String

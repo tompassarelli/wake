@@ -418,11 +418,11 @@ rejected("rejects unsafe page bounds with the legacy diagnostic", (ast) => {
 
 rejected("rejects bare local Ref as a Wake IR sentinel collision", (ast) => {
   form(ast, "Page").fields[1].ann = { kind: "prim", name: "Ref" };
-}, "uses reserved Wake IR type 'Ref' without wake/Ref");
+}, "uses reserved Wake IR type 'Ref'");
 
 rejected("rejects bare local Derived as a Wake IR sentinel collision", (ast) => {
   form(ast, "Page").fields[1].ann = { kind: "prim", name: "Derived" };
-}, "uses reserved Wake IR type 'Derived' without wake/Derived");
+}, "uses reserved Wake IR type 'Derived'");
 
 rejected("rejects invalid query parameter identifiers", (ast) => {
   const paramsRecordName = form(ast, "published-revisions").value.args[1];

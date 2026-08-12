@@ -4,6 +4,9 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { programFromCheckedAst } from "../compiler/checked-beagle.mjs";
+import { canonicalJson, sha256Digest } from "../compiler/canonical.mjs";
+
 const webRoot = `${import.meta.dir}/..`;
 const core = join(webRoot, "wake", "core.bjs");
 const fixture = join(webRoot, "tests", "fixtures", "query-api", "results.bjs");
@@ -55,6 +58,21 @@ function failedBeagle(args) {
 
 function checkedAst(path) {
   return JSON.parse(runBeagle(["ast", path]));
+}
+
+function reseal(ast) {
+  const projection = { ...ast };
+  delete projection.projectionSha256;
+  ast.projectionSha256 = sha256Digest(canonicalJson(projection));
+}
+
+function decodeFixture(ast) {
+  return programFromCheckedAst(ast, {
+    compilerVersion: "0.1.0",
+    expectedSourceId: ast.sourceId,
+    sourcePath: fixture,
+    sourceText: readFileSync(fixture, "utf8"),
+  });
 }
 
 function exportedForm(ast, name) {
@@ -353,8 +371,117 @@ test("consumer projection keeps exact derived, query, and list-detail values", (
 
   expect(firstProjection).not.toContain('"node":"raw"');
   expect(createHash("sha256").update(firstProjection).digest("hex")).toBe(
-    "63280e131cdaa317676806c21a2cef79beb4e12424e28ee61354af55fd7eeba0",
+    "dca39fff45478bb056a27066829894472c2ad69138fdd0f664910fe05de492da",
   );
+}, 30_000);
+
+test("checked decoder lowers derived fields and list details to closed IR", () => {
+  const ast = checkedAst(fixture);
+  const program = decodeFixture(ast);
+  expect(program.entities[0].attrs.at(-1)).toMatchObject({
+    name: "label",
+    type: "Derived",
+    opts: {
+      deps: ["title"],
+      expr: {
+        _tag: "IrDerivedExpr",
+        kind: "concat",
+        parts: [{ kind: "field", field: "title" }],
+      },
+    },
+  });
+  expect(program.list_details).toEqual([{
+    _tag: "IrListDetail",
+    entity_name: "release",
+    title: "Releases",
+    columns: ["id", "title"],
+    search_cols: ["title"],
+    detail_tabs: [
+      {
+        _tag: "IrDetailTab",
+        label: "Overview",
+        content_type: "fields",
+        fields: ["id", "title", "label"],
+        entity_name: null,
+        relation_field: null,
+        infer_relation: false,
+        display_fields: [],
+      },
+      {
+        _tag: "IrDetailTab",
+        label: "Notes",
+        content_type: "related",
+        fields: [],
+        entity_name: "release-note",
+        relation_field: "release",
+        infer_relation: false,
+        display_fields: ["id", "summary"],
+      },
+    ],
+  }]);
+}, 30_000);
+
+test("checked decoder rejects invalid derived declarations", () => {
+  const cases = [
+    ["unknown target", (ast) => {
+      definition(ast, "release").value.args[5].items[0].args[0].value = "ghost";
+    }, "derived field names unknown field 'ghost'"],
+    ["identity target", (ast) => {
+      definition(ast, "release").value.args[5].items[0].args[0].value = "id";
+    }, "derived field 'release.id' cannot be the entity identity"],
+    ["non-String target", (ast) => {
+      definition(ast, "release").value.args[5].items[0].args[0].value = "aliases";
+    }, "derived field 'release.aliases' must target a concrete String field"],
+    ["writable target", (ast) => {
+      const release = definition(ast, "release").value;
+      const pair = structuredClone(release.args[3].pairs[0]);
+      pair.key.value = "label";
+      release.args[3].pairs.push(pair);
+    }, "derived field 'release.label' cannot declare a write policy"],
+    ["missing dependency", (ast) => {
+      definition(ast, "release").value.args[5].items[0]
+        .args[1].args[0].items[0].args[0].value = "ghost";
+    }, "references unknown field 'ghost'"],
+    ["derived dependency", (ast) => {
+      definition(ast, "release").value.args[5].items[0]
+        .args[1].args[0].items[0].args[0].value = "label";
+    }, "cannot reference derived field 'label'"],
+    ["duplicate spec", (ast) => {
+      const specs = definition(ast, "release").value.args[5].items;
+      specs.push(structuredClone(specs[0]));
+    }, "derived field repeats 'label'"],
+    ["empty concatenation", (ast) => {
+      definition(ast, "release").value.args[5].items[0]
+        .args[1].args[0].items = [];
+    }, "must concatenate at least one part"],
+  ];
+  for (const [label, mutate, message] of cases) {
+    const ast = checkedAst(fixture);
+    mutate(ast);
+    reseal(ast);
+    expect(() => decodeFixture(ast), label).toThrow(message);
+  }
+}, 30_000);
+
+test("checked decoder rejects forged list-detail helpers and provenance", () => {
+  const cases = [
+    ["local helper", (ast) => {
+      definition(ast, "release-list").value.args[4].items[0].fn.name = "detail-tab";
+    }, "must use a checked wake/* binding"],
+    ["wrong descriptor constructor", (ast) => {
+      definition(ast, "release-list").value.fn.name = "wake/->ApplicationSpec";
+    }, "does not match checked extern 'wake/->ApplicationSpec'"],
+    ["wrong macro provenance", (ast) => {
+      definition(ast, "release-list").value.args[4].items[0]
+        .provenance.macroExpansion.chain[0].name = "wake/defentity";
+    }, "must come directly from wake/list-detail"],
+  ];
+  for (const [label, mutate, message] of cases) {
+    const ast = checkedAst(fixture);
+    mutate(ast);
+    reseal(ast);
+    expect(() => decodeFixture(ast), label).toThrow(message);
+  }
 }, 30_000);
 
 test("derived expressions preserve ordered string concatenation", () => {

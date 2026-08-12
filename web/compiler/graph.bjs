@@ -20,7 +20,7 @@
    write-policy: String
    derived: Bool
    deps: (Vec String)
-   expr: Any])
+   expr: IrDerivedExpr?])
 
 (defrecord GEntity
   [name: String
@@ -100,6 +100,21 @@
    max-limit: Int?
    dependencies: (Vec GQueryDependency)])
 
+(defrecord GDetailTab
+  [label: String
+   content-type: String
+   fields: (Vec String)
+   entity-name: String?
+   relation-field: String?
+   display-fields: (Vec String)])
+
+(defrecord GListDetail
+  [entity-name: String
+   title: String
+   columns: (Vec String)
+   search-cols: (Vec String)
+   detail-tabs: (Vec GDetailTab)])
+
 (defrecord CheckedApplication
   [schema-version: Int
    application-id: String
@@ -123,7 +138,7 @@
    commands: (Vec Any)
    persist: IrPersist?
    defstates: (Vec IrDefstate)
-   list-details: (Vec IrListDetail)
+   list-details: (Vec GListDetail)
    forms: (Vec IrSmartForm)
    theme: IrTheme?
    components: (Vec IrComponent)
@@ -586,6 +601,142 @@
 
 (defn field-named [entity: GEntity name: String] -> GField?
   (first (filterv (fn [field] (= (.-name field) name)) (.-fields entity))))
+
+(defn validate-distinct-names [names: (Vec String) label: String] -> Any
+  (reduce
+    (fn [seen name]
+      (if (.includes seen name)
+        (graph-error (str label " repeats '" name "'"))
+        (conj seen name)))
+    []
+    names)
+  nil)
+
+(defn required-list-field
+  [entity: GEntity
+   name: String
+   label: String] -> GField
+  (let [field (field-named entity name)]
+    (if (nil? field)
+      (graph-error
+        (str label " names unknown field '" (.-name entity) "." name "'"))
+      nil)
+    (or field (first (.-fields entity)))))
+
+(defn resolve-list-detail-tab
+  [entities: (Vec GEntity)
+   owner: GEntity
+   tab: IrDetailTab
+   label: String] -> GDetailTab
+  (let [content-type (.-content-type tab)]
+    (if (= content-type "fields")
+      (let [fields (or (.-fields tab) [])]
+        (validate-distinct-names fields (str label " field"))
+        (doseq [field fields]
+          (required-list-field owner field label))
+        (->GDetailTab (.-label tab) "fields" fields nil nil []))
+      (if (= content-type "related")
+        (let [entity-name (or (.-entity-name tab) "")
+              related (entity-named entities entity-name)]
+          (if (nil? related)
+            (graph-error (str label " names unknown related entity '" entity-name "'"))
+            nil)
+          (let [child (or related owner)
+                candidates
+                (filterv
+                  (fn [field]
+                    (and (= (.-type field) "Ref")
+                         (= (.-cardinality field) "single")
+                         (= (.-target-entity field) (.-name owner))))
+                  (.-fields child))
+                requested (.-relation-field tab)
+                relation
+                (if (= true (.-infer-relation tab))
+                  (do
+                    (if (not (= (count candidates) 1))
+                      (graph-error
+                        (str label " cannot infer one relation from '" entity-name
+                             "' to '" (.-name owner) "'"))
+                      nil)
+                    (first candidates))
+                  (let [field (field-named child (or requested ""))]
+                    (if (or (nil? field)
+                            (not (= (.-type field) "Ref"))
+                            (not (= (.-cardinality field) "single"))
+                            (not (= (.-target-entity field) (.-name owner))))
+                      (graph-error
+                        (str label " relation must name a single Ref field on '"
+                             entity-name "' targeting '" (.-name owner) "'"))
+                      nil)
+                    field))
+                display (or (.-display-fields tab) [])]
+            (validate-distinct-names display (str label " display field"))
+            (doseq [field display]
+              (required-list-field child field label))
+            (->GDetailTab
+              (.-label tab) "related" [] entity-name
+              (.-name (or relation (first (.-fields child)))) display)))
+        (graph-error (str label " has unknown content type '" content-type "'"))))))
+
+(defn resolve-list-details
+  [prog: IrProgram
+   entities: (Vec GEntity)] -> (Vec GListDetail)
+  (let [details (or (.-list-details prog) [])]
+    (validate-distinct-names
+      (mapv (fn [detail] (.-entity-name detail)) details)
+      "list detail entity")
+    (mapv
+      (fn [detail]
+        (let [entity-name (.-entity-name detail)
+              owner (entity-named entities entity-name)
+              label (str "list detail '" entity-name "'")]
+          (if (nil? owner)
+            (graph-error (str label " names unknown entity '" entity-name "'"))
+            nil)
+          (let [entity (or owner (first entities))
+                columns (or (.-columns detail) [])
+                search (or (.-search-cols detail) [])
+                tabs (or (.-detail-tabs detail) [])]
+            (if (not (nonempty-string? (.-title detail)))
+              (graph-error (str label " title must be nonempty"))
+              nil)
+            (validate-distinct-names columns (str label " column"))
+            (doseq [name columns]
+              (let [field (required-list-field entity name label)]
+                (if (.-derived field)
+                  (graph-error (str label " column cannot name derived field '"
+                                    entity-name "." name "'"))
+                  nil)))
+            (validate-distinct-names search (str label " search field"))
+            (doseq [name search]
+              (let [field (required-list-field entity name label)]
+                (if (or (.-derived field)
+                        (not (= (.-cardinality field) "single"))
+                        (not (= (.-value-kind field) "literal")))
+                  (graph-error
+                    (str label " search field '" entity-name "." name
+                         "' must be a single stored literal"))
+                  nil)))
+            (validate-distinct-names
+              (mapv (fn [tab] (.-label tab)) tabs)
+              (str label " tab label"))
+            (if (> (count (filterv
+                            (fn [tab] (= (.-content-type tab) "fields"))
+                            tabs)) 1)
+              (graph-error (str label " may declare at most one fields tab"))
+              nil)
+            (->GListDetail
+              entity-name
+              (.-title detail)
+              columns
+              search
+              (mapv
+                (fn [tab]
+                  (resolve-list-detail-tab
+                    entities entity tab
+                    (str label " tab '" (.-label tab) "'")))
+                tabs)))))
+      details)))
 
 (defn validate-create-fields
   [label: String
@@ -1651,6 +1802,7 @@
         (resolve-state-machines entities defstates)
         publications (resolve-publications prog entities state-machines)
         queries (resolve-queries prog entities defstates)
+        list-details (resolve-list-details prog entities)
         route-templates (checked-route-templates prog queries)
         router (checked-router prog queries)]
     (->CheckedApplication
@@ -1676,7 +1828,7 @@
       (or (.-commands prog) [])
       (.-persist prog)
       defstates
-      (or (.-list-details prog) [])
+      list-details
       (or (.-forms prog) [])
       (.-theme prog)
       (or (.-components prog) [])

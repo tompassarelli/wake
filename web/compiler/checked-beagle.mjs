@@ -428,7 +428,6 @@ function wakeFieldType(
   alias,
   entityByRecord,
   label,
-  { allowDerived = false, allowDiagnosticMarkers = false } = {},
 ) {
   let cardinality = "single";
   let valueType = type;
@@ -449,31 +448,14 @@ function wakeFieldType(
     return { cardinality, targetEntity, type: "Ref" };
   }
 
-  if (valueType?.kind === "app" && valueType.name === `${alias}/Derived`) {
-    if (!allowDerived || cardinality !== "single" || valueType.args.length !== 1) {
-      fail(`${label} has unsupported wake/Derived placement`);
-    }
-    const [memberType] = valueType.args;
-    if (memberType?.kind !== "prim" || memberType.name.includes("/")) {
-      fail(`${label} wake/Derived must wrap one local scalar type`);
-    }
-    return { cardinality, targetEntity: null, type: "Derived" };
-  }
-
   if (valueType?.kind !== "prim") {
     fail(`${label} has unsupported Beagle type shape '${valueType?.kind ?? "missing"}'`);
-  }
-  if (allowDiagnosticMarkers && valueType.name === `${alias}/UntargetedRef`) {
-    return { cardinality, targetEntity: null, type: "Ref" };
-  }
-  if (allowDiagnosticMarkers && valueType.name === `${alias}/Opaque`) {
-    return { cardinality, targetEntity: null, type: "Opaque" };
   }
   if (valueType.name.includes("/")) {
     fail(`${label} has unsupported imported type '${valueType.name}'`);
   }
   if (valueType.name === "Ref" || valueType.name === "Derived") {
-    fail(`${label} uses reserved Wake IR type '${valueType.name}' without wake/${valueType.name}`);
+    fail(`${label} uses reserved Wake IR type '${valueType.name}'`);
   }
   return { cardinality, targetEntity: null, type: valueType.name };
 }
@@ -863,6 +845,135 @@ function queryResult(node, alias, label) {
   fail(`${label} uses unsupported Wake query result '${name}'`);
 }
 
+function derivedExpression(node, alias, label) {
+  const name = wakeName(callName(node, label), alias, label);
+  if (name === "derived-ref") {
+    const args = callArguments(node, alias, name, "DerivedExpr", label);
+    if (args.length !== 1) fail(`${label} wake/${name} has wrong arity`);
+    const field = keywordLiteral(args[0], `${label} field`);
+    if (field.length === 0) fail(`${label} field name must be nonempty`);
+    return {
+      expr: {
+        _tag: "IrDerivedExpr",
+        kind: "field",
+        field,
+        value: null,
+        parts: [],
+      },
+      deps: [field],
+    };
+  }
+  if (name === "derived-string") {
+    const args = callArguments(node, alias, name, "DerivedExpr", label);
+    if (args.length !== 1) fail(`${label} wake/${name} has wrong arity`);
+    return {
+      expr: {
+        _tag: "IrDerivedExpr",
+        kind: "string",
+        field: null,
+        value: stringLiteral(args[0], `${label} value`),
+        parts: [],
+      },
+      deps: [],
+    };
+  }
+  if (name === "concat-derived") {
+    const args = callArguments(node, alias, name, "DerivedExpr", label);
+    if (args.length !== 1) fail(`${label} wake/${name} has wrong arity`);
+    const values = vectorItems(args[0], `${label} parts`);
+    if (values.length === 0) fail(`${label} must concatenate at least one part`);
+    const decoded = values.map((part, index) =>
+      derivedExpression(part, alias, `${label} part ${index + 1}`));
+    const deps = [];
+    for (const part of decoded) {
+      for (const dependency of part.deps) {
+        if (!deps.includes(dependency)) deps.push(dependency);
+      }
+    }
+    return {
+      expr: {
+        _tag: "IrDerivedExpr",
+        kind: "concat",
+        field: null,
+        value: null,
+        parts: decoded.map((part) => part.expr),
+      },
+      deps,
+    };
+  }
+  fail(`${label} uses unsupported Wake derived expression '${name}'`);
+}
+
+function derivedField(node, alias, label) {
+  const args = callArguments(node, alias, "derived-field", "DerivedFieldSpec", label);
+  if (args.length !== 2) fail(`${label} wake/derived-field has wrong arity`);
+  const decoded = derivedExpression(args[1], alias, `${label} expression`);
+  return {
+    name: keywordLiteral(args[0], `${label} name`),
+    ...decoded,
+  };
+}
+
+function detailRelation(node, alias, label) {
+  const name = wakeName(callName(node, label), alias, label);
+  if (name === "infer-related") {
+    const args = callArguments(node, alias, name, "RelatedRelation", label);
+    if (args.length !== 0) fail(`${label} wake/${name} has wrong arity`);
+    return { infer: true, field: null };
+  }
+  if (name === "related-by") {
+    const args = callArguments(node, alias, name, "RelatedRelation", label);
+    if (args.length !== 1) fail(`${label} wake/${name} has wrong arity`);
+    return {
+      infer: false,
+      field: keywordLiteral(args[0], `${label} field`),
+    };
+  }
+  fail(`${label} uses unsupported Wake related relation '${name}'`);
+}
+
+function detailContent(node, alias, label) {
+  const name = wakeName(callName(node, label), alias, label);
+  if (name === "detail-fields") {
+    const args = callArguments(node, alias, name, "DetailContent", label);
+    if (args.length !== 1) fail(`${label} wake/${name} has wrong arity`);
+    return {
+      content_type: "fields",
+      fields: vectorItems(args[0], `${label} fields`).map((field) =>
+        keywordLiteral(field, `${label} field`)),
+      entity_name: null,
+      relation_field: null,
+      infer_relation: false,
+      display_fields: [],
+    };
+  }
+  if (name === "detail-related") {
+    const args = callArguments(node, alias, name, "DetailContent", label);
+    if (args.length !== 3) fail(`${label} wake/${name} has wrong arity`);
+    const relation = detailRelation(args[1], alias, `${label} relation`);
+    return {
+      content_type: "related",
+      fields: [],
+      entity_name: keywordLiteral(args[0], `${label} entity`),
+      relation_field: relation.field,
+      infer_relation: relation.infer,
+      display_fields: vectorItems(args[2], `${label} display fields`).map((field) =>
+        keywordLiteral(field, `${label} display field`)),
+    };
+  }
+  fail(`${label} uses unsupported Wake detail content '${name}'`);
+}
+
+function detailTab(node, alias, label) {
+  const args = callArguments(node, alias, "detail-tab", "DetailTab", label);
+  if (args.length !== 2) fail(`${label} wake/detail-tab has wrong arity`);
+  return {
+    _tag: "IrDetailTab",
+    label: stringLiteral(args[0], `${label} label`),
+    ...detailContent(args[1], alias, `${label} content`),
+  };
+}
+
 function uiAttribute(node, alias, label) {
   const name = wakeName(callName(node, label), alias, label);
   if (name === "static-attr") {
@@ -1056,7 +1167,7 @@ export function programFromCheckedAst(
       "EntitySpec",
       `entity '${form.name}'`,
     );
-    if (args.length !== 5) fail(`entity '${form.name}' has an invalid checked descriptor`);
+    if (args.length !== 6) fail(`entity '${form.name}' has an invalid checked descriptor`);
     return {
       form,
       binding: form.name,
@@ -1069,6 +1180,14 @@ export function programFromCheckedAst(
       identity: keywordLiteral(args[2], `entity '${form.name}' identity`),
       writes: keywordMap(args[3], `entity '${form.name}' writes`),
       storageId: literal(args[4], "nil", `entity '${form.name}' storage ID`),
+      derivedFields: vectorItems(
+        args[5],
+        `entity '${form.name}' derived fields`,
+      ).map((field, index) => derivedField(
+        field,
+        wakeAlias,
+        `entity '${form.name}' derived field ${index + 1}`,
+      )),
     };
   });
   const entityNames = new Set();
@@ -1089,6 +1208,11 @@ export function programFromCheckedAst(
       `entity '${spec.name}' record '${spec.recordName}'`,
     );
     const fieldNames = new Set(record.fields.map((field) => field.name));
+    repeatedName(
+      spec.derivedFields.map((field) => field.name),
+      `entity '${spec.name}' derived field`,
+    );
+    const derivedNames = new Set(spec.derivedFields.map((field) => field.name));
     if (!fieldNames.has(spec.identity)) {
       fail(`entity '${spec.name}' identity names unknown field '${spec.identity}'`);
     }
@@ -1103,27 +1227,57 @@ export function programFromCheckedAst(
         fail(`identity field '${spec.name}.${field}' cannot declare a write policy`);
       }
     }
-    const attrs = record.fields.map((field) => {
-      const decoded = wakeFieldType(
+    const decodedFields = new Map(record.fields.map((field) => [
+      field.name,
+      wakeFieldType(
         field.ann,
         wakeAlias,
         entityByRecord,
         `field '${spec.name}.${field.name}'`,
-        { allowDerived: true },
-      );
-      if (decoded.type === "Derived" && spec.writes[field.name] !== undefined) {
-        fail(`Derived field '${spec.name}.${field.name}' cannot declare a write policy`);
+      ),
+    ]));
+    for (const derived of spec.derivedFields) {
+      if (!fieldNames.has(derived.name)) {
+        fail(`entity '${spec.name}' derived field names unknown field '${derived.name}'`);
       }
+      const target = decodedFields.get(derived.name);
+      if (target.type !== "String" || target.cardinality !== "single"
+          || target.targetEntity !== null) {
+        fail(`derived field '${spec.name}.${derived.name}' must target a concrete String field`);
+      }
+      if (derived.name === spec.identity) {
+        fail(`derived field '${spec.name}.${derived.name}' cannot be the entity identity`);
+      }
+      if (spec.writes[derived.name] !== undefined) {
+        fail(`derived field '${spec.name}.${derived.name}' cannot declare a write policy`);
+      }
+      for (const dependency of derived.deps) {
+        if (!fieldNames.has(dependency)) {
+          fail(`derived field '${spec.name}.${derived.name}' references unknown field '${dependency}'`);
+        }
+        if (derivedNames.has(dependency)) {
+          fail(`derived field '${spec.name}.${derived.name}' cannot reference derived field '${dependency}'`);
+        }
+      }
+    }
+    const derivedByName = new Map(spec.derivedFields.map((field) => [field.name, field]));
+    const attrs = record.fields.map((field) => {
+      const decoded = decodedFields.get(field.name);
+      const derived = derivedByName.get(field.name);
       const opts = {};
       if (field.name === spec.identity) opts.identity = true;
       if (decoded.cardinality === "multi") opts.many = true;
       if (decoded.targetEntity !== null) opts["target-entity"] = decoded.targetEntity;
       if (spec.writes[field.name] !== undefined) opts.write = spec.writes[field.name];
+      if (derived !== undefined) {
+        opts.expr = derived.expr;
+        opts.deps = derived.deps;
+      }
       return {
         _tag: "IrAttr",
         name: field.name,
         storage_id: null,
-        type: decoded.type,
+        type: derived === undefined ? decoded.type : "Derived",
         opts,
       };
     });
@@ -1249,7 +1403,6 @@ export function programFromCheckedAst(
           wakeAlias,
           entityByRecord,
           `query '${form.name}' param '${field.name}'`,
-          { allowDiagnosticMarkers: true },
         ).type,
       };
     });
@@ -1300,6 +1453,60 @@ export function programFromCheckedAst(
     };
   });
   repeatedName(queries.map((query) => query.name), "query declaration");
+
+  const listDetailForms = checkedDeclarations("ListDetailSpec", "list-detail");
+  const listDetails = listDetailForms.map((form) => {
+    const args = callArguments(
+      form.value,
+      wakeAlias,
+      "->ListDetailSpec",
+      "ListDetailSpec",
+      `list detail '${form.name}'`,
+    );
+    if (args.length !== 5) {
+      fail(`list detail '${form.name}' has an invalid checked descriptor`);
+    }
+    const title = stringLiteral(args[1], `list detail '${form.name}' title`);
+    if (title.length === 0) fail(`list detail '${form.name}' title must be nonempty`);
+    const columns = vectorItems(args[2], `list detail '${form.name}' columns`).map(
+      (field) => keywordLiteral(field, `list detail '${form.name}' column`),
+    );
+    const search = vectorItems(args[3], `list detail '${form.name}' search`).map(
+      (field) => keywordLiteral(field, `list detail '${form.name}' search field`),
+    );
+    repeatedName(columns, `list detail '${form.name}' column`);
+    repeatedName(search, `list detail '${form.name}' search field`);
+    const tabs = vectorItems(args[4], `list detail '${form.name}' tabs`).map(
+      (tab, index) => detailTab(
+        tab,
+        wakeAlias,
+        `list detail '${form.name}' tab ${index + 1}`,
+      ),
+    );
+    repeatedName(tabs.map((tab) => tab.label), `list detail '${form.name}' tab label`);
+    for (const tab of tabs) {
+      if (tab.label.length === 0) fail(`list detail '${form.name}' tab label must be nonempty`);
+      if (tab.content_type === "fields") {
+        repeatedName(tab.fields, `list detail '${form.name}' tab '${tab.label}' field`);
+      } else {
+        repeatedName(
+          tab.display_fields,
+          `list detail '${form.name}' tab '${tab.label}' display field`,
+        );
+      }
+    }
+    if (tabs.filter((tab) => tab.content_type === "fields").length > 1) {
+      fail(`list detail '${form.name}' may declare at most one fields tab`);
+    }
+    return {
+      _tag: "IrListDetail",
+      entity_name: keywordLiteral(args[0], `list detail '${form.name}' entity`),
+      title,
+      columns,
+      search_cols: search,
+      detail_tabs: tabs,
+    };
+  });
 
   const componentForms = checkedDeclarations("ComponentSpec", "component");
   const components = componentForms.map((form) => {
@@ -1481,6 +1688,11 @@ export function programFromCheckedAst(
     ...entityForms.map((form, index) => [form, "entity", entities[index].name]),
     ...stateForms.map((form, index) => [form, "defstate", defstates[index].name]),
     ...queryForms.map((form, index) => [form, "query", queries[index].name]),
+    ...listDetailForms.map((form, index) => [
+      form,
+      "list-detail",
+      listDetails[index].entity_name,
+    ]),
     ...componentForms.map((form, index) => [form, "component", components[index].name]),
     ...viewForms.map((form, index) => [form, "view", views[index].name]),
     ...(routerForm.length === 0 ? [] : [[routerForm[0], "routes", "routes"]]),
@@ -1527,7 +1739,7 @@ export function programFromCheckedAst(
     publications: [],
     queries,
     commands: [],
-    list_details: [],
+    list_details: listDetails,
     forms: [],
     theme: null,
     components,

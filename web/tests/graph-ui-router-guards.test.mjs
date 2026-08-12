@@ -45,6 +45,29 @@ function entity(name) {
   };
 }
 
+function attribute(name, type = "String", opts = {}) {
+  return { name, type, opts };
+}
+
+function listDetail(overrides = {}) {
+  return {
+    entity_name: "page",
+    title: "Pages",
+    columns: ["id"],
+    search_cols: ["id"],
+    detail_tabs: [{
+      label: "Overview",
+      content_type: "fields",
+      fields: ["id"],
+      entity_name: null,
+      relation_field: null,
+      infer_relation: false,
+      display_fields: [],
+    }],
+    ...overrides,
+  };
+}
+
 function component(name) {
   return { name, props: ["id"], body: [] };
 }
@@ -364,4 +387,87 @@ test("rejects duplicate and unresolved routes", () => {
     })),
     /routes default 'missing' does not name a routed view/,
   );
+});
+
+test("resolves list-detail fields and explicit related relations", () => {
+  const checked = checkProgram(program({
+    entities: [
+      entity("page"),
+      {
+        name: "note",
+        attrs: [
+          attribute("id", "String", { identity: true }),
+          attribute("page", "Ref", { "target-entity": "page" }),
+          attribute("summary"),
+        ],
+      },
+    ],
+    list_details: [listDetail({
+      detail_tabs: [
+        listDetail().detail_tabs[0],
+        {
+          label: "Notes",
+          content_type: "related",
+          fields: [],
+          entity_name: "note",
+          relation_field: "page",
+          infer_relation: false,
+          display_fields: ["id", "summary"],
+        },
+      ],
+    })],
+  }));
+  assert.deepEqual(checked.list_details[0].detail_tabs[1], {
+    _tag: "GDetailTab",
+    label: "Notes",
+    content_type: "related",
+    fields: [],
+    entity_name: "note",
+    relation_field: "page",
+    display_fields: ["id", "summary"],
+  });
+});
+
+test("rejects invalid list-detail fields, searches, and relations", () => {
+  const derivedExpr = {
+    _tag: "IrDerivedExpr",
+    kind: "field",
+    field: "id",
+    value: null,
+    parts: [],
+  };
+  const pageWithEdges = {
+    name: "page",
+    attrs: [
+      attribute("id", "String", { identity: true }),
+      attribute("tags", "String", { many: true }),
+      attribute("owner", "Ref", { "target-entity": "user" }),
+      attribute("label", "Derived", { deps: ["id"], expr: derivedExpr }),
+    ],
+  };
+  const note = {
+    name: "note",
+    attrs: [
+      attribute("id", "String", { identity: true }),
+      attribute("wrong", "Ref", { "target-entity": "user" }),
+      attribute("page-a", "Ref", { "target-entity": "page" }),
+      attribute("page-b", "Ref", { "target-entity": "page" }),
+    ],
+  };
+  const base = { entities: [pageWithEdges, entity("user"), note] };
+  for (const [detail, expected] of [
+    [listDetail({ columns: ["label"] }), /column cannot name derived field/],
+    [listDetail({ search_cols: ["tags"] }), /must be a single stored literal/],
+    [listDetail({ search_cols: ["owner"] }), /must be a single stored literal/],
+    [listDetail({ detail_tabs: [{
+      label: "Notes", content_type: "related", fields: [], entity_name: "note",
+      relation_field: "wrong", infer_relation: false, display_fields: ["id"],
+    }] }), /relation must name a single Ref field/],
+    [listDetail({ detail_tabs: [{
+      label: "Notes", content_type: "related", fields: [], entity_name: "note",
+      relation_field: null, infer_relation: true, display_fields: ["id"],
+    }] }), /cannot infer one relation/],
+  ]) {
+    assert.throws(() => checkProgram(program({ ...base, list_details: [detail] })), expected);
+  }
 });

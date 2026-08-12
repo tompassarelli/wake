@@ -2,6 +2,9 @@
 (ns wake.fixtures.query-results
   (:require [wake.core :as wake]))
 
+(wake/application application "wake-query-api-fixture")
+(wake/backend backend :fram)
+
 (wake/defentity release Release
   [id: String
    title: String

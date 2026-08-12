@@ -243,25 +243,20 @@
 
 
 (defn compile-derived-expr [expr: Any subst: Any] -> String
-  (if (sym? expr)
-    (let [name (sym-name expr)]
-      (if (and (not (nil? subst)) (not (nil? (get subst name))))
-        (get subst name)
-        (str "(entity[" (q name) "] || '')")))
-    (if (and (vector? expr) (> (count expr) 0)
-             (sym? (nth expr 0)) (= (sym-name (nth expr 0)) "str"))
-      (.join
-        (mapv (fn [p]
-          (if (string? p) (q p)
-            (if (sym? p)
-              (let [name (sym-name p)]
-                (if (and (not (nil? subst)) (not (nil? (get subst name))))
-                  (get subst name)
-                  (str "(entity[" (q name) "] || '')")))
-              (compile-derived-expr p subst))))
-          (subvec expr 1))
-        " + ")
-      (if (string? expr) (q expr) "''"))))
+  (let [kind (.-kind expr)]
+    (cond
+      (= kind "field")
+        (let [name (.-field expr)]
+          (if (and (not (nil? subst)) (not (nil? (get subst name))))
+            (get subst name)
+            (str "(entity[" (q name) "] || '')")))
+      (= kind "string") (q (.-value expr))
+      (= kind "concat")
+        (.join
+          (mapv (fn [part] (compile-derived-expr part subst)) (.-parts expr))
+          " + ")
+      :else
+        (throw (ex-info "wake: invalid checked derived expression" {})))))
 
 ;; --- Inlined value-equality runtime (change-gating) ---
 

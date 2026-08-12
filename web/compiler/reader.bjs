@@ -239,20 +239,43 @@
                 alias version allow (parse-use-config value package-id)
                 (conj seen option))))))))
 
-(defn extract-field-refs [expr: Any] -> Any
-  (if (sym? expr)
-    [(sym-name expr)]
-    (if (vector? expr)
-      (let [items (rest expr)]
-        (reduce
-          (fn [acc x]
-            (if (sym? x)
-              (conj acc (sym-name x))
-              (if (vector? x)
-                (into acc (extract-field-refs x))
-                acc)))
-          [] items))
-      [])))
+(defn parse-derived-expr [expr: Any label: String] -> IrDerivedExpr
+  (cond
+    (sym? expr)
+      (ir/->IrDerivedExpr "field" (sym-name expr) nil [])
+    (string? expr)
+      (ir/->IrDerivedExpr "string" nil expr [])
+    (vector? expr)
+      (let [items expr]
+        (if (or (= (count items) 0)
+                (not (sym= (first items) "str"))
+                (= (count items) 1))
+          (parse-error (str label " must be a field, string, or nonempty (str ...)"))
+          nil)
+        (ir/->IrDerivedExpr
+          "concat" nil nil
+          (mapv
+            (fn [part] (parse-derived-expr part label))
+            (rest items))))
+    :else
+      (do
+        (parse-error (str label " must be a field, string, or nonempty (str ...)"))
+        (ir/->IrDerivedExpr "string" nil "" []))))
+
+(defn derived-field-refs [expr: IrDerivedExpr] -> (Vec String)
+  (cond
+    (= (.-kind expr) "field") [(or (.-field expr) "")]
+    (= (.-kind expr) "concat")
+      (reduce
+        (fn [refs part]
+          (reduce
+            (fn [result name]
+              (if (.includes result name) result (conj result name)))
+            refs
+            (derived-field-refs part)))
+        []
+        (.-parts expr))
+    :else []))
 
 (defn canonical-field-option? [x: Any] -> Bool
   (or (kw= x ":identity")
@@ -284,8 +307,10 @@
             (str "Derived field '" name
                  "' requires exactly one expression"))
           nil)
-        (let [expr (nth form 3)
-              deps (extract-field-refs expr)]
+        (let [expr (parse-derived-expr
+                     (nth form 3)
+                     (str "Derived field '" name "' expression"))
+              deps (derived-field-refs expr)]
           (ir/->IrAttr name nil "Derived" {"expr" expr "deps" deps})))
       (loop [i: Int 3
              storage-id: String? nil
@@ -1182,6 +1207,35 @@
 
 ;; --- Detail tab parsing ---
 
+(defn parse-related-query-field
+  [query: Any
+   entity-name: String
+   label: String] -> String
+  (let [items query]
+    (if (or (not (= (count items) 4))
+            (not (kw= (nth items 0 nil) ":find"))
+            (not (sym? (nth items 1 nil)))
+            (not (kw= (nth items 2 nil) ":where")))
+      (parse-error (str label " :query must be [:find ROW :where [ROW :entity/field OWNER]]"))
+      nil)
+    (let [where-items
+          (require-vector
+            (nth items 3 nil)
+            (str label " :query where clause"))]
+      (if (or (not (= (count where-items) 3))
+              (not (sym? (nth where-items 0 nil)))
+              (not (kw? (nth where-items 1 nil)))
+              (not (sym? (nth where-items 2 nil))))
+        (parse-error (str label " :query must contain one relation clause"))
+        nil)
+      (let [qualified (require-keyword (nth where-items 1 nil) label)
+            prefix (str ":" entity-name "/")]
+        (if (not (.startsWith qualified prefix))
+          (parse-error
+            (str label " :query relation must belong to '" entity-name "'"))
+          nil)
+        (subs qualified (count prefix))))))
+
 (defn parse-detail-tab [form: Any] -> Any
   (if (or (not (vector? form))
           (not (= (count form) 3))
@@ -1202,15 +1256,24 @@
         (ir/->IrDetailTab
           label
           "fields"
-          (symbol-vector (nth body 1 nil) (str "detail tab '" label "' fields"))))
+          (symbol-vector (nth body 1 nil) (str "detail tab '" label "' fields"))
+          nil nil false []))
       (if (sym= (nth body 0 nil) "related")
         (let [rel-entity
               (require-symbol
                 (nth body 1 nil) (str "related detail tab '" label "' entity"))]
           (loop [i: Int 2 query: Any nil display: Any nil seen: (Vec String) []]
             (if (>= i (count body))
-              (ir/->IrDetailTab
-                label "related" [rel-entity query (or display [])])
+              (do
+                (if (nil? query)
+                  (parse-error
+                    (str "related detail tab '" label "' requires :query"))
+                  nil)
+                (ir/->IrDetailTab
+                  label "related" [] rel-entity
+                  (parse-related-query-field
+                    query rel-entity (str "related detail tab '" label "'"))
+                  false (or display [])))
               (let [option
                     (require-keyword
                       (nth body i nil)
