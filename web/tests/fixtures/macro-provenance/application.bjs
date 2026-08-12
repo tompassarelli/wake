@@ -2,26 +2,224 @@
 (ns wake.fixtures.macro-provenance.application
   (:require [wake.core :as wake]))
 
-(def plugin-bindings: wake/PluginBindings
-  (wake/->PluginBindings [] [] [] [] [] [] [] [] [] []))
+(wake/defstate-model
+  publication-state
+  "host/state/publication"
+  [[working :working]
+   [released :released]]
+  working
+  [[working [released]]
+   [released []]])
+
+(wake/defentity-model
+  principal
+  Principal
+  "host/entity/principal"
+  "greywrought/principal"
+  [[id String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "greywrought/principal/id"
+    true]
+   [display-name String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "greywrought/principal/display-name"
+    true]])
+
+(wake/defentity-model
+  article
+  Article
+  "host/entity/article"
+  "greywrought/article"
+  [[id String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "greywrought/article/id"
+    true]
+   [title String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "greywrought/article/title"
+    true]
+   [kind Keyword
+    (wake/->KeywordField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "greywrought/article/kind"
+    true]
+   [status Keyword
+    (wake/->StateField publication-state-ref)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "greywrought/article/status"
+    true]])
+
+(wake/defcomponent-model
+  greywrought-card
+  "host/component/article-card"
+  [(wake/->ComponentPropertySpec
+     :title
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->Element :article {} [])])
+
+(wake/defplugin-use wiki "plugin-use/wiki")
+
+(wake/imported-int-binding
+  wiki-page-limit
+  wiki-ref
+  "config/page-limit"
+  "page-limit"
+  20)
+
+(wake/imported-string-binding
+  wiki-site-title
+  wiki-ref
+  "config/site-title"
+  "site-title"
+  "Greywrought")
+
+(wake/imported-bool-binding
+  wiki-show-history
+  wiki-ref
+  "config/show-history"
+  "show-history"
+  true)
+
+(wake/imported-keyword-binding
+  wiki-draft-label
+  wiki-ref
+  "config/draft-label"
+  "draft-label"
+  :working)
+
+(wake/imported-entity-name-binding
+  wiki-resource-entity
+  wiki-ref
+  "config/resource"
+  "resource-entity"
+  article-ref)
+
+(wake/imported-field-name-binding
+  wiki-title-field
+  wiki-ref
+  "config/title-field"
+  "title-field"
+  article-title-ref)
+
+(wake/imported-state-name-binding
+  wiki-lifecycle
+  wiki-ref
+  "config/lifecycle"
+  "lifecycle"
+  publication-state-ref)
+
+(wake/imported-state-value-name-binding
+  wiki-published-state
+  wiki-ref
+  "config/published-state"
+  "published-state"
+  publication-state-released-ref)
+
+(wake/imported-external-entity-binding
+  wiki-actor-entity
+  wiki-ref
+  "config/actor-entity"
+  "actor-entity"
+  principal-ref)
+
+(wake/imported-value-binding
+  wiki-safe-document-limits
+  wiki-ref
+  "config/safe-document-limits"
+  "safe-document-limits"
+  (wake/->RecordValue
+    [(wake/->ValueRecordEntry
+       :maxBytes
+       (wake/->LiteralIntegerValue 262144))
+     (wake/->ValueRecordEntry
+       :maxDepth
+       (wake/->LiteralIntegerValue 8))
+     (wake/->ValueRecordEntry
+       :maxNodes
+       (wake/->LiteralIntegerValue 2048))]))
+
+(wake/imported-value-binding
+  wiki-content-limits
+  wiki-ref
+  "config/content-limits"
+  "content-limits"
+  (wake/->RecordValue
+    [(wake/->ValueRecordEntry
+       :links
+       (wake/->LiteralIntegerValue 64))]))
+
+(wake/defplugin-bindings
+  plugin-bindings
+  [wiki-page-limit]
+  [wiki-site-title]
+  [wiki-show-history]
+  [wiki-draft-label]
+  [wiki-resource-entity]
+  [wiki-title-field]
+  [wiki-lifecycle]
+  [wiki-published-state]
+  [wiki-actor-entity]
+  [wiki-safe-document-limits wiki-content-limits])
+
+(wake/bind-provider
+  content-provider
+  wiki-ref
+  "provider-port/content-parser"
+  "content-parser"
+  "greywrought-markdown")
+
+(wake/extend-entity-fields
+  article-fields-extension
+  wiki-ref
+  "entity-fields-port/revision-fields"
+  "revision-fields"
+  [(wake/->NamedFieldSupply "kind" article-kind-ref)])
+
+(wake/fill-component-slot
+  article-card-fill
+  wiki-ref
+  "component-slot/article-card"
+  "article-card"
+  greywrought-card-ref)
+
+(wake/mount-route-slot
+  history-mount
+  wiki-ref
+  "route-slot/history"
+  "history"
+  "/articles/:article-id/history")
 
 (wake/use-plugin
   wiki
-  "plugin-use/wiki"
   "dev.greywrought.wiki"
   "0.1.0"
   [(wake/->SchemaContribution nil)
-   (wake/->QueryContribution nil)]
+   (wake/->QueryContribution nil)
+   (wake/->CommandContribution nil)
+   (wake/->CapabilityContribution nil)
+   (wake/->UiContribution nil)
+   (wake/->RouteContribution nil)]
   plugin-bindings
-  []
-  []
-  []
-  [])
+  [content-provider]
+  [article-fields-extension]
+  [article-card-fill]
+  [history-mount])
 
 (wake/application-root
   application
   "greywrought-wiki"
-  (wake/->MemoryAuthority "greywrought-wiki")
-  []
-  []
-  [wiki-composition])
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec article-ref "greywrought/article")]
+  [(wake/->IdentitySpec article-ref article-id-ref)]
+  [wiki-composition]
+  (wake/->MountedDefaultRoute history-mount-ref))

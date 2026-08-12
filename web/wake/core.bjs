@@ -1194,7 +1194,7 @@
           (format-symbol "~a-~a-ref" binding field-name))
         field-spec-name
         (fn [field-name]
-          (format-symbol "~a-~a" binding field-name))
+          (format-symbol "~a-~a-spec" binding field-name))
         record-fields
         (apply vec
           (map
@@ -1291,7 +1291,8 @@
    configuration
    exports
    required-providers
-   migrations]
+   migrations
+   default-route]
   (let [identity-binding (format-symbol "~a-identity" binding)
         provenance-token
         (str "wake:macro:plugin:" package-id "@" version)]
@@ -1312,11 +1313,19 @@
            ~exports
            ~required-providers
            ~migrations
-           nil)))))
+           ~default-route)))))
+
+(defmacro defplugin-use [binding declaration-id]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:plugin-use:" declaration-id)]
+    `(def ~ref-binding: PluginUseRef
+       (->PluginUseRef
+         ~declaration-id
+         ~(str binding)
+         ~provenance-token))))
 
 (defmacro use-plugin
   [binding
-   declaration-id
    package-id
    version
    allow
@@ -1326,14 +1335,8 @@
    fills
    mounts]
   (let [ref-binding (format-symbol "~a-ref" binding)
-        composition-binding (format-symbol "~a-composition" binding)
-        provenance-token (str "wake:macro:plugin-use:" declaration-id)]
+        composition-binding (format-symbol "~a-composition" binding)]
     `(do
-       (def ~ref-binding: PluginUseRef
-         (->PluginUseRef
-           ~declaration-id
-           ~(str binding)
-           ~provenance-token))
        (def ~binding: PluginUseSpec
          (->PluginUseSpec
            ~ref-binding
@@ -1355,7 +1358,8 @@
    authority
    storage
    identities
-   plugins]
+   plugins
+   default-route]
   `(def ~binding: ApplicationRootSpec
      (->ApplicationRootSpec
        ~id
@@ -1363,7 +1367,724 @@
        ~storage
        ~identities
        ~plugins
-       nil)))
+       ~default-route)))
+
+(defmacro defvalue-type
+  [binding
+   declaration-id
+   root-spec
+   definitions
+   envelope]
+  (let [root-ref-binding (format-symbol "~a-ref" binding)
+        root-definition-binding (format-symbol "~a-definition" binding)
+        root-provenance-token
+        (str "wake:macro:value-type:" declaration-id)
+        definition-ref-name
+        (fn [definition-name]
+          (format-symbol "~a-~a-ref" binding definition-name))
+        definition-spec-name
+        (fn [definition-name]
+          (format-symbol "~a-~a-definition" binding definition-name))
+        definition-ref-forms
+        (map
+          (fn [definition]
+            (let [definition-name (first definition)
+                  ref-binding (definition-ref-name definition-name)
+                  nested-declaration-id
+                  (str declaration-id "/definition/" definition-name)
+                  provenance-token
+                  (str "wake:macro:value-type:" nested-declaration-id)]
+              `(def ~ref-binding: ValueTypeRef
+                 (->ValueTypeRef
+                   ~nested-declaration-id
+                   ~(str definition-name)
+                   ~provenance-token))))
+          definitions)
+        definition-spec-forms
+        (map
+          (fn [definition]
+            (let [definition-name (first definition)
+                  definition-spec (second definition)
+                  ref-binding (definition-ref-name definition-name)
+                  spec-binding (definition-spec-name definition-name)]
+              `(def ~spec-binding: ValueTypeDefinition
+                 (->ValueTypeDefinition ~ref-binding ~definition-spec))))
+          definitions)
+        definition-specs
+        (apply vec
+          (cons
+            root-definition-binding
+            (map
+              (fn [definition]
+                (definition-spec-name (first definition)))
+              definitions)))]
+    `(do
+       (def ~root-ref-binding: ValueTypeRef
+         (->ValueTypeRef
+           ~declaration-id
+           ~(str binding)
+           ~root-provenance-token))
+       ~@definition-ref-forms
+       (def ~root-definition-binding: ValueTypeDefinition
+         (->ValueTypeDefinition ~root-ref-binding ~root-spec))
+       ~@definition-spec-forms
+       (def ~binding: ValueTypeDeclarationSpec
+         (->ValueTypeDeclarationSpec
+           ~root-ref-binding
+           ~definition-specs
+           ~envelope)))))
+
+(defmacro defprovider-port
+  [binding
+   declaration-id
+   input-type
+   output-type
+   capability]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:provider-port:" declaration-id)]
+    `(do
+       (def ~ref-binding: ProviderPortRef
+         (->ProviderPortRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: ProviderPortSpec
+         (->ProviderPortSpec
+           ~ref-binding
+           ~input-type
+           ~output-type
+           ~capability)))))
+
+(defmacro defrenderer
+  [binding
+   declaration-id
+   input-type
+   component]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:renderer:" declaration-id)]
+    `(do
+       (def ~ref-binding: RendererRef
+         (->RendererRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: RendererSpec
+         (->RendererSpec ~ref-binding ~input-type ~component)))))
+
+(defmacro defcommand
+  [binding
+   declaration-id
+   capabilities
+   normalizer-version
+   input
+   injections
+   steps
+   result
+   receipt]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:command:" declaration-id)]
+    `(do
+       (def ~ref-binding: CommandRef
+         (->CommandRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: CommandSpec
+         (->CommandSpec
+           ~ref-binding
+           ~capabilities
+           ~normalizer-version
+           ~input
+           ~injections
+           ~steps
+           ~result
+           ~receipt)))))
+
+(defmacro defcomponent-model
+  [binding
+   declaration-id
+   properties
+   body]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:component:" declaration-id)]
+    `(do
+       (def ~ref-binding: ComponentRef
+         (->ComponentRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: ComponentDeclarationSpec
+         (->ComponentDeclarationSpec ~ref-binding ~properties ~body)))))
+
+(defmacro defview-model
+  [binding
+   declaration-id
+   entity
+   component
+   title]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:view:" declaration-id)]
+    `(do
+       (def ~ref-binding: ViewRef
+         (->ViewRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: ViewDeclarationSpec
+         (->ViewDeclarationSpec
+           ~ref-binding
+           ~entity
+           ~component
+           ~title)))))
+
+(defmacro defroute-template
+  [binding
+   declaration-id
+   view
+   queries
+   parameters]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:route-template:" declaration-id)]
+    `(do
+       (def ~ref-binding: RouteTemplateRef
+         (->RouteTemplateRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: RouteTemplateSpec
+         (->RouteTemplateSpec
+           ~ref-binding
+           ~view
+           ~queries
+           ~parameters)))))
+
+(defmacro defentity-fields-port
+  [binding
+   declaration-id
+   target
+   requirements
+   policy]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:entity-fields-port:" declaration-id)]
+    `(do
+       (def ~ref-binding: EntityFieldsPortRef
+         (->EntityFieldsPortRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: EntityFieldsPortSpec
+         (->EntityFieldsPortSpec
+           ~ref-binding
+           ~target
+           ~requirements
+           ~policy)))))
+
+(defmacro defcomponent-slot
+  [binding
+   declaration-id
+   target]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:component-slot:" declaration-id)]
+    `(do
+       (def ~ref-binding: ComponentSlotRef
+         (->ComponentSlotRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: ComponentSlotSpec
+         (->ComponentSlotSpec ~ref-binding ~target)))))
+
+(defmacro defroute-slot
+  [binding
+   declaration-id
+   target]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:route-slot:" declaration-id)]
+    `(do
+       (def ~ref-binding: RouteSlotRef
+         (->RouteSlotRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: RouteSlotSpec
+         (->RouteSlotSpec ~ref-binding ~target)))))
+
+(defmacro defint-role
+  [binding
+   declaration-id
+   minimum
+   maximum]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:int-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: IntRoleRef
+         (->IntRoleRef ~declaration-id ~(str binding) ~provenance-token))
+       (def ~binding: IntRoleSpec
+         (->IntRoleSpec ~ref-binding ~minimum ~maximum)))))
+
+(defmacro defstring-role
+  [binding
+   declaration-id
+   min-scalars
+   max-scalars
+   max-bytes]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:string-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: StringRoleRef
+         (->StringRoleRef ~declaration-id ~(str binding) ~provenance-token))
+       (def ~binding: StringRoleSpec
+         (->StringRoleSpec
+           ~ref-binding
+           ~min-scalars
+           ~max-scalars
+           ~max-bytes)))))
+
+(defmacro defbool-role [binding declaration-id]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:bool-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: BoolRoleRef
+         (->BoolRoleRef ~declaration-id ~(str binding) ~provenance-token))
+       (def ~binding: BoolRoleSpec
+         (->BoolRoleSpec ~ref-binding)))))
+
+(defmacro defkeyword-role
+  [binding
+   declaration-id
+   allowed]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:keyword-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: KeywordRoleRef
+         (->KeywordRoleRef ~declaration-id ~(str binding) ~provenance-token))
+       (def ~binding: KeywordRoleSpec
+         (->KeywordRoleSpec ~ref-binding ~allowed)))))
+
+(defmacro defentity-name-role
+  [binding
+   declaration-id
+   target]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:entity-name-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: EntityNameRoleRef
+         (->EntityNameRoleRef ~declaration-id ~(str binding) ~provenance-token))
+       (def ~binding: EntityNameRoleSpec
+         (->EntityNameRoleSpec ~ref-binding ~target)))))
+
+(defmacro deffield-name-role
+  [binding
+   declaration-id
+   target]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:field-name-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: FieldNameRoleRef
+         (->FieldNameRoleRef ~declaration-id ~(str binding) ~provenance-token))
+       (def ~binding: FieldNameRoleSpec
+         (->FieldNameRoleSpec ~ref-binding ~target)))))
+
+(defmacro defstate-name-role
+  [binding
+   declaration-id
+   target]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:state-name-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: StateNameRoleRef
+         (->StateNameRoleRef ~declaration-id ~(str binding) ~provenance-token))
+       (def ~binding: StateNameRoleSpec
+         (->StateNameRoleSpec ~ref-binding ~target)))))
+
+(defmacro defstate-value-name-role
+  [binding
+   declaration-id
+   target]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:state-value-name-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: StateValueNameRoleRef
+         (->StateValueNameRoleRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: StateValueNameRoleSpec
+         (->StateValueNameRoleSpec ~ref-binding ~target)))))
+
+(defmacro defexternal-entity-role [binding declaration-id]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:external-entity-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: ExternalEntityRoleRef
+         (->ExternalEntityRoleRef
+           ~declaration-id
+           ~(str binding)
+           ~provenance-token))
+       (def ~binding: ExternalEntityRoleSpec
+         (->ExternalEntityRoleSpec ~ref-binding)))))
+
+(defmacro defvalue-role
+  [binding
+   declaration-id
+   value-type]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:value-role:" declaration-id)]
+    `(do
+       (def ~ref-binding: ValueRoleRef
+         (->ValueRoleRef ~declaration-id ~(str binding) ~provenance-token))
+       (def ~binding: ValueRoleSpec
+         (->ValueRoleSpec ~ref-binding ~value-type)))))
+
+(defmacro defplugin-configuration
+  [binding
+   ints
+   strings
+   bools
+   keywords
+   entity-names
+   field-names
+   state-names
+   state-value-names
+   external-entities
+   values]
+  `(def ~binding: PluginConfigurationSchema
+     (->PluginConfigurationSchema
+       ~ints
+       ~strings
+       ~bools
+       ~keywords
+       ~entity-names
+       ~field-names
+       ~state-names
+       ~state-value-names
+       ~external-entities
+       ~values)))
+
+(defmacro defplugin-exports
+  [binding
+   entities
+   fields
+   states
+   state-values
+   value-types
+   provider-ports
+   renderers
+   capabilities
+   queries
+   commands
+   components
+   views
+   route-templates
+   entity-fields-ports
+   component-slots
+   route-slots]
+  `(def ~binding: PluginExports
+     (->PluginExports
+       ~entities
+       ~fields
+       ~states
+       ~state-values
+       ~value-types
+       ~provider-ports
+       ~renderers
+       ~capabilities
+       ~queries
+       ~commands
+       ~components
+       ~views
+       ~route-templates
+       ~entity-fields-ports
+       ~component-slots
+       ~route-slots)))
+
+(defmacro imported-int-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:imported-int:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedIntRoleRef
+         (->ImportedIntRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: IntBinding
+         (->IntBinding ~ref-binding ~value)))))
+
+(defmacro imported-string-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:imported-string:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedStringRoleRef
+         (->ImportedStringRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: StringBinding
+         (->StringBinding ~ref-binding ~value)))))
+
+(defmacro imported-bool-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:imported-bool:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedBoolRoleRef
+         (->ImportedBoolRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: BoolBinding
+         (->BoolBinding ~ref-binding ~value)))))
+
+(defmacro imported-keyword-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:imported-keyword:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedKeywordRoleRef
+         (->ImportedKeywordRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: KeywordBinding
+         (->KeywordBinding ~ref-binding ~value)))))
+
+(defmacro imported-entity-name-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:imported-entity-name:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedEntityNameRoleRef
+         (->ImportedEntityNameRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: EntityNameBinding
+         (->EntityNameBinding ~ref-binding ~value)))))
+
+(defmacro imported-field-name-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:imported-field-name:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedFieldNameRoleRef
+         (->ImportedFieldNameRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: FieldNameBinding
+         (->FieldNameBinding ~ref-binding ~value)))))
+
+(defmacro imported-state-name-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:imported-state-name:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedStateNameRoleRef
+         (->ImportedStateNameRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: StateNameBinding
+         (->StateNameBinding ~ref-binding ~value)))))
+
+(defmacro imported-state-value-name-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:imported-state-value-name:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedStateValueNameRoleRef
+         (->ImportedStateValueNameRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: StateValueNameBinding
+         (->StateValueNameBinding ~ref-binding ~value)))))
+
+(defmacro imported-external-entity-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:imported-external-entity:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedExternalEntityRoleRef
+         (->ImportedExternalEntityRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: ExternalEntityBinding
+         (->ExternalEntityBinding ~ref-binding ~value)))))
+
+(defmacro imported-value-binding
+  [binding
+   use
+   declaration-id
+   remote-name
+   value]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:imported-value:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedValueRoleRef
+         (->ImportedValueRoleRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: ValueBinding
+         (->ValueBinding ~ref-binding ~value)))))
+
+(defmacro defplugin-bindings
+  [binding
+   ints
+   strings
+   bools
+   keywords
+   entity-names
+   field-names
+   state-names
+   state-value-names
+   external-entities
+   values]
+  `(def ~binding: PluginBindings
+     (->PluginBindings
+       ~ints
+       ~strings
+       ~bools
+       ~keywords
+       ~entity-names
+       ~field-names
+       ~state-names
+       ~state-value-names
+       ~external-entities
+       ~values)))
+
+(defmacro bind-provider
+  [binding
+   use
+   declaration-id
+   remote-name
+   provider-name]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:imported-provider:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedProviderPortRef
+         (->ImportedProviderPortRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: ProviderBindingSpec
+         (->ProviderBindingSpec ~provider-name ~ref-binding)))))
+
+(defmacro extend-entity-fields
+  [binding
+   use
+   declaration-id
+   remote-name
+   fields]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:imported-entity-fields:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedEntityFieldsPortRef
+         (->ImportedEntityFieldsPortRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: ExtendSpec
+         (->ExtendSpec ~ref-binding ~fields)))))
+
+(defmacro fill-component-slot
+  [binding
+   use
+   declaration-id
+   remote-name
+   component]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:imported-component-slot:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedComponentSlotRef
+         (->ImportedComponentSlotRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: FillSpec
+         (->FillSpec ~ref-binding ~component)))))
+
+(defmacro mount-route-slot
+  [binding
+   use
+   declaration-id
+   remote-name
+   path]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:imported-route-slot:" declaration-id)]
+    `(do
+       (def ~ref-binding: ImportedRouteSlotRef
+         (->ImportedRouteSlotRef
+           ~use
+           ~declaration-id
+           ~remote-name
+           ~provenance-token))
+       (def ~binding: MountSpec
+         (->MountSpec ~ref-binding ~path)))))
 
 (defmacro application [binding id]
   `(def ~binding: ApplicationSpec

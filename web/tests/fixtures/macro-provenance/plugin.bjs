@@ -2,78 +2,303 @@
 (ns wake.fixtures.macro-provenance.plugin
   (:require [wake.core :as wake]))
 
-(wake/defcapability publish "capability/publish" [])
+(wake/defcapability browse-published "capability/browse-published" [])
 
 (wake/defstate-model
   revision-status
   "state/revision-status"
   [[draft :draft]
-   [published :published]]
+   [published :published]
+   [superseded :superseded]]
   draft
-  [[draft [published]]
-   [published []]])
+  [[draft [published superseded]]
+   [published [superseded]]
+   [superseded []]])
+
+(wake/defexternal-entity-role actor-entity "config/actor-entity")
 
 (wake/defentity-model
-  page
-  Page
-  "entity/page"
-  "pages"
+  article
+  Article
+  "entity/article"
+  "wiki/article"
   [[id String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
-    nil
+    "wiki/article/id"
     true]
    [title String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
-    nil
+    "wiki/article/title"
+    true]
+   [links-to String
+    (wake/->RefField (wake/->DeclaredEntityTarget article-ref))
+    (wake/->ManyField nil)
+    (wake/->CreateWrite nil)
+    "wiki/article/links-to"
+    true]
+   [author String
+    (wake/->RefField (wake/->ExternalEntityTarget actor-entity-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wiki/article/author"
+    true]
+   [published-at String
+    (wake/->InstantField nil)
+    (wake/->SingleField nil)
+    (wake/->ServerWrite nil)
+    "wiki/article/published-at"
+    false]
+   [digest String
+    (wake/->DigestField nil)
+    (wake/->SingleField nil)
+    (wake/->ServerWrite nil)
+    "wiki/article/digest"
     true]
    [status Keyword
     (wake/->StateField revision-status-ref)
     (wake/->SingleField nil)
-    (wake/->ServerWrite nil)
-    nil
+    (wake/->CommandFieldWrite nil)
+    "wiki/article/status"
     true]])
 
+(wake/defvalue-role
+  safe-document-limits
+  "config/safe-document-limits"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "maxBytes"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 1048576))
+       true)
+     (wake/->ValueRecordField
+       "maxDepth"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 5)
+         (wake/->LiteralBound 256))
+       true)
+     (wake/->ValueRecordField
+       "maxNodes"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 65536))
+       true)]))
+
+(def safe-document-max-bytes: wake/ConfigProjection
+  (wake/->ConfigProjection safe-document-limits-ref ["maxBytes"]))
+(def safe-document-max-depth: wake/ConfigProjection
+  (wake/->ConfigProjection safe-document-limits-ref ["maxDepth"]))
+(def safe-document-max-nodes: wake/ConfigProjection
+  (wake/->ConfigProjection safe-document-limits-ref ["maxNodes"]))
+
+(wake/defvalue-type
+  safe-document
+  "value-type/safe-document"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "tag"
+       (wake/->LiteralValueType (wake/->StringLiteral "document"))
+       true)
+     (wake/->ValueRecordField
+       "blocks"
+       (wake/->ListValueType
+         (wake/->NamedValueType safe-document-block-ref)
+         nil
+         (wake/->LiteralBound 65536)
+         nil)
+       true)])
+  [[block
+    (wake/->TaggedValueType
+      "tag"
+      [(wake/->ValueTaggedVariant
+         "heading"
+         [(wake/->ValueRecordField
+            "level"
+            (wake/->EnumValueType
+              [(wake/->IntegerLiteral 2)
+               (wake/->IntegerLiteral 3)
+               (wake/->IntegerLiteral 4)])
+            true)])])]]
+  (wake/->ValueEnvelopeSpec
+    (wake/->ConfiguredProjectionBound safe-document-max-bytes)
+    (wake/->ConfiguredProjectionBound safe-document-max-depth)
+    (wake/->ConfiguredProjectionBound safe-document-max-nodes)))
+
+(wake/defprovider-port
+  content-parser
+  "provider-port/content-parser"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "contentSource"
+       (wake/->StringValueType nil nil nil)
+       true)])
+  (wake/->NamedValueType safe-document-ref)
+  nil)
+
+(wake/defentity-fields-port
+  revision-fields
+  "entity-fields-port/revision-fields"
+  article-ref
+  []
+  (wake/->OpenManyEntityFields (wake/->CreateWrite nil) true))
+
+(wake/defcommand
+  create-draft
+  "command/create-draft"
+  [browse-published-ref]
+  1
+  [(wake/->CommandInputField
+     :links-to
+     (wake/->ListValueType
+       (wake/->StringValueType nil nil nil)
+       nil
+       (wake/->LiteralBound 64)
+       (wake/->SortUniqueList nil)))
+   (wake/->CommandInputField
+     :published-at
+     (wake/->InstantValueType nil))
+   (wake/->CommandInputField
+     :status
+     (wake/->StateValueType revision-status-ref))
+   (wake/->CommandInputField
+     :revision-fields
+     (wake/->ExtensionValueType revision-fields-ref))]
+  [(wake/->ProviderInjection
+     :validated-document
+     content-parser-ref
+     (wake/->CommandConfiguredExpr safe-document-max-bytes)
+     (wake/->NamedValueType safe-document-ref))]
+  [(wake/->AssertStep
+     (wake/->EqualPredicate
+       (wake/->CommandStateValueExpr revision-status-draft-ref)
+       (wake/->CommandStateValueExpr revision-status-draft-ref)))]
+  [(wake/->CommandResultField
+     :digest
+     (wake/->DigestValueType nil)
+     (wake/->CommandStringExpr "digest"))]
+  (wake/->ReceiptSpec [] []))
+
 (wake/defquery-model
-  page-by-id
-  "query/page-by-id"
-  [publish-ref]
-  [(wake/->QueryParameterSpec
-     :id
-     (wake/->StringValueType nil nil nil))]
-  [(wake/->QueryBindingSpec :page page-ref)]
+  history-superseded
+  "query/history-superseded"
+  [browse-published-ref]
+  []
+  [(wake/->QueryBindingSpec :article article-ref)]
   [(wake/->QueryEqualPredicate
-     (wake/->QueryFieldValue :page page-id-ref)
-     (wake/->QueryParameterValue :id))]
+     (wake/->QueryFieldValue :article article-status-ref)
+     (wake/->QueryStateValue revision-status-superseded-ref))
+   (wake/->QueryNonNullPredicate
+     (wake/->QueryFieldValue :article article-published-at-ref))]
   [(wake/->QueryValueSelection
      :title
-     (wake/->QueryFieldValue :page page-title-ref))]
-  (wake/->QueryOptionalResult nil))
+     (wake/->QueryFieldValue :article article-title-ref))]
+  (wake/->QueryPageResult
+    (wake/->LiteralBound 20)
+    (wake/->LiteralBound 50)))
 
-(def plugin-configuration: wake/PluginConfigurationSchema
-  (wake/->PluginConfigurationSchema [] [] [] [] [] [] [] [] [] []))
+(wake/defcomponent-model
+  article-card
+  "component/article-card"
+  [(wake/->ComponentPropertySpec
+     :title
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->Element :article {} [])])
 
-(def plugin-exports: wake/PluginExports
-  (wake/->PluginExports
-    [page-ref]
-    [page-id-ref page-title-ref page-status-ref]
-    [revision-status-ref]
-    [revision-status-draft-ref revision-status-published-ref]
-    []
-    []
-    []
-    [publish-ref]
-    [page-by-id-ref]
-    []
-    []
-    []
-    []
-    []
-    []
-    []))
+(wake/defrenderer
+  safe-document-renderer
+  "renderer/safe-document"
+  (wake/->NamedValueType safe-document-ref)
+  article-card-ref)
+
+(wake/defview-model
+  history-view
+  "view/history"
+  article-ref
+  article-card-ref
+  "History")
+
+(wake/defroute-template
+  history-route
+  "route/history"
+  history-view-ref
+  [(wake/->RouteQuerySpec history-superseded-ref nil)]
+  [])
+
+(wake/defcomponent-slot
+  article-card-slot
+  "component-slot/article-card"
+  article-card-ref)
+
+(wake/defroute-slot
+  history-slot
+  "route-slot/history"
+  history-route-ref)
+
+(wake/defint-role page-limit "config/page-limit" 1 100)
+(wake/defstring-role site-title "config/site-title" 1 120 256)
+(wake/defbool-role show-history "config/show-history")
+(wake/defkeyword-role draft-label "config/draft-label" [:draft :working])
+(wake/defentity-name-role resource-entity "config/resource" article-ref)
+(wake/deffield-name-role title-field "config/title-field" article-title-ref)
+(wake/defstate-name-role lifecycle "config/lifecycle" revision-status-ref)
+(wake/defstate-value-name-role
+  published-state
+  "config/published-state"
+  revision-status-published-ref)
+(wake/defvalue-role
+  content-limits
+  "config/content-limits"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "links"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 256))
+       true)]))
+
+(wake/defplugin-configuration
+  plugin-configuration
+  [page-limit]
+  [site-title]
+  [show-history]
+  [draft-label]
+  [resource-entity]
+  [title-field]
+  [lifecycle]
+  [published-state]
+  [actor-entity]
+  [safe-document-limits content-limits])
+
+(wake/defplugin-exports
+  plugin-exports
+  [article-ref]
+  [article-id-ref
+   article-title-ref
+   article-links-to-ref
+   article-author-ref
+   article-published-at-ref
+   article-digest-ref
+   article-status-ref]
+  [revision-status-ref]
+  [revision-status-draft-ref
+   revision-status-published-ref
+   revision-status-superseded-ref]
+  [safe-document-ref]
+  [content-parser-ref]
+  [safe-document-renderer-ref]
+  [browse-published-ref]
+  [history-superseded-ref]
+  [create-draft-ref]
+  [article-card-ref]
+  [history-view-ref]
+  [history-route-ref]
+  [revision-fields-ref]
+  [article-card-slot-ref]
+  [history-slot-ref])
 
 (wake/defplugin
   wiki-plugin
@@ -83,8 +308,13 @@
   1
   1
   [(wake/->SchemaContribution nil)
-   (wake/->QueryContribution nil)]
+   (wake/->QueryContribution nil)
+   (wake/->CommandContribution nil)
+   (wake/->CapabilityContribution nil)
+   (wake/->UiContribution nil)
+   (wake/->RouteContribution nil)]
   plugin-configuration
   plugin-exports
+  [content-parser-ref]
   []
-  [])
+  history-route-ref)

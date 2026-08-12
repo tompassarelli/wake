@@ -378,7 +378,7 @@ test("consumer projection keeps exact derived, query, and list-detail values", (
 
   expect(firstProjection).not.toContain('"node":"raw"');
   expect(createHash("sha256").update(firstProjection).digest("hex")).toBe(
-    "dca39fff45478bb056a27066829894472c2ad69138fdd0f664910fe05de492da",
+    "582dccc33fe1b948ffa9cdc24e8c1721a85e32f1f443f9f047efa8d2be8e9842",
   );
 }, 30_000);
 
