@@ -15,6 +15,17 @@ export class CommandError extends Error {
   }
 }
 
+export function rejectProviderInput(message, detail = undefined) {
+  if (typeof message !== "string" || message.length === 0) {
+    throw new TypeError("provider rejection message must be a nonempty string");
+  }
+  throw new CommandError(
+    "command/provider-rejected",
+    message,
+    detail === undefined ? undefined : frozenSnapshot(detail),
+  );
+}
+
 function fail(code, message, detail, options) {
   throw new CommandError(code, message, detail, options);
 }
