@@ -299,9 +299,6 @@ function checkCommand(command, checked, indexes) {
     if (step.op === "require") continue;
     if (step.op === "guard") {
       const field = commandField(entity, step.field, stepLabel);
-      if (field.cardinality !== "single") {
-        fail(`${stepLabel} requires a stored single field`);
-      }
       checkFieldExpression({
         allowNull: true,
         entities: indexes.entities,
@@ -323,10 +320,6 @@ function checkCommand(command, checked, indexes) {
       if (step.op === "update" && field.cardinality === "single"
           && !own(source, "allowedCurrent")) {
         fail(`${stepLabel} single field '${field.name}' requires :allowed-current`);
-      }
-      if (step.op === "update" && field.cardinality === "multi"
-          && own(source, "allowedCurrent")) {
-        fail(`${stepLabel} multi field '${field.name}' cannot use :allowed-current`);
       }
       checkFieldExpression({
         allowNull: step.op === "update" || source.omitIfNull === true,
@@ -373,7 +366,6 @@ function checkCommand(command, checked, indexes) {
       if (guard.when !== undefined) checkCondition(guard.when, environment, `${guardLabel} condition`);
       if (guard.op === "require") continue;
       const field = commandField(entity, guard.field, guardLabel);
-      if (field.cardinality !== "single") fail(`${guardLabel} requires a stored single field`);
       checkFieldExpression({
         allowNull: true,
         entities: indexes.entities,

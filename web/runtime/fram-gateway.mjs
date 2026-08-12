@@ -1,4 +1,5 @@
 import { createNamedQueryRuntime } from "./named-query.mjs";
+import { createCommandRuntime } from "./commands.mjs";
 
 const PAGE_LIMIT = 128;
 const MAX_QUERY_PAGES = 32;
@@ -806,14 +807,28 @@ function replacementField(entity, field, value) {
   return { field: planned, requireUnique };
 }
 
-export function createFramGateway(plan, { fram, schema } = {}) {
+export function createFramGateway(plan, {
+  fram,
+  generateId = () => crypto.randomUUID(),
+  now = () => {
+    const milliseconds = Date.now();
+    const epochSeconds = Math.floor(milliseconds / 1000);
+    return {
+      epochSeconds: String(epochSeconds),
+      nanos: (milliseconds - epochSeconds * 1000) * 1_000_000,
+    };
+  },
+  providers = {},
+  schema,
+} = {}) {
   const compiled = compilePlan(plan);
   if (!fram || typeof fram.query !== "function") {
     fail("gateway/invalid-client", "fram.query is required");
   }
   if (!schema || typeof schema.createUnique !== "function"
       || typeof schema.updateUnique !== "function"
-      || typeof schema.updateUniqueMany !== "function") {
+      || typeof schema.updateUniqueMany !== "function"
+      || typeof schema.transactUnique !== "function") {
     fail("gateway/invalid-client", "the FRAM schema client is incomplete");
   }
   const namedQueries = createNamedQueryRuntime(plan.queries, {
@@ -846,12 +861,64 @@ export function createFramGateway(plan, { fram, schema } = {}) {
     return publication;
   };
 
+  const readOne = async (entityName, identityValue) => {
+    const entity = entityNamed(entityName);
+    const identity = encodeLiteral(entity.identity.type, identityValue, `${entity.name}.${entity.identity.field}`);
+    const response = await drainQuery(fram, readQuery(entity, identity), { timeoutMs: QUERY_TIMEOUT_MS });
+    if (response.limited) {
+      fail("gateway/result-limit", `${entity.name} lookup exceeds Wake's ${MAX_QUERY_ROWS}-row read limit`);
+    }
+    const rows = mergeRows(entity, response.rows);
+    if (rows.length > 1) fail("gateway/data-integrity", `${entity.name} identity resolved more than once`);
+    return { row: rows[0] ?? null, servedVersion: response.servedVersion };
+  };
+
+  const commandStorage = Object.freeze({
+    identity(entityName, value, label) {
+      const entity = entityNamed(entityName);
+      const identity = encodeLiteral(entity.identity.type, value, label);
+      return {
+        predicate: entity.identityField.predicate,
+        subject: realizeTemplate(entity.template, identity),
+        value: identity,
+      };
+    },
+    field(entityName, fieldName, value, label) {
+      const entity = entityNamed(entityName);
+      const field = fieldNamed(entity, fieldName);
+      if (value === undefined) {
+        return { cardinality: field.cardinality, predicate: field.predicate };
+      }
+      const encoded = encodeField(field, value, label);
+      return {
+        cardinality: field.cardinality,
+        predicate: field.predicate,
+        value: encoded,
+        ...(field.valueKind === "ref"
+          ? { requireUnique: [referenceRequirement(field, encoded)] }
+          : {}),
+      };
+    },
+  });
+  const commandRuntime = createCommandRuntime(plan, {
+    generateId,
+    now,
+    providers,
+    readReceipt: readOne,
+    schema,
+    storage: commandStorage,
+  });
+
   return Object.freeze({
     applicationId: compiled.applicationId,
     semanticFingerprint: compiled.semanticFingerprint,
 
     async executeQuery(name, input, options = {}) {
       return namedQueries.execute(name, input, options);
+    },
+
+    async invoke(name, requestId, input, actor) {
+      return commandRuntime.invoke(name, requestId, input, actor);
     },
 
     async list(entityName) {
@@ -864,15 +931,7 @@ export function createFramGateway(plan, { fram, schema } = {}) {
     },
 
     async get(entityName, identityValue) {
-      const entity = entityNamed(entityName);
-      const identity = encodeLiteral(entity.identity.type, identityValue, `${entity.name}.${entity.identity.field}`);
-      const response = await drainQuery(fram, readQuery(entity, identity), { timeoutMs: QUERY_TIMEOUT_MS });
-      if (response.limited) {
-        fail("gateway/result-limit", `${entity.name} lookup exceeds Wake's ${MAX_QUERY_ROWS}-row read limit`);
-      }
-      const rows = mergeRows(entity, response.rows);
-      if (rows.length > 1) fail("gateway/data-integrity", `${entity.name} identity resolved more than once`);
-      return { row: rows[0] ?? null, servedVersion: response.servedVersion };
+      return readOne(entityName, identityValue);
     },
 
     async create(entityName, values) {

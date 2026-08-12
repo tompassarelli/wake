@@ -133,7 +133,9 @@ function normalizeValue(value, type, label, code = "command/type-mismatch") {
       return value;
     }
     case "integer": {
-      const spelling = typeof value === "number" && Number.isSafeInteger(value)
+      const spelling = typeof value === "bigint"
+        ? value.toString()
+        : typeof value === "number" && Number.isSafeInteger(value)
         && !Object.is(value, -0)
         ? String(value)
         : typeof value === "string" && INTEGER.test(value)
@@ -706,9 +708,6 @@ function compileTransaction(command, environment, storage, receiptId, result, au
       }
       if (desired.cardinality === "single" && allowedCurrent === undefined) {
         fail("command/unguarded-update", `${fieldLabel} single-cardinality update needs allowedCurrent`);
-      }
-      if (desired.cardinality === "multi" && allowedCurrent !== undefined) {
-        fail("command/invalid-plan", `${fieldLabel} multi-cardinality update cannot use allowedCurrent`);
       }
       const cell = canonicalDocument([identity.subject, desired.predicate]);
       const field = {

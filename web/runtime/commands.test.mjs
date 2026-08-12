@@ -74,6 +74,13 @@ const command = Object.freeze({
       op: "guard",
       entity: "entry",
       identity: input("entry"),
+      field: "links",
+      equals: input("links"),
+    },
+    {
+      op: "guard",
+      entity: "entry",
+      identity: input("entry"),
       field: "current-version",
       equals: input("expected"),
     },
@@ -156,7 +163,10 @@ function storage() {
     field(entity, field, value) {
       const target = refs.get(`${entity}/${field}`);
       if (value === undefined) {
-        return { cardinality: "single", predicate: predicate(entity, field) };
+        return {
+          cardinality: field === "links" ? "multi" : "single",
+          predicate: predicate(entity, field),
+        };
       }
       if (target !== undefined) {
         return {
@@ -173,7 +183,11 @@ function storage() {
       const encoded = field === "created-at"
         ? ["instant", value.epochSeconds, String(value.nanos)]
         : ["string", value];
-      return { cardinality: "single", predicate: predicate(entity, field), value: encoded };
+      return {
+        cardinality: field === "links" ? "multi" : "single",
+        predicate: predicate(entity, field),
+        value: encoded,
+      };
     },
   };
 }
@@ -266,14 +280,24 @@ test("compound command lowers mixed create, guarded updates, requirements, and r
     ["string", "version-2"],
     ["string", result.receiptId],
   ]);
-  assert.equal(transaction.updates.length, 2);
-  assert.deepEqual(transaction.updates[0].fields[0], {
+  assert.equal(transaction.updates.length, 3);
+  const fields = transaction.updates.flatMap(update => update.fields);
+  const written = (entity, name) => fields.find(field => (
+    JSON.stringify(field.predicate) === JSON.stringify(predicate(entity, name))
+  ));
+  assert.deepEqual(written("entry", "links"), {
+    allowedCurrent: [["string", "entry-2"], ["string", "entry-3"]],
+    cardinality: "multi",
+    predicate: predicate("entry", "links"),
+    values: [["string", "entry-2"], ["string", "entry-3"]],
+  });
+  assert.deepEqual(written("entry", "current-version"), {
     allowedCurrent: [["string", "version-1"]],
     cardinality: "single",
     predicate: predicate("entry", "current-version"),
     values: [["string", "version-2"]],
   });
-  assert.deepEqual(transaction.updates[1].fields[0], {
+  assert.deepEqual(written("version", "state"), {
     allowedCurrent: [["string", "released"]],
     cardinality: "single",
     predicate: predicate("version", "state"),
@@ -297,8 +321,11 @@ test("null branch lowers exact zero-or-one clear and omits conditional update", 
   }, authority);
 
   const transaction = fixture.calls.transactions[0];
-  assert.equal(transaction.updates.length, 1);
-  assert.deepEqual(transaction.updates[0].fields[0], {
+  assert.equal(transaction.updates.length, 2);
+  const pointer = transaction.updates.flatMap(update => update.fields).find(field => (
+    JSON.stringify(field.predicate) === JSON.stringify(predicate("entry", "current-version"))
+  ));
+  assert.deepEqual(pointer, {
     allowedCurrent: [],
     cardinality: "single",
     predicate: predicate("entry", "current-version"),

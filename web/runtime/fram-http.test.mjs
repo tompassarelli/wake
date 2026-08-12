@@ -26,6 +26,7 @@ function gateway(overrides = {}) {
     create: unexpected,
     set: unexpected,
     publish: unexpected,
+    invoke: unexpected,
     changes: unexpected,
     ...overrides,
   };
@@ -251,6 +252,71 @@ test("named queries use a closed envelope and preserve the authorization decisio
     },
   ]) {
     const invalidResponse = await handle(post("/api/wake/query", invalid));
+    assert.equal(invalidResponse.status, 400);
+    assert.equal((await json(invalidResponse)).error.code, "invalid_request");
+  }
+});
+
+test("checked commands use one exact invoke envelope and only host-derived authority", async () => {
+  const actor = Object.freeze({
+    capabilities: Object.freeze(["wiki.create-draft"]),
+    id: "actor-1",
+  });
+  let call;
+  let context;
+  const handle = createWakeHttpHandler(gateway({
+    invoke(...args) {
+      call = args;
+      return {
+        command: args[0],
+        createdAt: { epochSeconds: "10", nanos: 2 },
+        receiptId: "receipt-1",
+        replayed: false,
+        result: { resource: "entry-1" },
+        servedVersion: 8n,
+      };
+    },
+  }), {
+    authorize(value) {
+      context = value;
+      return Object.freeze({ allowed: true, actor });
+    },
+  });
+
+  const response = await handle(post("/api/wake/command", {
+    op: "invoke",
+    command: "wiki.create-resource-draft",
+    requestId: "request-1",
+    input: { title: "Start" },
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(call, [
+    "wiki.create-resource-draft",
+    "request-1",
+    { title: "Start" },
+    actor,
+  ]);
+  assert.equal(context.route, "/api/wake/command");
+  assert.equal(context.op, "invoke");
+  assert.equal(context.command, "wiki.create-resource-draft");
+  assert.equal(context.requestId, "request-1");
+  assert.equal(Object.hasOwn(context, "input"), false);
+  assert.deepEqual(await json(response), {
+    command: "wiki.create-resource-draft",
+    createdAt: { epochSeconds: "10", nanos: 2 },
+    receiptId: "receipt-1",
+    replayed: false,
+    result: { resource: "entry-1" },
+    servedVersion: "8",
+  });
+
+  for (const invalid of [
+    { op: "invoke", command: "wiki.create-resource-draft", requestId: "r", input: {}, actor },
+    { op: "invoke", command: "", requestId: "r", input: {} },
+    { op: "invoke", command: "wiki.create-resource-draft", requestId: "", input: {} },
+    { op: "invoke", command: "wiki.create-resource-draft", requestId: "r", input: [] },
+  ]) {
+    const invalidResponse = await handle(post("/api/wake/command", invalid));
     assert.equal(invalidResponse.status, 400);
     assert.equal((await json(invalidResponse)).error.code, "invalid_request");
   }
@@ -523,6 +589,12 @@ test("stable gateway and schema failures keep their code and HTTP meaning", asyn
     ["schema/required-identity-missing", 409],
     ["gateway/protocol", 500],
     ["gateway/data-integrity", 500],
+    ["command/type-mismatch", 400],
+    ["command/forbidden", 403],
+    ["command/unknown", 404],
+    ["command/idempotency-conflict", 409],
+    ["command/ambiguous-outcome", 503],
+    ["command/receipt-corrupt", 500],
   ];
 
   for (const [code, status] of cases) {
@@ -569,6 +641,10 @@ test("validated operations dispatch to the narrow gateway API", async () => {
       calls.push(["publish", ...args]);
       return { changed: true, revision: "rev-2", servedVersion: 5n };
     },
+    invoke(...args) {
+      calls.push(["invoke", ...args]);
+      return { command: args[0], replayed: false, result: {}, servedVersion: 6n };
+    },
     changes(...args) {
       calls.push(["changes", ...args]);
       return { changes: [], servedVersion: 5n };
@@ -593,6 +669,12 @@ test("validated operations dispatch to the narrow gateway API", async () => {
       revision: "rev-2",
       expectedPointer: null,
     }],
+    ["/api/wake/command", {
+      op: "invoke",
+      command: "wiki.start-draft",
+      requestId: "request-1",
+      input: { resource: "wake" },
+    }],
     ["/api/wake/changes", { sinceVersion: "5" }],
   ];
   for (const [path, body] of requests) {
@@ -608,6 +690,7 @@ test("validated operations dispatch to the narrow gateway API", async () => {
     ["create", "page", { title: "New" }, { allowed: true }],
     ["set", "page", "wake", "published", false, { allowed: true }],
     ["publish", "canonical", "wake", "rev-2", null, { allowed: true }],
+    ["invoke", "wiki.start-draft", "request-1", { resource: "wake" }, undefined],
     ["changes", 5n, { allowed: true }],
   ]);
 });

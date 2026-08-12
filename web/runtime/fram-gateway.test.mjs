@@ -43,6 +43,7 @@ const plan = {
   backend: "fram",
   semanticFingerprint: SEMANTIC_FINGERPRINT,
   pluginClosure: [],
+  commands: [],
   queries: [],
   entities: [
     {
@@ -179,6 +180,13 @@ function mocks(responses = [], schemaOverrides = {}) {
           changed: true,
           servedVersion: 33n,
           result: [],
+        };
+      },
+      async transactUnique(input) {
+        return {
+          changed: true,
+          servedVersion: 34n,
+          subjects: input.creates.map(create => create.subject),
         };
       },
       ...schemaOverrides,

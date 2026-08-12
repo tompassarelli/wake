@@ -37,6 +37,28 @@ const GATEWAY_ERROR_STATUS = new Map([
   ["schema/current-value-rejected", 409],
   ["schema/conflict-exhausted", 409],
   ["schema/invalid-response", 500],
+  ["command/invalid-input", 400],
+  ["command/type-mismatch", 400],
+  ["command/cardinality", 400],
+  ["command/missing-value", 400],
+  ["command/null-field", 400],
+  ["command/assertion-failed", 409],
+  ["command/idempotency-conflict", 409],
+  ["command/duplicate-update", 409],
+  ["command/unguarded-update", 409],
+  ["command/forbidden", 403],
+  ["command/unknown", 404],
+  ["command/ambiguous-outcome", 503],
+  ["command/invalid-authority", 500],
+  ["command/provider-output", 500],
+  ["command/result-invalid", 500],
+  ["command/missing-provider", 500],
+  ["command/receipt-corrupt", 500],
+  ["command/protocol", 500],
+  ["command/invalid-plan", 500],
+  ["command/invalid-storage", 500],
+  ["command/invalid-client", 500],
+  ["command/invalid-host", 500],
 ]);
 
 class RequestError extends Error {
@@ -333,14 +355,28 @@ function validateCommand(body) {
     requireIdentity(body.owner);
     requireIdentity(body.revision);
     if (body.expectedPointer !== null) requireIdentity(body.expectedPointer);
+  } else if (body.op === "invoke") {
+    requireExactKeys(body, [
+      "fingerprint",
+      "op",
+      "command",
+      "requestId",
+      "input",
+    ]);
+    requireNonemptyString(body.command, "command");
+    requireNonemptyString(body.requestId, "requestId");
+    if (!isPlainObject(body.input)) {
+      throw new RequestError(400, "invalid_request", "input must be a JSON object.");
+    }
+    requireExactJsonNumbers(body.input, "input");
   } else {
     throw new RequestError(
       400,
       "invalid_request",
-      "command op must be create, set, or publish.",
+      "command op must be create, set, publish, or invoke.",
     );
   }
-  if (body.op !== "publish") requireNonemptyString(body.entity, "entity");
+  if (body.op === "create" || body.op === "set") requireNonemptyString(body.entity, "entity");
   return body;
 }
 
@@ -378,7 +414,11 @@ function authorizationContext(request, route, payload) {
     ...(Object.hasOwn(payload, "identity") ? { identity: payload.identity } : {}),
     ...(Object.hasOwn(payload, "field") ? { field: payload.field } : {}),
     ...(Object.hasOwn(payload, "query") ? { query: payload.query } : {}),
-    ...(Object.hasOwn(payload, "input") ? { input: payload.input } : {}),
+    ...(Object.hasOwn(payload, "command") ? { command: payload.command } : {}),
+    ...(Object.hasOwn(payload, "requestId") ? { requestId: payload.requestId } : {}),
+    ...(route === "/api/wake/query" && Object.hasOwn(payload, "input")
+      ? { input: payload.input }
+      : {}),
     ...(Object.hasOwn(payload, "options") ? { options: payload.options } : {}),
     ...(Object.hasOwn(payload, "publication") ? { publication: payload.publication } : {}),
     ...(Object.hasOwn(payload, "owner") ? { owner: payload.owner } : {}),
@@ -504,6 +544,14 @@ async function dispatch(gateway, route, payload, decision) {
     );
   }
   if (route === "/api/wake/command") {
+    if (payload.op === "invoke") {
+      return gateway.invoke(
+        payload.command,
+        payload.requestId,
+        payload.input,
+        decision.actor,
+      );
+    }
     if (payload.op === "create") return gateway.create(payload.entity, payload.values, decision);
     if (payload.op === "set") {
       return gateway.set(payload.entity, payload.identity, payload.field, payload.value, decision);
