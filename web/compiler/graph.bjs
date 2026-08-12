@@ -188,6 +188,78 @@
           (validate-generated-name "route view" (.-view-name route))))
       nil)))
 
+(defn validate-unique-declarations [items: Any label: String] -> Any
+  (reduce
+    (fn [seen item]
+      (let [name (.-name item)]
+        (if (.includes seen name)
+          (graph-error (str label " '" name "' is duplicated"))
+          (conj seen name))))
+    []
+    items))
+
+(defn validate-declaration-uniqueness
+  [prog: IrProgram
+   entities: (Vec GEntity)] -> Any
+  (validate-unique-declarations entities "entity")
+  (validate-unique-declarations (or (.-components prog) []) "component")
+  (validate-unique-declarations (or (.-views prog) []) "view"))
+
+(defn validate-ui-references [prog: IrProgram entities: (Vec GEntity)] -> Any
+  (let [components (or (.-components prog) [])
+        views (or (.-views prog) [])
+        entity-names (mapv (fn [entity] (.-name entity)) entities)
+        component-names (mapv (fn [component] (.-name component)) components)
+        view-names (mapv (fn [view] (.-name view)) views)]
+    (doseq [view views]
+      (let [name (.-name view)
+            entity-name (.-entity-name view)
+            component-name (.-component view)
+            select-component (.-select-component view)]
+        (if (and (some? entity-name)
+                 (not (.includes entity-names entity-name)))
+          (graph-error
+            (str "view '" name "' names unknown entity '" entity-name "'"))
+          nil)
+        (if (and (some? component-name)
+                 (not (.includes component-names component-name)))
+          (graph-error
+            (str "view '" name "' names unknown component '"
+                 component-name "'"))
+          nil)
+        (if (and (some? select-component)
+                 (not (.includes component-names select-component)))
+          (graph-error
+            (str "view '" name "' names unknown select component '"
+                 select-component "'"))
+          nil)))
+    (let [router (.-router prog)]
+      (if (some? router)
+        (let [routes (or (.-routes router) [])
+              route-paths (mapv (fn [route] (.-path route)) routes)
+              route-views (mapv (fn [route] (.-view-name route)) routes)
+              default-route (.-default-route router)]
+          (reduce
+            (fn [seen path]
+              (if (.includes seen path)
+                (graph-error (str "route path '" path "' is duplicated"))
+                (conj seen path)))
+            []
+            route-paths)
+          (doseq [route routes]
+            (let [view-name (.-view-name route)]
+              (if (not (.includes view-names view-name))
+                (graph-error
+                  (str "route '" (.-path route) "' names unknown view '"
+                       view-name "'"))
+                nil)))
+          (if (not (.includes route-views default-route))
+            (graph-error
+              (str "routes default '" default-route
+                   "' does not name a routed view"))
+            nil))
+        nil))))
+
 (defn nonempty-string? [value: Any] -> Bool
   (and (string? value) (> (count value) 0)))
 
@@ -1533,10 +1605,12 @@
             (analyze-entity prog entity app-id))
           (.-entities prog))
         defstates (or (.-defstates prog) [])
-        validated-storage-ids (validate-storage-id-uniqueness entities)
         validated-names (validate-generated-names prog entities defstates)
+        validated-declarations (validate-declaration-uniqueness prog entities)
+        validated-storage-ids (validate-storage-id-uniqueness entities)
         validated (validate-backend prog entities)
         validated-create-forms (validate-fram-create-forms prog entities)
+        validated-ui (validate-ui-references prog entities)
         validated-defstates (validate-defstates defstates)
         validated-composition (check-composition prog)
         fk-edges (resolve-fk-edges entities)
