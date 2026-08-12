@@ -26,6 +26,15 @@ the same resource at that served snapshot. This is complete for K0's three-state
 lifecycle without pretending the current query ABI has optional joins or
 recursive lineage.
 
+The history API keeps one stable response shape:
+`{current, revisions, page, servedVersion}`. On the first page it executes
+`history-current` and then `history-superseded` at that version. On a
+continuation it executes `history-superseded` with the opaque cursor first,
+then re-reads `history-current` at the cursor response's served version. It
+includes `current` on every page and rejects any version disagreement; a
+continuation never samples current head before opening its snapshot-pinned
+cursor.
+
 The remaining frozen exports—five commands, twelve capabilities, the
 content-parser provider port, extension ports, and six route slots—stay in the
 version-1 public contract while Wake's shared checked declaration grammars land.
