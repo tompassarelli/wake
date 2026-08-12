@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   checkPluginConfiguration,
+  configurationDeclarationIndex,
   configurationDeclarationDescriptors,
   validateConfigurationSchema,
 } from "../compiler/plugin-configuration.mjs";
@@ -75,6 +76,22 @@ describe("checked plugin configuration", () => {
       declarationKind: "entity",
       path: "entity",
     }]);
+    const declarations = configurationDeclarationIndex([
+      ...checked.declarations,
+      {
+        alias: "entry-id",
+        declarationId: "document/id",
+        declarationKind: "field",
+        path: "identity",
+      },
+    ]);
+    expect(declarations.alias("entity", "document")).toBe("entry");
+    expect(declarations.alias("entity", "external")).toBe("external");
+    expect(declarations.declarationId("entity", "entry")).toBe("document");
+    expect(declarations.declarationId("field", "entry-id", { ownerId: "document" }))
+      .toBe("document/id");
+    expect(declarations.declarationId("field", "title", { ownerId: "document" }))
+      .toBe("document/title");
   });
 
   test("rejects malformed descriptors and contradictory bounds", () => {
@@ -87,6 +104,16 @@ describe("checked plugin configuration", () => {
     expect(() => validateConfigurationSchema({
       value: { required: true, type: { kind: "record", closed: false, fields: [] } },
     })).toThrow("closed must be true");
+    expect(() => validateConfigurationSchema({
+      value: {
+        required: true,
+        type: {
+          kind: "symbol",
+          declarationKind: "capability",
+          declarationId: "read",
+        },
+      },
+    })).toThrow("supported only for entity, field, or state declarations");
     expect(() => validateConfigurationSchema({
       first: {
         required: true,

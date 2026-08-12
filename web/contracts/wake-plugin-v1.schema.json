@@ -181,6 +181,14 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["declarationKind", "kind"],
+          "allOf": [{
+            "if": { "required": ["declarationId"] },
+            "then": {
+              "properties": {
+                "declarationKind": { "enum": ["entity", "field", "state"] }
+              }
+            }
+          }],
           "properties": {
             "kind": { "const": "symbol" },
             "declarationKind": {

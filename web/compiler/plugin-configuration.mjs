@@ -10,6 +10,7 @@ const DECLARATION_KINDS = new Set([
   "state",
   "value-type",
 ]);
+const STABLE_DECLARATION_KINDS = new Set(["entity", "field", "state"]);
 
 function defaultReject(message) {
   throw new TypeError(message);
@@ -107,6 +108,11 @@ function validateType(type, label, declarations, reject) {
         reject(`${label}.declarationKind '${type.declarationKind}' is unsupported`);
       }
       if (own(type, "declarationId")) {
+        if (!STABLE_DECLARATION_KINDS.has(type.declarationKind)) {
+          reject(
+            `${label}.declarationId is supported only for entity, field, or state declarations`,
+          );
+        }
         nonempty(type.declarationId, `${label}.declarationId`, reject);
         const declarationKey = `${type.declarationKind}\u0000${type.declarationId}`;
         if (declarations.has(declarationKey)) {
@@ -349,4 +355,50 @@ export function configurationDeclarationDescriptors(configuration) {
     visit(descriptor.type, key);
   }
   return result;
+}
+
+export function configurationDeclarationIndex(
+  declarations,
+  label = "plugin configuration declarations",
+) {
+  if (!Array.isArray(declarations)) throw new TypeError(`${label} must be an array`);
+  const byId = new Map();
+  const byAlias = new Map();
+  for (const declaration of declarations) {
+    if (!plainObject(declaration)
+        || typeof declaration.alias !== "string"
+        || typeof declaration.declarationId !== "string"
+        || typeof declaration.declarationKind !== "string") {
+      throw new TypeError(`${label} contains an invalid declaration binding`);
+    }
+    const idKey = `${declaration.declarationKind}\u0000${declaration.declarationId}`;
+    if (byId.has(idKey)) {
+      throw new TypeError(
+        `${label} repeats ${declaration.declarationKind} '${declaration.declarationId}'`,
+      );
+    }
+    byId.set(idKey, declaration);
+    const aliasKey = `${declaration.declarationKind}\u0000${declaration.alias}`;
+    const aliases = byAlias.get(aliasKey) ?? [];
+    aliases.push(declaration);
+    byAlias.set(aliasKey, aliases);
+  }
+
+  return Object.freeze({
+    alias(kind, declarationId) {
+      return byId.get(`${kind}\u0000${declarationId}`)?.alias ?? declarationId;
+    },
+    declarationId(kind, alias, { ownerId = null } = {}) {
+      let candidates = byAlias.get(`${kind}\u0000${alias}`) ?? [];
+      if (ownerId !== null) {
+        candidates = candidates.filter(candidate =>
+          candidate.declarationId.startsWith(`${ownerId}/`));
+      }
+      if (candidates.length > 1) {
+        throw new TypeError(`${label} maps ${kind} alias '${alias}' ambiguously`);
+      }
+      if (candidates.length === 1) return candidates[0].declarationId;
+      return ownerId === null ? alias : `${ownerId}/${alias}`;
+    },
+  });
 }

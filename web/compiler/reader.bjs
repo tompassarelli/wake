@@ -1,6 +1,7 @@
 #lang beagle/js
 (ns wake.reader)
 (require wake.sexpr :as sexpr)
+(require wake.config-reference :as config-reference)
 (require wake.ir :as ir)
 
 ;; Reader: s-expressions → IR program.
@@ -829,6 +830,23 @@
         (str label
              " must contain only letters, digits, '-' or '_' and cannot start with '$'")))))
 
+(defn parse-query-capabilities [value: Any query-name: String] -> (Vec String)
+  (let [items (if (vec? value) (vec-items value) [value])
+        capabilities
+        (mapv
+          (fn [item]
+            (require-symbol
+              item (str "query '" query-name "' capability")))
+          items)]
+    (if (or (= (count capabilities) 0) (> (count capabilities) 16))
+      (parse-error
+        (str "query '" query-name
+             "' :capability requires from 1 through 16 names"))
+      nil)
+    (duplicate-name-error
+      (str "query '" query-name "' capability") capabilities)
+    capabilities))
+
 (defn parse-query-param [value: Any query-name: String] -> IrQueryParam
   (let [items value]
     (if (or (not (vector? items)) (not (= (count items) 3)))
@@ -929,22 +947,36 @@
     (parse-query-operand (nth value 1 nil) query-name)
     (parse-query-operand (nth value 2 nil) query-name)))
 
-(defn parse-query-select [value: Any query-name: String] -> IrQuerySelect
-  (if (or (not (vector? value)) (not (= (count value) 2)))
-    (parse-error
-      (str "query '" query-name
-           "' projections must be declared as (OUTPUT BINDING.FIELD)"))
-    nil)
-  (let [output
+(defn parse-query-select [value: Any query-name: String] -> Any
+  (if (and (vector? value) (sym= (nth value 0 nil) "fields-from"))
+    (do
+      (if (not (= (count value) 3))
+        (parse-error
+          (str "query '" query-name
+               "' fields-from projection must be (fields-from PORT BINDING)"))
+        nil)
+      (ir/->IrQueryFieldSplice
         (require-query-local-name
-          (nth value 0 nil) (str "query '" query-name "' output name"))
-        operand (parse-query-operand (nth value 1 nil) query-name)]
-    (if (not (= (.-kind operand) "field"))
-      (parse-error
-        (str "query '" query-name "' projection '" output
-             "' must select a bound field with BINDING.FIELD or (field BINDING FIELD)"))
-      nil)
-    (ir/->IrQuerySelect output (or (.-binding operand) "") (or (.-field operand) ""))))
+          (nth value 1 nil) (str "query '" query-name "' fields-from port"))
+        (require-query-local-name
+          (nth value 2 nil) (str "query '" query-name "' fields-from binding"))))
+    (do
+      (if (or (not (vector? value)) (not (= (count value) 2)))
+        (parse-error
+          (str "query '" query-name
+               "' projections must be (OUTPUT BINDING.FIELD) or (fields-from PORT BINDING)"))
+        nil)
+      (let [output
+            (require-query-local-name
+              (nth value 0 nil) (str "query '" query-name "' output name"))
+            operand (parse-query-operand (nth value 1 nil) query-name)]
+        (if (not (= (.-kind operand) "field"))
+          (parse-error
+            (str "query '" query-name "' projection '" output
+                 "' must select a bound field with BINDING.FIELD or (field BINDING FIELD)"))
+          nil)
+        (ir/->IrQuerySelect
+          output (or (.-binding operand) "") (or (.-field operand) ""))))))
 
 (defn positive-safe-int? [value: Any] -> Bool
   (and (number? value)
@@ -977,6 +1009,7 @@
 (defn parse-query [form: Any] -> IrQuery
   (let [name (require-symbol (nth form 1 nil) "query name")]
     (loop [index: Int 2
+           capabilities: Any nil
            params: Any nil
            bindings: Any nil
            predicates: Any nil
@@ -986,7 +1019,7 @@
            seen: (Vec String) []]
       (if (>= index (count form))
         (do
-          (doseq [required [":params" ":from" ":where" ":select" ":result"]]
+          (doseq [required [":capability" ":params" ":from" ":where" ":select" ":result"]]
             (if (not (.includes seen required))
               (parse-error (str "query '" name "' requires " required))
               nil))
@@ -998,48 +1031,60 @@
               (str "query '" name "' only a page result may declare :page"))
             nil)
           (ir/->IrQuery
-            name (or params []) (or bindings []) (or predicates [])
+            name (or capabilities []) (or params []) (or bindings []) (or predicates [])
             (or selection []) (or result-kind "") page))
         (let [option
               (require-keyword
                 (nth form index nil) (str "query '" name "' option"))
               value
               (require-option-value form index (str "query '" name "' " option))]
-          (if (not (.includes [":params" ":from" ":where" ":select" ":result" ":page"] option))
+          (if (not (.includes [":capability" ":params" ":from" ":where" ":select" ":result" ":page"] option))
             (parse-error (str "unknown option on query '" name "': " option))
             nil)
           (if (.includes seen option)
             (parse-error (str "duplicate option " option " on query '" name "'"))
             nil)
           (cond
+            (= option ":capability")
+              (recur
+                (+ index 2) (parse-query-capabilities value name)
+                params bindings predicates selection result-kind page
+                (conj seen option))
             (= option ":params")
               (recur
-                (+ index 2)
+                (+ index 2) capabilities
                 (mapv
                   (fn [item] (parse-query-param item name))
                   (require-vector value (str "query '" name "' :params")))
                 bindings predicates selection result-kind page (conj seen option))
             (= option ":from")
               (recur
-                (+ index 2) params
+                (+ index 2) capabilities params
                 (mapv
                   (fn [item] (parse-query-binding item name))
                   (require-vector value (str "query '" name "' :from")))
                 predicates selection result-kind page (conj seen option))
             (= option ":where")
               (recur
-                (+ index 2) params bindings
+                (+ index 2) capabilities params bindings
                 (mapv
                   (fn [item] (parse-query-predicate item name))
                   (require-vector value (str "query '" name "' :where")))
                 selection result-kind page (conj seen option))
             (= option ":select")
-              (recur
-                (+ index 2) params bindings predicates
-                (mapv
-                  (fn [item] (parse-query-select item name))
-                  (require-vector value (str "query '" name "' :select")))
-                result-kind page (conj seen option))
+              (let [items
+                    (mapv
+                      (fn [item] (parse-query-select item name))
+                      (require-vector value (str "query '" name "' :select")))]
+                (if (and (> (count items) 0)
+                         (= (.-_tag (first items)) "IrQueryFieldSplice"))
+                  (parse-error
+                    (str "query '" name
+                         "' fields-from cannot be the first projection"))
+                  nil)
+                (recur
+                  (+ index 2) capabilities params bindings predicates items
+                  result-kind page (conj seen option)))
             (= option ":result")
               (let [kind (require-keyword value (str "query '" name "' :result"))]
                 (if (not (.includes [":one" ":optional" ":page"] kind))
@@ -1048,11 +1093,11 @@
                          "' :result must be :one, :optional, or :page"))
                   nil)
                 (recur
-                  (+ index 2) params bindings predicates selection
+                  (+ index 2) capabilities params bindings predicates selection
                   (subs kind 1) page (conj seen option)))
             :else
               (recur
-                (+ index 2) params bindings predicates selection result-kind
+                (+ index 2) capabilities params bindings predicates selection result-kind
                 (parse-query-page value name) (conj seen option))))))))
 
 ;; --- Detail tab parsing ---
@@ -1800,16 +1845,19 @@
     (mapv (fn [state] (.-name state)) defstates))
   nil)
 
-(defn parse-program-at
+(defn parse-program-resolved-at
   [src: String
    source-path: String
    package-id: String
-   package-version: String] -> Any
+   package-version: String
+   references: Any] -> Any
   (let [source-id (str package-id ":" source-path)
         source-unit
         (ir/->IrSourceUnit
           source-id source-path package-id package-version)
-        top-forms (sexpr/parse-all src)
+        top-forms
+        (config-reference/resolve-source-forms
+          (sexpr/parse-all src) references)
         parsed
         (mapv
           (fn [source-form]
@@ -1856,6 +1904,23 @@
         (or ns-name "wake.app")
         backend entities persist defstates publications queries lds smart-forms theme components views
         router layout))))
+
+(defn parse-program-at
+  [src: String
+   source-path: String
+   package-id: String
+   package-version: String] -> Any
+  (parse-program-resolved-at
+    src source-path package-id package-version nil))
+
+(defn parse-program-configured-at
+  [src: String
+   source-path: String
+   package-id: String
+   package-version: String
+   references: Any] -> Any
+  (parse-program-resolved-at
+    src source-path package-id package-version references))
 
 (defn parse-program [src: String] -> Any
   (parse-program-at src "<memory>" "application" ""))

@@ -8,6 +8,10 @@ import {
   readPluginArtifact,
   validateWakeLock,
 } from "./plugin-package.mjs";
+import {
+  checkPluginConfiguration,
+  configurationDeclarationIndex,
+} from "./plugin-configuration.mjs";
 import { generateDeploymentReceipt } from "./deployment-receipt.mjs";
 
 const DRIVER_SCHEMA_VERSION = 1;
@@ -90,46 +94,13 @@ function semanticValue(value, active = new Set()) {
   }
 }
 
-function configurationValue(value) {
-  if (value === null || ["boolean", "number", "string"].includes(typeof value)) {
-    return value;
-  }
-  if (Array.isArray(value)) return value.map(configurationValue);
-  if (value?._tag === "Sym") return { symbol: value.name };
-  if (value?._tag === "Kw") return { keyword: value.name };
-  if (value?._tag === "SexprVec") return value.items.map(configurationValue);
-  return semanticValue(value);
-}
-
-function validateConfigurationType(value, descriptor, label) {
-  const kind = descriptor?.kind;
-  if (kind === "string" && typeof value !== "string") fail(`${label} must be a string`);
-  if (kind === "integer" && !Number.isSafeInteger(value)) fail(`${label} must be an integer`);
-  if (kind === "boolean" && typeof value !== "boolean") fail(`${label} must be boolean`);
-  if (kind === "symbol" && value?._tag !== "Sym") fail(`${label} must be a symbol`);
-  if (kind === "keyword" && value?._tag !== "Kw") fail(`${label} must be a keyword`);
-  if (kind === "record" && value?._tag !== "SexprVec") fail(`${label} must be a record vector`);
-}
-
 function checkedConfiguration(use, manifest) {
-  const supplied = new Map((use.config ?? []).map((entry) => [entry.key, entry.value]));
-  for (const key of supplied.keys()) {
-    if (!(key in manifest.configuration)) {
-      fail(`use '${use.package_id}' supplies unknown configuration '${key}'`);
-    }
-  }
-  const result = {};
-  for (const key of Object.keys(manifest.configuration).sort()) {
-    const descriptor = manifest.configuration[key];
-    if (!supplied.has(key)) {
-      if (descriptor.required) fail(`use '${use.package_id}' requires configuration '${key}'`);
-      continue;
-    }
-    const value = supplied.get(key);
-    validateConfigurationType(value, descriptor.type, `use '${use.package_id}' configuration '${key}'`);
-    result[key] = configurationValue(value);
-  }
-  return result;
+  return checkPluginConfiguration(
+    use.config ?? [],
+    manifest.configuration,
+    `use '${use.package_id}'`,
+    fail,
+  );
 }
 
 function checkedAllow(use, manifest) {
@@ -261,7 +232,12 @@ function applyApplicationComposition(linked, direct) {
       kind: target.port.kind,
       package_id: target.manifest.packageId,
       port: extension.port,
-      target: target.port.target,
+      target: target.port.target.includes("/")
+        ? target.port.target
+        : target.resolved.configurationDeclarations.alias(
+            "entity",
+            target.port.target,
+          ),
     };
   });
   const extensionPorts = new Set();
@@ -436,14 +412,26 @@ function applyApplicationComposition(linked, direct) {
   };
 }
 
-function qualifyEntity(entity, alias, manifest, entityNames, stateNames) {
+function qualifyEntity(
+  entity,
+  alias,
+  manifest,
+  entityNames,
+  stateNames,
+  declarations,
+) {
   const localName = entity.name;
-  const entityStorageId = manifest.storageIds.entities[localName];
+  const declarationId = declarations.declarationId("entity", localName);
+  const entityStorageId = manifest.storageIds.entities[declarationId];
   if (typeof entityStorageId !== "string") {
-    fail(`plugin '${manifest.packageId}' entity '${localName}' has no fixed storage ID`);
+    fail(`plugin '${manifest.packageId}' entity '${declarationId}' has no fixed storage ID`);
   }
   const attrs = entity.attrs.map((attr) => {
-    const key = `${localName}/${attr.name}`;
+    const key = declarations.declarationId(
+      "field",
+      attr.name,
+      { ownerId: declarationId },
+    );
     const storageId = manifest.storageIds.fields[key];
     if (typeof storageId !== "string") {
       fail(`plugin '${manifest.packageId}' field '${key}' has no fixed storage ID`);
@@ -463,7 +451,7 @@ function qualifyEntity(entity, alias, manifest, entityNames, stateNames) {
   };
 }
 
-function qualifyPluginProgram(program, use, manifest) {
+function qualifyPluginProgram(program, use, manifest, declarations) {
   if (program.application != null) fail(`plugin '${manifest.packageId}' must not declare application`);
   if (program.backend != null) fail(`plugin '${manifest.packageId}' must not select a backend`);
   if (program.persist != null) fail(`plugin '${manifest.packageId}' must not declare persistence`);
@@ -482,38 +470,50 @@ function qualifyPluginProgram(program, use, manifest) {
 
   if (allow.has("schema")) {
     for (const exported of manifest.exports.entities) {
-      if (!entityNames.has(exported)) {
+      const localName = declarations.alias("entity", exported);
+      if (!entityNames.has(localName)) {
         fail(`plugin '${manifest.packageId}' exports missing entity '${exported}'`);
       }
     }
   }
   if (allow.has("query")) {
     for (const exported of manifest.exports.queries) {
-      if (!queryNames.has(exported)) {
+      const localName = declarations.alias("query", exported);
+      if (!queryNames.has(localName)) {
         fail(`plugin '${manifest.packageId}' exports missing query '${exported}'`);
       }
     }
     for (const declared of queryNames) {
-      if (!manifest.exports.queries.includes(declared)) {
+      const declarationId = declarations.declarationId("query", declared);
+      if (!manifest.exports.queries.includes(declarationId)) {
         fail(`plugin '${manifest.packageId}' declares unexported query '${declared}'`);
       }
     }
   }
   if (allow.has("route")) {
     for (const exported of manifest.exports.routes) {
-      if (!routeNames.has(exported)) {
+      const localName = declarations.alias("route", exported);
+      if (!routeNames.has(localName)) {
         fail(`plugin '${manifest.packageId}' exports missing route template '${exported}'`);
       }
     }
     for (const declared of routeNames) {
-      if (!manifest.exports.routes.includes(declared)) {
+      const declarationId = declarations.declarationId("route", declared);
+      if (!manifest.exports.routes.includes(declarationId)) {
         fail(`plugin '${manifest.packageId}' declares unexported route template '${declared}'`);
       }
     }
   }
 
   const entities = allow.has("schema")
-    ? program.entities.map((entity) => qualifyEntity(entity, alias, manifest, entityNames, stateNames))
+    ? program.entities.map((entity) => qualifyEntity(
+        entity,
+        alias,
+        manifest,
+        entityNames,
+        stateNames,
+        declarations,
+      ))
     : [];
   const defstates = allow.has("schema")
     ? program.defstates.map((state) => ({ ...state, name: qualify(alias, state.name) }))
@@ -669,7 +669,12 @@ function maximumMigrationOrdinal(manifest) {
   }, 0);
 }
 
-async function linkProgram(root, sourcePath, compilerVersion, parseProgramAt) {
+async function linkProgram(
+  root,
+  sourcePath,
+  compilerVersion,
+  parseProgramConfiguredAt,
+) {
   const uses = root.uses ?? [];
   if (uses.length === 0) {
     return {
@@ -709,18 +714,30 @@ async function linkProgram(root, sourcePath, compilerVersion, parseProgramAt) {
   }
 
   for (const { artifact, use } of direct) {
-    const configuration = checkedConfiguration(use, artifact.manifest);
+    const checked = checkedConfiguration(use, artifact.manifest);
+    const declarations = configurationDeclarationIndex(
+      checked.declarations,
+      `plugin '${artifact.manifest.packageId}' configuration declarations`,
+    );
     const entryFile = artifact.files.find((file) => file.path === artifact.manifest.entry);
     if (entryFile === undefined) fail(`plugin '${artifact.manifest.packageId}' entry is absent`);
-    const program = parseProgramAt(
+    const program = parseProgramConfiguredAt(
       entryFile.content,
       artifact.manifest.entry,
       artifact.manifest.packageId,
       artifact.manifest.version,
+      checked.references,
     );
-    const contribution = qualifyPluginProgram(program, use, artifact.manifest);
-    direct.find((candidate) => candidate.use === use).configuration = configuration;
-    direct.find((candidate) => candidate.use === use).contribution = contribution;
+    const contribution = qualifyPluginProgram(
+      program,
+      use,
+      artifact.manifest,
+      declarations,
+    );
+    const target = direct.find((candidate) => candidate.use === use);
+    target.configuration = checked.canonical;
+    target.configurationDeclarations = declarations;
+    target.contribution = contribution;
   }
 
   let linked = { ...root };
@@ -934,7 +951,10 @@ async function main() {
   const packageDocument = JSON.parse(await Bun.file(join(webRoot, "package.json")).text());
   const compilerVersion = nonempty(packageDocument.version, "Wake compiler version");
   const distUrl = Bun.pathToFileURL(`${options.dist.replace(/\/+$/u, "")}/`);
-  const { parse_program_at: parseProgramAt } = await import(new URL("reader.js", distUrl).href);
+  const {
+    parse_program_at: parseProgramAt,
+    parse_program_configured_at: parseProgramConfiguredAt,
+  } = await import(new URL("reader.js", distUrl).href);
   const { check_program: checkProgram } = await import(new URL("graph.js", distUrl).href);
   const { gen_program_bang: generateProgram } = await import(new URL("codegen.js", distUrl).href);
   const { gen_fram: generateFram } = await import(new URL("emit-fram.js", distUrl).href);
@@ -946,7 +966,7 @@ async function main() {
     root,
     options.source,
     compilerVersion,
-    parseProgramAt,
+    parseProgramConfiguredAt,
   );
   const checked = checkProgram(linked);
   const fingerprint = sha256Digest(canonicalDocument(semanticValue(checked)));
