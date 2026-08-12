@@ -2,6 +2,7 @@ const QUERY_TIMEOUT_MS = 5_000;
 const MAX_PAGE_LIMIT = 247;
 const MAX_SINGULAR_ROWS = 4_096;
 const MAX_QUERY_PAGES = 32;
+const MAX_QUERY_CAPABILITIES = 16;
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/;
@@ -501,14 +502,34 @@ function compatibleOperands(left, right) {
   return typeFamily(left.type) === typeFamily(right.type);
 }
 
+function queryCapabilities(value, label) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_QUERY_CAPABILITIES) {
+    fail(
+      "gateway/invalid-plan",
+      `${label}.capabilities must contain between 1 and ${MAX_QUERY_CAPABILITIES} capabilities`,
+    );
+  }
+  const seen = new Set();
+  const capabilities = value.map((capability, index) => {
+    const checked = requiredName(capability, `${label}.capabilities[${index}]`);
+    if (seen.has(checked)) {
+      fail("gateway/invalid-plan", `${label}.capabilities repeats ${checked}`);
+    }
+    seen.add(checked);
+    return checked;
+  });
+  return Object.freeze(capabilities);
+}
+
 function compileQuery(entry, surface, queryIndex) {
   exactRecord(
     entry,
-    ["name", "parameters", "bindings", "where", "select", "result", "dependencies"],
+    ["name", "capabilities", "parameters", "bindings", "where", "select", "result", "dependencies"],
     `queries[${queryIndex}]`,
   );
   const name = requiredName(entry.name, `queries[${queryIndex}].name`);
   const label = `query ${name}`;
+  const capabilities = queryCapabilities(entry.capabilities, label);
   const parameters = parameterMap(entry.parameters, label);
   const bindings = bindingMap(entry.bindings, surface, label);
   const referencedFields = new Map();
@@ -715,6 +736,7 @@ function compileQuery(entry, surface, queryIndex) {
 
   return Object.freeze({
     name,
+    capabilities,
     parameters: Object.freeze(parameters.list),
     bindings: Object.freeze(bindings.list),
     columns: Object.freeze(columns),
@@ -780,6 +802,23 @@ function executionOptions(query, source) {
     options.cursor = cloneTerm(source.cursor, `${query.name}.cursor`, "gateway/invalid-input");
   }
   return options;
+}
+
+function requireQueryAuthority(query, value) {
+  if (!plainObject(value) || typeof value.id !== "string" || value.id.length === 0
+      || !Array.isArray(value.capabilities) || value.capabilities.length === 0
+      || value.capabilities.some(capability => (
+        typeof capability !== "string" || capability.length === 0
+      ))) {
+    fail("gateway/forbidden", `query ${query.name} requires host-derived capability grants`);
+  }
+  const granted = new Set(value.capabilities);
+  if (!query.capabilities.some(capability => granted.has(capability))) {
+    fail(
+      "gateway/forbidden",
+      `query ${query.name} requires one of: ${query.capabilities.join(", ")}`,
+    );
+  }
 }
 
 function checkedResponse(response, query, requestedAsOf) {
@@ -1023,10 +1062,11 @@ export function createNamedQueryRuntime(entries, { fram, entities } = {}) {
   const compiled = compileNamedQueries(entries, entities);
   return Object.freeze({
     names: compiled.names,
-    async execute(name, input, options = {}) {
+    async execute(name, input, options = {}, authority) {
       requiredName(name, "query name", "gateway/invalid-input");
       const query = compiled.get(name);
       if (!query) fail("gateway/unknown-query", `unknown named query ${name}`);
+      requireQueryAuthority(query, authority);
       const encodedParameters = exactInput(query, input);
       const checkedOptions = executionOptions(query, options);
       const structuredQuery = query.lower(encodedParameters);

@@ -76,6 +76,7 @@ const entities = [
 
 const pageQuery = {
   name: "releases-by-channel",
+  capabilities: ["release:read", "release:review"],
   parameters: [{ name: "channel", type: "Keyword" }],
   bindings: [{ name: "release", entity: "release" }],
   where: [{
@@ -119,6 +120,7 @@ const pageQuery = {
 
 const oneQuery = {
   name: "release-by-id",
+  capabilities: ["release:read"],
   parameters: [{ name: "id", type: "String" }],
   bindings: [
     { name: "release", entity: "release" },
@@ -208,6 +210,15 @@ const oneQuery = {
   ],
 };
 
+const reader = Object.freeze({
+  id: "actor-1",
+  capabilities: Object.freeze(["release:read"]),
+});
+const reviewer = Object.freeze({
+  id: "actor-2",
+  capabilities: Object.freeze(["release:review"]),
+});
+
 function mockFram(responses) {
   const queue = [...responses];
   const calls = [];
@@ -267,6 +278,7 @@ describe("named query plan lowering", () => {
       "releases-by-channel",
       { channel: "stable" },
       { limit: 1, asOf: "7" },
+      reviewer,
     )).resolves.toEqual({
       rows: [{ id: "r-1", title: "First" }],
       page: { done: false, nextCursor: cursor },
@@ -333,6 +345,7 @@ describe("named query plan lowering", () => {
       "releases-by-channel",
       { channel: "stable" },
       { cursor, asOf: 8n },
+      reader,
     );
 
     expect(mock.calls[0].options).toEqual({
@@ -356,6 +369,29 @@ describe("named query plan lowering", () => {
       cardinality: "multi",
       valueKind: "literal",
     }] }], entities), "gateway/invalid-plan");
+  });
+
+  test("requires a frozen bounded set of unique capability names", () => {
+    const { capabilities: _capabilities, ...missing } = pageQuery;
+    const invalid = [
+      missing,
+      { ...pageQuery, capabilities: [] },
+      { ...pageQuery, capabilities: ["release:read", "release:read"] },
+      { ...pageQuery, capabilities: [""] },
+      { ...pageQuery, capabilities: [23] },
+      {
+        ...pageQuery,
+        capabilities: Array.from({ length: 17 }, (_, index) => `release:read:${index}`),
+      },
+    ];
+    for (const entry of invalid) {
+      expectThrowsCode(() => compileNamedQueries([entry], entities), "gateway/invalid-plan");
+    }
+
+    const capabilities = compileNamedQueries([pageQuery], entities)
+      .get("releases-by-channel").capabilities;
+    expect(capabilities).toEqual(["release:read", "release:review"]);
+    expect(Object.isFrozen(capabilities)).toBe(true);
   });
 
   test("rejects open records and forged operand metadata before FRAM is reachable", () => {
@@ -393,6 +429,58 @@ describe("named query plan lowering", () => {
 });
 
 describe("named query execution", () => {
+  test("requires one exact checked capability and authorizes any declared choice", async () => {
+    const allowed = mockFram([
+      response([], 6n, { ordinal: 0, done: true, nextCursor: null }),
+    ]);
+    const runtime = createNamedQueryRuntime([pageQuery], { fram: allowed.fram, entities });
+
+    await expect(runtime.execute(
+      "releases-by-channel",
+      { channel: "stable" },
+      {},
+      reviewer,
+    )).resolves.toEqual({
+      rows: [],
+      page: { done: true, nextCursor: null },
+      servedVersion: 6n,
+    });
+    expect(allowed.calls).toHaveLength(1);
+  });
+
+  test("rejects missing, empty, malformed, and denied authority before FRAM dispatch", async () => {
+    const mock = mockFram([]);
+    const runtime = createNamedQueryRuntime([pageQuery], { fram: mock.fram, entities });
+    const denied = [
+      undefined,
+      null,
+      {},
+      { id: "", capabilities: ["release:read"] },
+      { id: "actor-1", capabilities: [] },
+      { id: "actor-1", capabilities: [""] },
+      { id: "actor-1", capabilities: [17] },
+      { id: "actor-1", capabilities: ["read"] },
+      { id: "actor-1", capabilities: ["release:write"] },
+    ];
+
+    for (const authority of denied) {
+      await expectRejectsCode(
+        runtime.execute(
+          "releases-by-channel",
+          { channel: "stable" },
+          {},
+          authority,
+        ),
+        "gateway/forbidden",
+      );
+    }
+    await expectRejectsCode(
+      runtime.execute("releases-by-channel", {}, {}, { id: "actor-1", capabilities: [] }),
+      "gateway/forbidden",
+    );
+    expect(mock.calls).toHaveLength(0);
+  });
+
   test("hydrates unique multi values across cursor-pinned pages and decodes refs", async () => {
     const release = subject("release", "r-1");
     const owner = subject("person", "p-1");
@@ -416,7 +504,7 @@ describe("named query execution", () => {
     ]);
     const runtime = createNamedQueryRuntime([oneQuery], { fram: mock.fram, entities });
 
-    await expect(runtime.execute("release-by-id", { id: "r-1" }, { asOf: 11n })).resolves.toEqual({
+    await expect(runtime.execute("release-by-id", { id: "r-1" }, { asOf: 11n }, reader)).resolves.toEqual({
       row: {
         id: "r-1",
         title: "First",
@@ -466,7 +554,7 @@ describe("named query execution", () => {
     ]);
     const runtime = createNamedQueryRuntime([oneQuery], { fram: mock.fram, entities });
 
-    await expect(runtime.execute("release-by-id", { id: "r-1" })).resolves.toEqual({
+    await expect(runtime.execute("release-by-id", { id: "r-1" }, {}, reader)).resolves.toEqual({
       row: {
         id: "r-1",
         title: "First",
@@ -486,7 +574,7 @@ describe("named query execution", () => {
       fram: mockFram([response([], 4n, { ordinal: 0, done: true, nextCursor: null })]).fram,
     });
 
-    await expect(runtime.execute("maybe-release", { id: "absent" })).resolves.toEqual({
+    await expect(runtime.execute("maybe-release", { id: "absent" }, {}, reader)).resolves.toEqual({
       row: null,
       servedVersion: 4n,
     });
@@ -497,19 +585,19 @@ describe("named query execution", () => {
     const runtime = createNamedQueryRuntime([pageQuery], { fram: mock.fram, entities });
 
     await expectRejectsCode(
-      runtime.execute("releases-by-channel", {}),
+      runtime.execute("releases-by-channel", {}, {}, reader),
       "gateway/invalid-input",
     );
     await expectRejectsCode(
-      runtime.execute("releases-by-channel", { channel: "stable", extra: true }),
+      runtime.execute("releases-by-channel", { channel: "stable", extra: true }, {}, reader),
       "gateway/invalid-input",
     );
     await expectRejectsCode(
-      runtime.execute("releases-by-channel", { channel: 1 }),
+      runtime.execute("releases-by-channel", { channel: 1 }, {}, reader),
       "gateway/type-mismatch",
     );
     await expectRejectsCode(
-      runtime.execute("releases-by-channel", { channel: "stable" }, { limit: 6 }),
+      runtime.execute("releases-by-channel", { channel: "stable" }, { limit: 6 }, reader),
       "gateway/invalid-input",
     );
     expect(mock.calls).toHaveLength(0);
@@ -534,7 +622,7 @@ describe("named query execution", () => {
     });
 
     await expectRejectsCode(
-      runtime.execute("release-by-id", { id: "r-1" }),
+      runtime.execute("release-by-id", { id: "r-1" }, {}, reader),
       "gateway/data-integrity",
     );
   });
@@ -556,7 +644,7 @@ describe("named query execution", () => {
       ]).fram,
     });
     await expectRejectsCode(
-      multiple.execute("release-by-id", { id: "r-1" }),
+      multiple.execute("release-by-id", { id: "r-1" }, {}, reader),
       "gateway/data-integrity",
     );
 
@@ -569,7 +657,7 @@ describe("named query execution", () => {
       ]).fram,
     });
     await expectRejectsCode(
-      skew.execute("release-by-id", { id: "r-1" }),
+      skew.execute("release-by-id", { id: "r-1" }, {}, reader),
       "gateway/protocol",
     );
   });
