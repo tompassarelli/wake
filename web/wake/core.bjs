@@ -6,1144 +6,995 @@
 
 (js/export
   (defunion (Ref T)
-    (WakeRef [id: String])))
+    (WakeRef [(id String)])))
 
 ;; Nominal references carry declaration identity and checked-source provenance.
 (js/export
   (defrecord EntityRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord FieldRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord StateRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord StateValueRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord ValueTypeRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord ProviderPortRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord RendererRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord CapabilityRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord QueryRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord CommandRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord ComponentRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord ViewRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord RouteTemplateRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
+
+(js/export
+  (defrecord PublicationRef
+    [(declaration-id String) (name String) (provenance-token String)]))
+
+(js/export
+  (defrecord FormRef
+    [(declaration-id String) (name String) (provenance-token String)]))
+
+(js/export
+  (defrecord ListDetailRef
+    [(declaration-id String) (name String) (provenance-token String)]))
+
+(js/export
+  (defrecord ReceiptEntityRef
+    [(declaration-id String) (name String) (provenance-token String)]))
+
+(js/export
+  (defrecord ReceiptFieldRef
+    [(declaration-id String) (name String) (provenance-token String)]))
+
+(js/export
+  (defrecord ExtensionFieldRef
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord EntityFieldsPortRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord ComponentSlotRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord RouteSlotRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord PluginUseRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord IntRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord StringRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord BoolRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord KeywordRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord EntityNameRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord FieldNameRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord StateNameRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord StateValueNameRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord ExternalEntityRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord ValueRoleRef
-    [declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(declaration-id String) (name String) (provenance-token String)]))
 
 (js/export
   (defrecord ImportedIntRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedStringRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedBoolRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedKeywordRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedEntityNameRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedFieldNameRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedStateNameRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedStateValueNameRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedExternalEntityRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedValueRoleRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedProviderPortRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedEntityFieldsPortRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedComponentSlotRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
 
 (js/export
   (defrecord ImportedRouteSlotRef
-    [use: PluginUseRef
-     declaration-id: String
-     name: String
-     provenance-token: String]))
+    [(use PluginUseRef)
+     (declaration-id String)
+     (name String)
+     (provenance-token String)]))
+
+(js/export
+  (defrecord EntityDeclarationName [(value String)]))
+
+(js/export
+  (defrecord FieldDeclarationName [(value String)]))
+
+(js/export
+  (defrecord ReceiptFieldDeclarationName [(value String)]))
+
+(js/export
+  (defrecord StateDeclarationName [(value String)]))
+
+(js/export
+  (defrecord StateValueDeclarationName [(value Keyword)]))
 
 (js/export
   (defunion AuthoritySpec
-    (FramAuthority [service: String])
-    (LocalStorageAuthority [namespace: String])
-    (MemoryAuthority [namespace: String])))
+    (FramAuthority [(service String)])
+    (LocalStorageAuthority [(namespace String)])
+    (MemoryAuthority [(namespace String)])))
 
 (js/export
-  (defrecord StorageSpec [entity: EntityRef storage-id: String]))
+  (defrecord StorageSpec [(entity EntityRef) (storage-id String)]))
 
 (js/export
-  (defrecord IdentitySpec [entity: EntityRef field: FieldRef]))
+  (defrecord IdentitySpec [(entity EntityRef) (field FieldRef)]))
 
 (js/export
   (defunion EntityReferenceTarget
-    (DeclaredEntityTarget [entity: EntityRef])
-    (ExternalEntityTarget [role: ExternalEntityRoleRef])))
+    (DeclaredEntityTarget [(entity EntityRef)])
+    (ExternalEntityTarget [(role ExternalEntityRoleRef)])))
+
+(js/export
+  (defunion EntityFieldsTarget
+    (DeclaredEntityFieldsTarget [(entity EntityRef)])
+    (ReceiptEntityFieldsTarget [(entity ReceiptEntityRef)])))
 
 (js/export
   (defunion FieldCardinality
-    (SingleField [unit: Nil])
-    (ManyField [unit: Nil])))
+    (SingleField [(unit Nil)])
+    (ManyField [(unit Nil)])))
 
 (js/export
   (defunion FieldWriteMode
-    (IdentityWrite [unit: Nil])
-    (CreateWrite [unit: Nil])
-    (CommandFieldWrite [unit: Nil])
-    (ServerWrite [unit: Nil])))
+    (IdentityWrite [(unit Nil)])
+    (CreateWrite [(unit Nil)])
+    (SetWrite [(unit Nil)])
+    (CommandFieldWrite [(unit Nil)])
+    (ServerWrite [(unit Nil)])))
 
 (js/export
   (defunion FieldValueType
-    (StringField [unit: Nil])
-    (IntField [unit: Nil])
-    (BoolField [unit: Nil])
-    (KeywordField [unit: Nil])
-    (InstantField [unit: Nil])
-    (DigestField [unit: Nil])
-    (StateField [state: StateRef])
-    (RefField [target: EntityReferenceTarget])
-    (ValueField [value-type: ValueTypeRef])))
+    (StringField [(unit Nil)])
+    (IntField [(unit Nil)])
+    (BoolField [(unit Nil)])
+    (KeywordField [(unit Nil)])
+    (InstantField [(unit Nil)])
+    (DigestField [(unit Nil)])
+    (StateField [(state StateRef)])
+    (RefField [(target EntityReferenceTarget)])
+    (ValueField [(value-type ValueTypeRef)])))
 
 (js/export
   (defrecord FieldSpec
-    [ref: FieldRef
-     owner: EntityRef
-     value-type: FieldValueType
-     cardinality: FieldCardinality
-     write: FieldWriteMode
-     storage-id: String?
-     required: Bool]))
+    [(ref FieldRef)
+     (owner EntityRef)
+     (value-type FieldValueType)
+     (cardinality FieldCardinality)
+     (write FieldWriteMode)
+     (storage-id String?)
+     (required Bool)]))
+
+(js/export
+  (defunion DerivedExpr
+    (FieldDerivedExpr [(field FieldRef)])
+    (StringDerivedExpr [(value String)])
+    (ConcatDerivedExpr [(parts (Vec DerivedExpr))])))
+
+(js/export
+  (defrecord DerivedFieldSpec
+    [(ref FieldRef)
+     (owner EntityRef)
+     (expression DerivedExpr)
+     (dependencies (Vec FieldRef))]))
 
 (js/export
   (defrecord EntityDeclarationSpec
-    [ref: EntityRef
-     record-name: String
-     fields: (Vec FieldSpec)
-     storage-id: String?]))
+    [(ref EntityRef)
+     (record-name String)
+     (fields (Vec FieldSpec))
+     (derived-fields (Vec DerivedFieldSpec))
+     (storage-id String?)]))
 
 (js/export
   (defrecord StateValueSpec
-    [ref: StateValueRef
-     state: StateRef
-     value: Keyword]))
+    [(ref StateValueRef) (state StateRef) (value Keyword)]))
 
 (js/export
-  (defrecord StateTransitionSpec [from: StateValueRef to: (Vec StateValueRef)]))
+  (defrecord StateTransitionSpec [(from StateValueRef) (to (Vec StateValueRef))]))
 
 (js/export
   (defrecord StateDeclarationSpec
-    [ref: StateRef
-     values: (Vec StateValueSpec)
-     initial: StateValueRef
-     transitions: (Vec StateTransitionSpec)]))
+    [(ref StateRef)
+     (values (Vec StateValueSpec))
+     (initial StateValueRef)
+     (transitions (Vec StateTransitionSpec))]))
 
 (js/export
-  (defrecord ConfigProjection [role: ValueRoleRef path: (Vec String)]))
+  (defrecord ConfigProjection [(role ValueRoleRef) (path (Vec String))]))
 
 (js/export
   (defunion CommandExpr
-    (CommandInputExpr [name: Keyword])
-    (CommandInjectedExpr [name: Keyword])
-    (CommandStringExpr [value: String])
-    (CommandIntExpr [value: Int])
-    (CommandBoolExpr [value: Bool])
-    (CommandKeywordExpr [value: Keyword])
-    (CommandNilExpr [unit: Nil])
-    (CommandActorExpr [field: Keyword])
-    (CommandReceiptTimeExpr [unit: Nil])
-    (CommandRecordExpr [fields: (Vec CommandRecordField)])
-    (CommandExtensionExpr [port: EntityFieldsPortRef input: Keyword])
-    (CommandConfiguredExpr [projection: ConfigProjection])
-    (CommandStateValueExpr [value: StateValueRef])))
+    (CommandInputExpr [(name Keyword)])
+    (CommandInjectedExpr [(name Keyword)])
+    (CommandStringExpr [(value String)])
+    (CommandIntExpr [(value Int)])
+    (CommandBoolExpr [(value Bool)])
+    (CommandKeywordExpr [(value Keyword)])
+    (CommandNilExpr [(unit Nil)])
+    (CommandActorExpr [(field Keyword)])
+    (CommandReceiptTimeExpr [(unit Nil)])
+    (CommandRecordExpr [(fields (Vec CommandRecordField))])
+    (CommandExtensionExpr [(port EntityFieldsPortRef) (input Keyword)])
+    (CommandConfiguredExpr [(projection ConfigProjection)])
+    (CommandStateValueExpr [(value StateValueRef)])))
 
 (js/export
-  (defrecord CommandRecordField [name: Keyword value: CommandExpr]))
+  (defrecord CommandRecordField [(name Keyword) (value CommandExpr)]))
 
 (js/export
   (defunion CommandPredicate
-    (EqualPredicate [left: CommandExpr right: CommandExpr])
-    (NonNullPredicate [value: CommandExpr])
-    (NotContainsPredicate [collection: CommandExpr value: CommandExpr])))
+    (EqualPredicate [(left CommandExpr) (right CommandExpr)])
+    (NonNullPredicate [(value CommandExpr)])
+    (NotContainsPredicate [(collection CommandExpr) (value CommandExpr)])))
 
 (js/export
   (defrecord CommandGuardSpec
-    [entity: EntityRef
-     id: CommandExpr
-     field: FieldRef
-     expected: CommandExpr
-     when: CommandPredicate?]))
+    [(entity EntityRef)
+     (id CommandExpr)
+     (field FieldRef)
+     (expected CommandExpr)
+     (when CommandPredicate?)]))
 
 (js/export
   (defrecord CommandWrite
-    [field: FieldRef
-     value: CommandExpr
-     allowed-current: CommandExpr?
-     omit-if-null: Bool]))
+    [(field FieldRef)
+     (value CommandExpr)
+     (allowed-current CommandExpr?)
+     (omit-if-null Bool)]))
+
+(js/export
+  (defunion CommandWriteSpec
+    (FieldCommandWrite [(write CommandWrite)])
+    (ExtensionCommandWrite [(port EntityFieldsPortRef) (input Keyword)])))
 
 (js/export
   (defunion CommandStep
-    (AssertStep [predicate: CommandPredicate])
-    (RequireStep
-      [entity: EntityRef
-       id: CommandExpr
-       when: CommandPredicate?])
-    (RequireEachStep [entity: EntityRef ids: CommandExpr])
-    (GuardStep [guard: CommandGuardSpec])
+    (AssertStep [(predicate CommandPredicate)])
+    (RequireStep [(entity EntityRef) (id CommandExpr) (when CommandPredicate?)])
+    (RequireEachStep [(entity EntityRef) (ids CommandExpr)])
+    (GuardStep [(guard CommandGuardSpec)])
     (CreateStep
-      [entity: EntityRef
-       id: CommandExpr
-       fields: (Vec CommandWrite)])
+      [(entity EntityRef) (id CommandExpr) (fields (Vec CommandWriteSpec))])
     (UpdateStep
-      [entity: EntityRef
-       id: CommandExpr
-       fields: (Vec CommandWrite)
-       when: CommandPredicate?])))
+      [(entity EntityRef)
+       (id CommandExpr)
+       (fields (Vec CommandWriteSpec))
+       (when CommandPredicate?)])))
 
 (js/export
-  (defrecord CommandInputField [name: Keyword value-type: ValueTypeSpec]))
+  (defrecord CommandInputField [(name Keyword) (value-type ValueTypeSpec)]))
 
 (js/export
   (defunion CommandInjection
-    (GeneratedIdInjection [name: Keyword])
+    (GeneratedIdInjection [(name Keyword)])
     (ProviderInjection
-      [name: Keyword
-       port: ProviderPortRef
-       input: CommandExpr
-       output: ValueTypeSpec])
-    (ValidateWithInjection [port: ProviderPortRef input: CommandExpr])
-    (CanonicalDigestInjection [name: Keyword input: CommandExpr])))
+      [(name Keyword)
+       (port ProviderPortRef)
+       (input CommandExpr)
+       (output ValueTypeSpec)])
+    (ValidateWithInjection [(port ProviderPortRef) (input CommandExpr)])
+    (CanonicalDigestInjection [(name Keyword) (input CommandExpr)])))
 
 (js/export
   (defrecord CommandResultField
-    [name: Keyword
-     value-type: ValueTypeSpec
-     value: CommandExpr]))
+    [(name Keyword) (value-type ValueTypeSpec) (value CommandExpr)]))
 
 (js/export
-  (defrecord ReceiptResultField
-    [name: Keyword
-     field: FieldRef
-     value-type: ValueTypeSpec
-     target: EntityRef?]))
+  (defrecord ReceiptResultField [(name Keyword) (field ReceiptFieldRef)]))
+
+(js/export
+  (defrecord ReceiptEntitySpec [(ref ReceiptEntityRef) (storage-id String)]))
+
+(js/export
+  (defrecord ReceiptFieldDeclarationSpec
+    [(ref ReceiptFieldRef)
+     (owner ReceiptEntityRef)
+     (value-type ValueTypeSpec)
+     (target EntityRef?)
+     (storage-id String)]))
 
 (js/export
   (defrecord ReceiptSpec
-    [results: (Vec ReceiptResultField)
-     extensions: (Vec EntityFieldsPortRef)]))
+    [(results (Vec ReceiptResultField)) (extensions (Vec EntityFieldsPortRef))]))
 
 (js/export
   (defrecord CommandSpec
-    [ref: CommandRef
-     capabilities: (Vec CapabilityRef)
-     normalizer-version: Int
-     input: (Vec CommandInputField)
-     injections: (Vec CommandInjection)
-     steps: (Vec CommandStep)
-     result: (Vec CommandResultField)
-     receipt: ReceiptSpec]))
+    [(ref CommandRef)
+     (capabilities (Vec CapabilityRef))
+     (normalizer-version Int)
+     (input (Vec CommandInputField))
+     (injections (Vec CommandInjection))
+     (steps (Vec CommandStep))
+     (result (Vec CommandResultField))
+     (receipt ReceiptSpec)]))
 
 (js/export
-  (defrecord CapabilitySpec [ref: CapabilityRef guards: (Vec CommandGuardSpec)]))
+  (defrecord CapabilitySpec
+    [(ref CapabilityRef) (guards (Vec CommandGuardSpec))]))
 
 (js/export
-  (defrecord ValueRecordEntry [name: Keyword value: ValueExpr]))
+  (defrecord ValueRecordEntry [(name Keyword) (value ValueExpr)]))
 
 (js/export
   (defunion ValueExpr
-    (LiteralStringValue [value: String])
-    (LiteralIntegerValue [value: Int])
-    (LiteralBooleanValue [value: Bool])
-    (LiteralKeywordValue [value: Keyword])
-    (LiteralNilValue [unit: Nil])
-    (RecordValue [fields: (Vec ValueRecordEntry)])
-    (ListValue [items: (Vec ValueExpr)])
-    (BoundFieldValue [field: FieldRef])
-    (ConfigValue [role: ValueRoleRef])
-    (ConfigProjectionValue [projection: ConfigProjection])))
+    (LiteralStringValue [(value String)])
+    (LiteralIntegerValue [(value Int)])
+    (LiteralBooleanValue [(value Bool)])
+    (LiteralKeywordValue [(value Keyword)])
+    (LiteralNilValue [(unit Nil)])
+    (RecordValue [(fields (Vec ValueRecordEntry))])
+    (ListValue [(items (Vec ValueExpr))])
+    (BoundFieldValue [(field FieldRef)])
+    (ConfigValue [(role ValueRoleRef)])
+    (ConfigProjectionValue [(projection ConfigProjection)])))
 
 (js/export
   (defrecord ValueRecordField
-    [name: String
-     value-type: ValueTypeSpec
-     required: Bool]))
+    [(name String) (value-type ValueTypeSpec) (required Bool)]))
 
 (js/export
-  (defrecord ValueTaggedVariant [tag: String fields: (Vec ValueRecordField)]))
+  (defrecord ValueTaggedVariant [(tag String) (fields (Vec ValueRecordField))]))
 
 (js/export
   (defunion ValueLiteral
-    (StringLiteral [value: String])
-    (IntegerLiteral [value: Int])
-    (BooleanLiteral [value: Bool])
-    (KeywordLiteral [value: Keyword])
-    (NilLiteral [unit: Nil])))
+    (StringLiteral [(value String)])
+    (IntegerLiteral [(value Int)])
+    (BooleanLiteral [(value Bool)])
+    (KeywordLiteral [(value Keyword)])
+    (NilLiteral [(unit Nil)])))
 
 (js/export
   (defunion ListNormalization
-    (SortUniqueList [unit: Nil])))
+    (SortUniqueList [(unit Nil)])))
 
 (js/export
   (defunion ValueTypeSpec
     (StringValueType
-      [minimum-scalars: BoundInt?
-       maximum-scalars: BoundInt?
-       maximum-bytes: BoundInt?])
-    (IntegerValueType [minimum: BoundInt? maximum: BoundInt?])
-    (BooleanValueType [unit: Nil])
-    (DigestValueType [unit: Nil])
-    (InstantValueType [unit: Nil])
-    (KeywordValueType [allowed: (Vec Keyword)])
-    (EnumValueType [allowed: (Vec ValueLiteral)])
-    (EntityReferenceValueType [entity: EntityRef])
-    (StateValueType [state: StateRef])
-    (RecordValueType [fields: (Vec ValueRecordField)])
-    (TaggedValueType [tag-field: String variants: (Vec ValueTaggedVariant)])
+      [(minimum-scalars BoundInt?)
+       (maximum-scalars BoundInt?)
+       (maximum-bytes BoundInt?)])
+    (IntegerValueType [(minimum BoundInt?) (maximum BoundInt?)])
+    (BooleanValueType [(unit Nil)])
+    (DigestValueType [(unit Nil)])
+    (InstantValueType [(unit Nil)])
+    (KeywordValueType [(allowed (Vec Keyword))])
+    (EnumValueType [(allowed (Vec ValueLiteral))])
+    (EntityReferenceValueType [(entity EntityRef)])
+    (StateValueType [(state StateRef)])
+    (RecordValueType [(fields (Vec ValueRecordField))])
+    (TaggedValueType [(tag-field String) (variants (Vec ValueTaggedVariant))])
     (ListValueType
-      [item: ValueTypeSpec
-       minimum-items: BoundInt?
-       maximum-items: BoundInt?
-       normalization: ListNormalization?])
-    (ExtensionValueType [port: EntityFieldsPortRef])
-    (NullableValueType [value-type: ValueTypeSpec])
-    (NamedValueType [value-type: ValueTypeRef])
-    (LiteralValueType [literal: ValueLiteral])))
+      [(item ValueTypeSpec)
+       (minimum-items BoundInt?)
+       (maximum-items BoundInt?)
+       (normalization ListNormalization?)])
+    (ExtensionValueType [(port EntityFieldsPortRef)])
+    (NullableValueType [(value-type ValueTypeSpec)])
+    (NamedValueType [(value-type ValueTypeRef)])
+    (LiteralValueType [(literal ValueLiteral)])))
 
 (js/export
-  (defrecord ValueTypeDefinition [ref: ValueTypeRef spec: ValueTypeSpec]))
+  (defrecord ValueTypeDefinition [(ref ValueTypeRef) (spec ValueTypeSpec)]))
 
 (js/export
   (defrecord ValueEnvelopeSpec
-    [maximum-bytes: BoundInt
-     maximum-depth: BoundInt
-     maximum-nodes: BoundInt]))
+    [(maximum-bytes BoundInt) (maximum-depth BoundInt) (maximum-nodes BoundInt)]))
 
 (js/export
   (defrecord ValueTypeDeclarationSpec
-    [root: ValueTypeRef
-     definitions: (Vec ValueTypeDefinition)
-     envelope: ValueEnvelopeSpec?]))
+    [(root ValueTypeRef)
+     (definitions (Vec ValueTypeDefinition))
+     (envelope ValueEnvelopeSpec?)]))
 
 (js/export
-  (defrecord QueryParameterSpec [name: Keyword value-type: ValueTypeSpec]))
+  (defrecord QueryParameterSpec [(name Keyword) (value-type ValueTypeSpec)]))
 
 (js/export
-  (defrecord QueryBindingSpec [name: Keyword entity: EntityRef]))
+  (defrecord QueryBindingSpec [(name Keyword) (entity EntityRef)]))
 
 (js/export
   (defunion QueryValueExpr
-    (QueryFieldValue [binding: Keyword field: FieldRef])
-    (QueryParameterValue [name: Keyword])
-    (QueryBindingValue [name: Keyword])
-    (QueryStringValue [value: String])
-    (QueryIntegerValue [value: Int])
-    (QueryBooleanValue [value: Bool])
-    (QueryKeywordValue [value: Keyword])
-    (QueryNilValue [unit: Nil])
-    (QueryRecordValue [fields: (Vec QueryRecordField)])
-    (QueryListValue [items: (Vec QueryValueExpr)])
-    (QueryConfiguredValue [projection: ConfigProjection])
-    (QueryStateValue [value: StateValueRef])))
+    (QueryFieldValue [(binding Keyword) (field FieldRef)])
+    (QueryParameterValue [(name Keyword)])
+    (QueryBindingValue [(name Keyword)])
+    (QueryStringValue [(value String)])
+    (QueryIntegerValue [(value Int)])
+    (QueryBooleanValue [(value Bool)])
+    (QueryKeywordValue [(value Keyword)])
+    (QueryNilValue [(unit Nil)])
+    (QueryRecordValue [(fields (Vec QueryRecordField))])
+    (QueryListValue [(items (Vec QueryValueExpr))])
+    (QueryConfiguredValue [(projection ConfigProjection)])
+    (QueryStateValue [(value StateValueRef)])))
 
 (js/export
-  (defrecord QueryRecordField [name: Keyword value: QueryValueExpr]))
+  (defrecord QueryRecordField [(name Keyword) (value QueryValueExpr)]))
 
 (js/export
   (defunion QueryPredicateSpec
-    (QueryEqualPredicate [left: QueryValueExpr right: QueryValueExpr])
-    (QueryContainsPredicate [collection: QueryValueExpr value: QueryValueExpr])
-    (QueryNonNullPredicate [value: QueryValueExpr])))
+    (QueryEqualPredicate [(left QueryValueExpr) (right QueryValueExpr)])
+    (QueryContainsPredicate [(collection QueryValueExpr) (value QueryValueExpr)])
+    (QueryNonNullPredicate [(value QueryValueExpr)])))
 
 (js/export
   (defunion QuerySelectionSpec
-    (QueryValueSelection [name: Keyword value: QueryValueExpr])
+    (QueryValueSelection [(name Keyword) (value QueryValueExpr)])
     (QueryProviderSelection
-      [name: Keyword
-       provider: ProviderPortRef
-       input: QueryValueExpr
-       output: ValueTypeSpec])
-    (QueryExtensionSelection [port: EntityFieldsPortRef binding: Keyword])))
+      [(name Keyword)
+       (provider ProviderPortRef)
+       (input QueryValueExpr)
+       (output ValueTypeSpec)])
+    (QueryExtensionSelection [(port EntityFieldsPortRef) (binding Keyword)])))
 
 (js/export
   (defunion QueryResultSpec
-    (QueryPageResult [default-limit: BoundInt max-limit: BoundInt])
-    (QueryOptionalResult [unit: Nil])
-    (QueryOneResult [unit: Nil])))
+    (QueryPageResult [(default-limit BoundInt) (max-limit BoundInt)])
+    (QueryOptionalResult [(unit Nil)])
+    (QueryOneResult [(unit Nil)])))
 
 (js/export
   (defrecord QueryDeclarationSpec
-    [ref: QueryRef
-     capabilities: (Vec CapabilityRef)
-     parameters: (Vec QueryParameterSpec)
-     bindings: (Vec QueryBindingSpec)
-     predicates: (Vec QueryPredicateSpec)
-     selection: (Vec QuerySelectionSpec)
-     result: QueryResultSpec]))
+    [(ref QueryRef)
+     (capabilities (Vec CapabilityRef))
+     (parameters (Vec QueryParameterSpec))
+     (bindings (Vec QueryBindingSpec))
+     (predicates (Vec QueryPredicateSpec))
+     (selection (Vec QuerySelectionSpec))
+     (result QueryResultSpec)]))
 
 (js/export
   (defrecord ProviderPortSpec
-    [ref: ProviderPortRef
-     input-type: ValueTypeSpec
-     output-type: ValueTypeSpec
-     capability: CapabilityRef?]))
+    [(ref ProviderPortRef)
+     (input-type ValueTypeSpec)
+     (output-type ValueTypeSpec)
+     (capability CapabilityRef?)]))
 
 (js/export
   (defrecord RendererSpec
-    [ref: RendererRef
-     input-type: ValueTypeSpec
-     component: ComponentRef]))
+    [(ref RendererRef) (input-type ValueTypeSpec) (component ComponentRef)]))
 
 (js/export
   (defrecord FieldRequirement
-    [name: String
-     value-type: FieldValueType
-     cardinality: FieldCardinality
-     write: FieldWriteMode]))
+    [(name String)
+     (value-type FieldValueType)
+     (cardinality FieldCardinality)
+     (write FieldWriteMode)]))
 
 (js/export
   (defunion EntityFieldsPortPolicy
-    (ClosedEntityFieldsPort [unit: Nil])
-    (OpenManyEntityFields [write: FieldWriteMode require-storage-id: Bool])))
+    (ClosedEntityFieldsPort [(unit Nil)])
+    (OpenManyEntityFields [(write FieldWriteMode) (require-storage-id Bool)])))
 
 (js/export
   (defrecord EntityFieldsPortSpec
-    [ref: EntityFieldsPortRef
-     target: EntityRef
-     requirements: (Vec FieldRequirement)
-     policy: EntityFieldsPortPolicy]))
+    [(ref EntityFieldsPortRef)
+     (target EntityFieldsTarget)
+     (requirements (Vec FieldRequirement))
+     (policy EntityFieldsPortPolicy)]))
 
 (js/export
-  (defrecord ComponentSlotSpec [ref: ComponentSlotRef target: ComponentRef]))
+  (defrecord ComponentSlotSpec [(ref ComponentSlotRef) (target ComponentRef)]))
 
 (js/export
-  (defrecord RouteSlotSpec [ref: RouteSlotRef target: RouteTemplateRef]))
+  (defrecord RouteSlotSpec [(ref RouteSlotRef) (target RouteTemplateRef)]))
 
 (js/export
   (defrecord PluginIdentity
-    [package-id: String
-     version: String
-     compatible-wake: String
-     plugin-abi-version: Int
-     durable-schema-version: Int
-     provenance-token: String]))
+    [(package-id String)
+     (version String)
+     (compatible-wake String)
+     (plugin-abi-version Int)
+     (durable-schema-version Int)
+     (provenance-token String)]))
 
 (js/export
-  (defrecord IntRoleSpec
-    [ref: IntRoleRef
-     minimum: Int?
-     maximum: Int?]))
+  (defrecord IntRoleSpec [(ref IntRoleRef) (minimum Int?) (maximum Int?)]))
 
 (js/export
   (defrecord StringRoleSpec
-    [ref: StringRoleRef
-     min-scalars: Int?
-     max-scalars: Int?
-     max-bytes: Int?]))
+    [(ref StringRoleRef) (min-scalars Int?) (max-scalars Int?) (max-bytes Int?)]))
 
 (js/export
-  (defrecord BoolRoleSpec [ref: BoolRoleRef]))
+  (defrecord BoolRoleSpec [(ref BoolRoleRef)]))
 
 (js/export
-  (defrecord KeywordRoleSpec [ref: KeywordRoleRef allowed: (Vec Keyword)]))
+  (defrecord KeywordRoleSpec [(ref KeywordRoleRef) (allowed (Vec Keyword))]))
 
 (js/export
-  (defrecord EntityNameRoleSpec [ref: EntityNameRoleRef target: EntityRef]))
+  (defrecord EntityNameRoleSpec [(ref EntityNameRoleRef) (target EntityRef)]))
 
 (js/export
-  (defrecord FieldNameRoleSpec [ref: FieldNameRoleRef target: FieldRef]))
+  (defunion FieldNameRoleTarget
+    (EntityFieldNameRoleTarget [(field FieldRef)])
+    (ReceiptFieldNameRoleTarget [(field ReceiptFieldRef)])))
 
 (js/export
-  (defrecord StateNameRoleSpec [ref: StateNameRoleRef target: StateRef]))
+  (defrecord FieldNameRoleSpec
+    [(ref FieldNameRoleRef) (target FieldNameRoleTarget)]))
+
+(js/export
+  (defrecord StateNameRoleSpec [(ref StateNameRoleRef) (target StateRef)]))
 
 (js/export
   (defrecord StateValueNameRoleSpec
-    [ref: StateValueNameRoleRef
-     target: StateValueRef]))
+    [(ref StateValueNameRoleRef) (target StateValueRef)]))
 
 (js/export
-  (defrecord ExternalEntityRoleSpec [ref: ExternalEntityRoleRef]))
+  (defrecord ExternalEntityRoleSpec [(ref ExternalEntityRoleRef)]))
 
 (js/export
-  (defrecord ValueRoleSpec [ref: ValueRoleRef value-type: ValueTypeSpec]))
+  (defrecord ValueRoleSpec [(ref ValueRoleRef) (value-type ValueTypeSpec)]))
 
 (js/export
   (defrecord PluginConfigurationSchema
-    [ints: (Vec IntRoleSpec)
-     strings: (Vec StringRoleSpec)
-     bools: (Vec BoolRoleSpec)
-     keywords: (Vec KeywordRoleSpec)
-     entity-names: (Vec EntityNameRoleSpec)
-     field-names: (Vec FieldNameRoleSpec)
-     state-names: (Vec StateNameRoleSpec)
-     state-value-names: (Vec StateValueNameRoleSpec)
-     external-entities: (Vec ExternalEntityRoleSpec)
-     values: (Vec ValueRoleSpec)]))
+    [(ints (Vec IntRoleSpec))
+     (strings (Vec StringRoleSpec))
+     (bools (Vec BoolRoleSpec))
+     (keywords (Vec KeywordRoleSpec))
+     (entity-names (Vec EntityNameRoleSpec))
+     (field-names (Vec FieldNameRoleSpec))
+     (state-names (Vec StateNameRoleSpec))
+     (state-value-names (Vec StateValueNameRoleSpec))
+     (external-entities (Vec ExternalEntityRoleSpec))
+     (values (Vec ValueRoleSpec))]))
 
 (js/export
   (defunion BoundInt
-    (LiteralBound [value: Int])
-    (ConfiguredBound [role: IntRoleRef])
-    (ConfiguredProjectionBound [projection: ConfigProjection])))
+    (LiteralBound [(value Int)])
+    (ConfiguredBound [(role IntRoleRef)])
+    (ConfiguredProjectionBound [(projection ConfigProjection)])))
 
 (js/export
-  (defrecord IntBinding [role: ImportedIntRoleRef value: Int]))
+  (defrecord IntBinding [(role ImportedIntRoleRef) (value Int)]))
 
 (js/export
-  (defrecord StringBinding [role: ImportedStringRoleRef value: String]))
+  (defrecord StringBinding [(role ImportedStringRoleRef) (value String)]))
 
 (js/export
-  (defrecord BoolBinding [role: ImportedBoolRoleRef value: Bool]))
+  (defrecord BoolBinding [(role ImportedBoolRoleRef) (value Bool)]))
 
 (js/export
-  (defrecord KeywordBinding [role: ImportedKeywordRoleRef value: Keyword]))
+  (defrecord KeywordBinding [(role ImportedKeywordRoleRef) (value Keyword)]))
 
 (js/export
   (defrecord EntityNameBinding
-    [role: ImportedEntityNameRoleRef
-     value: EntityRef]))
+    [(role ImportedEntityNameRoleRef) (value EntityDeclarationName)]))
 
 (js/export
-  (defrecord FieldNameBinding [role: ImportedFieldNameRoleRef value: FieldRef]))
+  (defunion FieldNameBindingValue
+    (EntityFieldDeclarationNameValue [(name FieldDeclarationName)])
+    (ReceiptFieldDeclarationNameValue [(name ReceiptFieldDeclarationName)])))
 
 (js/export
-  (defrecord StateNameBinding [role: ImportedStateNameRoleRef value: StateRef]))
+  (defrecord FieldNameBinding
+    [(role ImportedFieldNameRoleRef) (value FieldNameBindingValue)]))
+
+(js/export
+  (defrecord StateNameBinding
+    [(role ImportedStateNameRoleRef) (value StateDeclarationName)]))
 
 (js/export
   (defrecord StateValueNameBinding
-    [role: ImportedStateValueNameRoleRef
-     value: StateValueRef]))
+    [(role ImportedStateValueNameRoleRef) (value StateValueDeclarationName)]))
 
 (js/export
   (defrecord ExternalEntityBinding
-    [role: ImportedExternalEntityRoleRef
-     value: EntityRef]))
+    [(role ImportedExternalEntityRoleRef) (value EntityRef)]))
 
 (js/export
-  (defrecord ValueBinding [role: ImportedValueRoleRef value: ValueExpr]))
+  (defrecord ValueBinding [(role ImportedValueRoleRef) (value ValueExpr)]))
 
 (js/export
   (defrecord PluginBindings
-    [ints: (Vec IntBinding)
-     strings: (Vec StringBinding)
-     bools: (Vec BoolBinding)
-     keywords: (Vec KeywordBinding)
-     entity-names: (Vec EntityNameBinding)
-     field-names: (Vec FieldNameBinding)
-     state-names: (Vec StateNameBinding)
-     state-value-names: (Vec StateValueNameBinding)
-     external-entities: (Vec ExternalEntityBinding)
-     values: (Vec ValueBinding)]))
+    [(ints (Vec IntBinding))
+     (strings (Vec StringBinding))
+     (bools (Vec BoolBinding))
+     (keywords (Vec KeywordBinding))
+     (entity-names (Vec EntityNameBinding))
+     (field-names (Vec FieldNameBinding))
+     (state-names (Vec StateNameBinding))
+     (state-value-names (Vec StateValueNameBinding))
+     (external-entities (Vec ExternalEntityBinding))
+     (values (Vec ValueBinding))]))
 
 (js/export
   (defunion ContributionKind
-    (SchemaContribution [unit: Nil])
-    (QueryContribution [unit: Nil])
-    (CommandContribution [unit: Nil])
-    (CapabilityContribution [unit: Nil])
-    (UiContribution [unit: Nil])
-    (RouteContribution [unit: Nil])))
+    (SchemaContribution [(unit Nil)])
+    (QueryContribution [(unit Nil)])
+    (CommandContribution [(unit Nil)])
+    (CapabilityContribution [(unit Nil)])
+    (UiContribution [(unit Nil)])
+    (RouteContribution [(unit Nil)])))
 
 (js/export
   (defrecord MigrationSpec
-    [from-version: Int
-     to-version: Int
-     ordinal: Int
-     command: CommandRef]))
+    [(from-version Int) (to-version Int) (ordinal Int) (command CommandRef)]))
 
 (js/export
   (defrecord PluginExports
-    [entities: (Vec EntityRef)
-     fields: (Vec FieldRef)
-     states: (Vec StateRef)
-     state-values: (Vec StateValueRef)
-     value-types: (Vec ValueTypeRef)
-     provider-ports: (Vec ProviderPortRef)
-     renderers: (Vec RendererRef)
-     capabilities: (Vec CapabilityRef)
-     queries: (Vec QueryRef)
-     commands: (Vec CommandRef)
-     components: (Vec ComponentRef)
-     views: (Vec ViewRef)
-     route-templates: (Vec RouteTemplateRef)
-     entity-fields-ports: (Vec EntityFieldsPortRef)
-     component-slots: (Vec ComponentSlotRef)
-     route-slots: (Vec RouteSlotRef)]))
+    [(entities (Vec EntityRef))
+     (fields (Vec FieldRef))
+     (states (Vec StateRef))
+     (state-values (Vec StateValueRef))
+     (value-types (Vec ValueTypeRef))
+     (provider-ports (Vec ProviderPortRef))
+     (renderers (Vec RendererRef))
+     (capabilities (Vec CapabilityRef))
+     (queries (Vec QueryRef))
+     (commands (Vec CommandRef))
+     (components (Vec ComponentRef))
+     (views (Vec ViewRef))
+     (route-templates (Vec RouteTemplateRef))
+     (entity-fields-ports (Vec EntityFieldsPortRef))
+     (component-slots (Vec ComponentSlotRef))
+     (route-slots (Vec RouteSlotRef))]))
 
 (js/export
   (defrecord PluginSpec
-    [identity: PluginIdentity
-     contributions: (Vec ContributionKind)
-     configuration: PluginConfigurationSchema
-     exports: PluginExports
-     required-providers: (Vec ProviderPortRef)
-     migrations: (Vec MigrationSpec)
-     default-route: RouteTemplateRef?]))
+    [(identity PluginIdentity)
+     (contributions (Vec ContributionKind))
+     (configuration PluginConfigurationSchema)
+     (exports PluginExports)
+     (required-providers (Vec ProviderPortRef))
+     (migrations (Vec MigrationSpec))
+     (default-route RouteTemplateRef?)]))
 
 (js/export
   (defrecord PluginUseSpec
-    [ref: PluginUseRef
-     package-id: String
-     version: String
-     allow: (Vec ContributionKind)
-     bindings: PluginBindings]))
+    [(ref PluginUseRef)
+     (package-id String)
+     (version String)
+     (allow (Vec ContributionKind))
+     (bindings PluginBindings)]))
 
 (js/export
-  (defrecord ProviderBindingSpec [name: String port: ImportedProviderPortRef]))
+  (defrecord ProviderBindingSpec [(name String) (port ImportedProviderPortRef)]))
 
 (js/export
-  (defrecord NamedFieldSupply [name: String field: FieldRef]))
+  (defrecord ExtensionFieldSpec
+    [(ref ExtensionFieldRef)
+     (value-type FieldValueType)
+     (cardinality FieldCardinality)
+     (write FieldWriteMode)
+     (storage-id String)
+     (required Bool)]))
 
 (js/export
   (defrecord ExtendSpec
-    [port: ImportedEntityFieldsPortRef
-     fields: (Vec NamedFieldSupply)]))
+    [(port ImportedEntityFieldsPortRef) (fields (Vec ExtensionFieldSpec))]))
 
 (js/export
-  (defrecord FillSpec [slot: ImportedComponentSlotRef component: ComponentRef]))
+  (defrecord FillSpec [(slot ImportedComponentSlotRef) (component ComponentRef)]))
 
 (js/export
-  (defrecord MountSpec [slot: ImportedRouteSlotRef path: String]))
+  (defrecord MountSpec [(slot ImportedRouteSlotRef) (path String)]))
 
 (js/export
   (defrecord PluginComposition
-    [use: PluginUseSpec
-     providers: (Vec ProviderBindingSpec)
-     extensions: (Vec ExtendSpec)
-     fills: (Vec FillSpec)
-     mounts: (Vec MountSpec)]))
+    [(use PluginUseSpec)
+     (providers (Vec ProviderBindingSpec))
+     (extensions (Vec ExtendSpec))
+     (fills (Vec FillSpec))
+     (mounts (Vec MountSpec))]))
 
 (js/export
   (defunion DefaultRouteTarget
-    (LocalDefaultRoute [route: RouteTemplateRef])
-    (MountedDefaultRoute [slot: ImportedRouteSlotRef])))
+    (LocalDefaultRoute [(route RouteTemplateRef)])
+    (MountedDefaultRoute [(slot ImportedRouteSlotRef)])))
+
+(js/export
+  (defrecord ThemeSpec [(colors (Map String String))]))
 
 (js/export
   (defrecord ApplicationRootSpec
-    [id: String
-     authority: AuthoritySpec
-     storage: (Vec StorageSpec)
-     identities: (Vec IdentitySpec)
-     plugins: (Vec PluginComposition)
-     default-route: DefaultRouteTarget?]))
-
-(js/export
-  (defunion DerivedExpr
-    (FieldExpr [name: Keyword])
-    (StringExpr [value: String])
-    (ConcatExpr [parts: (Vec DerivedExpr)])))
-
-(js/export
-  (defrecord DerivedFieldSpec [name: Keyword expression: DerivedExpr]))
-
-(js/export
-  (defrecord ApplicationSpec [id: String]))
-
-(js/export
-  (defrecord BackendSpec [kind: Keyword]))
-
-(js/export
-  (defrecord EntitySpec
-    [name: String
-     record-name: String
-     identity: Keyword
-     writes: (Map Keyword Keyword)
-     storage-id: String?
-     derived-fields: (Vec DerivedFieldSpec)]))
-
-(js/export
-  (defrecord StateSpec
-    [name: String
-     enum-name: String
-     initial: Keyword
-     transitions: (Map Keyword (Vec Keyword))]))
-
-(js/export
-  (defunion QueryOperand
-    (QueryField [binding: Keyword field: Keyword])
-    (QueryParameter [name: Keyword])
-    (QueryBinding [name: Keyword])
-    (QueryKeyword [value: Keyword])
-    (QueryString [value: String])
-    (QueryInteger [value: Int])
-    (QueryBoolean [value: Bool])))
-
-(js/export
-  (defrecord QueryPredicate [left: QueryOperand right: QueryOperand]))
-
-(js/export
-  (defrecord QuerySelection [name: Keyword field: QueryOperand]))
-
-(js/export
-  (defrecord QueryPage [default-limit: Int max-limit: Int]))
-
-(js/export
-  (defunion QueryResult
-    (PageResult [page: QueryPage])
-    (OptionalResult [unit: Nil])
-    (OneResult [unit: Nil])))
-
-(js/export
-  (defrecord QuerySpec
-    [name: String
-     params-record: String
-     bindings-record: String
-     capabilities: (Vec String)
-     predicates: (Vec QueryPredicate)
-     selection: (Vec QuerySelection)
-     result: QueryResult]))
-
-(js/export
-  (defunion RelatedRelation
-    (InferRelated [unit: Nil])
-    (RelatedBy [field: Keyword])))
-
-(js/export
-  (defunion DetailContent
-    (DetailFields [fields: (Vec Keyword)])
-    (DetailRelated
-      [entity: Keyword
-       relation: RelatedRelation
-       display: (Vec Keyword)])))
-
-(js/export
-  (defrecord DetailTab [label: String content: DetailContent]))
-
-(js/export
-  (defrecord ListDetailSpec
-    [entity: Keyword
-     title: String
-     columns: (Vec Keyword)
-     search: (Vec Keyword)
-     detail-tabs: (Vec DetailTab)]))
+    [(id String)
+     (authority AuthoritySpec)
+     (storage (Vec StorageSpec))
+     (identities (Vec IdentitySpec))
+     (plugins (Vec PluginComposition))
+     (default-route DefaultRouteTarget?)
+     (theme ThemeSpec?)
+     (publications (Vec PublicationRef))
+     (forms (Vec FormRef))
+     (list-details (Vec ListDetailRef))]))
 
 (js/export
   (defunion UiAttr
-    (StaticAttr [value: String])
-    (BindAttr [prop: Keyword])))
+    (StaticAttr [(value String)])
+    (BindAttr [(prop Keyword)])
+    (ActionAttr [(action UiAction)])))
+
+(js/export
+  (defunion UiAction
+    (SetFieldAction [(field FieldRef) (value ValueExpr)])))
 
 (js/export
   (defunion UiCondition
-    (UiPropertyPresent [prop: Keyword])
-    (UiQueryPredicate [predicate: QueryPredicateSpec])))
+    (UiPropertyPresent [(prop Keyword)])
+    (UiQueryPredicate [(predicate QueryPredicateSpec)])))
 
 (js/export
   (defunion UiNode
     (Element
-      [tag: Keyword
-       attrs: (Map Keyword UiAttr)
-       children: (Vec UiNode)])
-    (WhenNode [condition: UiCondition children: (Vec UiNode)])))
+      [(tag Keyword) (attrs (Map Keyword UiAttr)) (children (Vec UiNode))])
+    (WhenNode [(condition UiCondition) (children (Vec UiNode))])))
 
 (js/export
-  (defrecord ComponentPropertySpec [name: Keyword value-type: ValueTypeSpec]))
+  (defrecord ComponentPropertySpec [(name Keyword) (value-type ValueTypeSpec)]))
 
 (js/export
   (defrecord ComponentDeclarationSpec
-    [ref: ComponentRef
-     properties: (Vec ComponentPropertySpec)
-     body: (Vec UiNode)]))
+    [(ref ComponentRef)
+     (properties (Vec ComponentPropertySpec))
+     (body (Vec UiNode))]))
 
 (js/export
   (defrecord ViewDeclarationSpec
-    [ref: ViewRef
-     entity: EntityRef
-     component: ComponentRef
-     title: String]))
+    [(ref ViewRef)
+     (entity EntityRef)
+     (component ComponentRef)
+     (title String)
+     (create-form FormRef?)
+     (select-component ComponentRef?)]))
 
 (js/export
-  (defrecord RouteQuerySpec [query: QueryRef alias: String?]))
+  (defrecord PublicationDeclarationSpec
+    [(ref PublicationRef)
+     (owner EntityRef)
+     (pointer FieldRef)
+     (revision EntityRef)
+     (owner-field FieldRef)
+     (state-field FieldRef)
+     (draft StateValueRef)
+     (published StateValueRef)
+     (retired StateValueRef)]))
 
 (js/export
-  (defrecord RouteParameterSpec [name: Keyword value-type: ValueTypeSpec]))
+  (defunion FormSuccessAction
+    (ClearFormSuccess [(unit Nil)])))
+
+(js/export
+  (defrecord FormDeclarationSpec
+    [(ref FormRef)
+     (entity EntityRef)
+     (fields (Vec FieldRef))
+     (required (Vec FieldRef))
+     (submit-label String)
+     (on-success FormSuccessAction)]))
+
+(js/export
+  (defunion ListDetailTabSpec
+    (FieldsDetailTab [(label String) (fields (Vec FieldRef))])
+    (RelatedDetailTab
+      [(label String)
+       (entity EntityRef)
+       (relation FieldRef)
+       (display (Vec FieldRef))])))
+
+(js/export
+  (defrecord ListDetailDeclarationSpec
+    [(ref ListDetailRef)
+     (entity EntityRef)
+     (title String)
+     (columns (Vec FieldRef))
+     (search (Vec FieldRef))
+     (detail-tabs (Vec ListDetailTabSpec))]))
+
+(js/export
+  (defrecord RouteQuerySpec [(query QueryRef) (alias String?)]))
+
+(js/export
+  (defrecord RouteParameterSpec [(name Keyword) (value-type ValueTypeSpec)]))
 
 (js/export
   (defrecord RouteTemplateSpec
-    [ref: RouteTemplateRef
-     view: ViewRef
-     queries: (Vec RouteQuerySpec)
-     parameters: (Vec RouteParameterSpec)]))
+    [(ref RouteTemplateRef)
+     (view ViewRef)
+     (queries (Vec RouteQuerySpec))
+     (parameters (Vec RouteParameterSpec))]))
 
 (js/export
-  (defrecord ComponentSpec
-    [name: String
-     props-record: String
-     body: (Vec UiNode)]))
-
-(js/export
-  (defrecord ViewSpec
-    [name: String
-     entity: Keyword
-     component: Keyword
-     title: String]))
-
-(js/export
-  (defrecord RouteSpec [path: Keyword view: Keyword]))
-
-(js/export
-  (defrecord RouterSpec [default-route: Keyword routes: (Vec RouteSpec)]))
-
-(js/export
-  (defn field [binding: Keyword field-name: Keyword] -> QueryOperand
-    (->QueryField binding field-name)))
-
-(js/export
-  (defn derived-ref [name: Keyword] -> DerivedExpr
-    (->FieldExpr name)))
-
-(js/export
-  (defn derived-string [value: String] -> DerivedExpr
-    (->StringExpr value)))
-
-(js/export
-  (defn concat-derived [parts: (Vec DerivedExpr)] -> DerivedExpr
-    (->ConcatExpr parts)))
-
-(js/export
-  (defn derived-field
-    [name: Keyword
-     expression: DerivedExpr] -> DerivedFieldSpec
-    (->DerivedFieldSpec name expression)))
-
-(js/export
-  (defn parameter [name: Keyword] -> QueryOperand
-    (->QueryParameter name)))
-
-(js/export
-  (defn query-binding [name: Keyword] -> QueryOperand
-    (->QueryBinding name)))
-
-(js/export
-  (defn tag [value: Keyword] -> QueryOperand
-    (->QueryKeyword value)))
-
-(js/export
-  (defn string-value [value: String] -> QueryOperand
-    (->QueryString value)))
-
-(js/export
-  (defn integer-value [value: Int] -> QueryOperand
-    (->QueryInteger value)))
-
-(js/export
-  (defn boolean-value [value: Bool] -> QueryOperand
-    (->QueryBoolean value)))
-
-(js/export
-  (defn eq [left: QueryOperand right: QueryOperand] -> QueryPredicate
-    (->QueryPredicate left right)))
-
-(js/export
-  (defn select [name: Keyword field-value: QueryOperand] -> QuerySelection
-    (->QuerySelection name field-value)))
-
-(js/export
-  (defn page-result [default-limit: Int max-limit: Int] -> QueryResult
-    (->PageResult (->QueryPage default-limit max-limit))))
-
-(js/export
-  (defn optional-result [] -> QueryResult
-    (->OptionalResult nil)))
-
-(js/export
-  (defn one-result [] -> QueryResult
-    (->OneResult nil)))
-
-(js/export
-  (defn detail-fields [fields: (Vec Keyword)] -> DetailContent
-    (->DetailFields fields)))
-
-(js/export
-  (defn infer-related [] -> RelatedRelation
-    (->InferRelated nil)))
-
-(js/export
-  (defn related-by [field: Keyword] -> RelatedRelation
-    (->RelatedBy field)))
-
-(js/export
-  (defn detail-related
-    [entity: Keyword
-     relation: RelatedRelation
-     display: (Vec Keyword)] -> DetailContent
-    (->DetailRelated entity relation display)))
-
-(js/export
-  (defn detail-tab [label: String content: DetailContent] -> DetailTab
-    (->DetailTab label content)))
-
-(js/export
-  (defn static-attr [value: String] -> UiAttr
+  (defn static-attr [(value String)] UiAttr
     (->StaticAttr value)))
 
 (js/export
-  (defn bind-attr [prop: Keyword] -> UiAttr
+  (defn bind-attr [(prop Keyword)] UiAttr
     (->BindAttr prop)))
 
 (js/export
   (defn element
-    [tag: Keyword
-     attrs: (Map Keyword UiAttr)
-     children: (Vec UiNode)] -> UiNode
+    [(tag Keyword) (attrs (Map Keyword UiAttr)) (children (Vec UiNode))] UiNode
     (->Element tag attrs children)))
 
-(js/export
-  (defn route [path: Keyword view: Keyword] -> RouteSpec
-    (->RouteSpec path view)))
-
-(defmacro defcapability
-  [binding
-   declaration-id
-   guards]
+(defmacro defcapability [binding declaration-id public-name guards]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:capability:" declaration-id)]
     `(do
-       (def ~ref-binding: CapabilityRef
+       (def ~ref-binding CapabilityRef
          (->CapabilityRef
            ~declaration-id
-           ~(str binding)
+           ~public-name
            ~provenance-token))
-       (def ~binding: CapabilitySpec
+       (def ~binding CapabilitySpec
          (->CapabilitySpec ~ref-binding ~guards)))))
 
 (defmacro defstate-model
-  [binding
-   declaration-id
-   values
-   initial
-   transitions]
+  [binding declaration-id public-name values initial transitions]
   (let [state-ref-binding (format-symbol "~a-ref" binding)
         state-provenance-token
         (str "wake:macro:state:" declaration-id)
         value-ref-name
-        (fn [value-name]
+        (fn [value-name] Symbol
           (format-symbol "~a-~a-ref" binding value-name))
         value-spec-name
-        (fn [value-name]
+        (fn [value-name] Symbol
           (format-symbol "~a-~a" binding value-name))
         value-definitions
         (mapcat
-          (fn [value]
+          (fn [value] (List Any)
             (let [value-name (first value)
-                  value-keyword (second value)
+                  value-declaration-id (second value)
+                  value-public-name (nth value 2)
+                  value-keyword (nth value 3)
                   value-ref-binding (value-ref-name value-name)
                   value-spec-binding (value-spec-name value-name)
-                  value-declaration-id
-                  (str declaration-id "/value/" value-name)
                   value-provenance-token
                   (str "wake:macro:state-value:" value-declaration-id)]
               (list
-                `(def ~value-ref-binding: StateValueRef
+                `(def ~value-ref-binding StateValueRef
                    (->StateValueRef
                      ~value-declaration-id
-                     ~(str value-name)
+                     ~value-public-name
                      ~value-provenance-token))
-                `(def ~value-spec-binding: StateValueSpec
+                `(def ~value-spec-binding StateValueSpec
                    (->StateValueSpec
                      ~value-ref-binding
                      ~state-ref-binding
@@ -1152,14 +1003,14 @@
         value-specs
         (apply vec
           (map
-            (fn [value]
+            (fn [value] Symbol
               (value-spec-name (first value)))
             values))
         initial-ref (value-ref-name initial)
         transition-specs
         (apply vec
           (map
-            (fn [transition]
+            (fn [transition] Any
               (let [from-ref (value-ref-name (first transition))
                     to-refs
                     (apply vec
@@ -1167,62 +1018,70 @@
                 `(->StateTransitionSpec ~from-ref ~to-refs)))
             transitions))]
     `(do
-       (def ~state-ref-binding: StateRef
+       (def ~state-ref-binding StateRef
          (->StateRef
            ~declaration-id
-           ~(str binding)
+           ~public-name
            ~state-provenance-token))
        ~@value-definitions
-       (def ~binding: StateDeclarationSpec
+       (def ~binding StateDeclarationSpec
          (->StateDeclarationSpec
            ~state-ref-binding
            ~value-specs
            ~initial-ref
            ~transition-specs)))))
 
-(defmacro defentity-model
-  [binding
-   record-name
-   declaration-id
-   storage-id
-   fields]
+(defmacro defentity-ref [binding declaration-id public-name]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:entity-ref:" declaration-id)]
+    `(def ~ref-binding EntityRef
+       (->EntityRef
+         ~declaration-id
+         ~public-name
+         ~provenance-token))))
+
+(defmacro define-entity-model
+  [binding record-name declaration-id fields derived-fields storage-id]
   (let [entity-ref-binding (format-symbol "~a-ref" binding)
-        entity-provenance-token
-        (str "wake:macro:entity:" declaration-id)
         field-ref-name
-        (fn [field-name]
+        (fn [field-name] Symbol
           (format-symbol "~a-~a-ref" binding field-name))
         field-spec-name
-        (fn [field-name]
+        (fn [field-name] Symbol
           (format-symbol "~a-~a-spec" binding field-name))
         record-fields
         (apply vec
-          (map
-            (fn [field]
-              (make-field (first field) (second field)))
-            fields))
+          (concat
+            (map
+              (fn [field] Any
+                (make-field (first field) (nth field 3)))
+              fields)
+            (map
+              (fn [field] Any
+                (make-field (first field) 'String))
+              derived-fields)))
         field-definitions
         (mapcat
-          (fn [field]
+          (fn [field] (List Any)
             (let [field-name (first field)
-                  field-type (third field)
-                  cardinality (nth field 3)
-                  write-mode (nth field 4)
-                  field-storage-id (nth field 5)
-                  required (nth field 6)
+                  field-declaration-id (second field)
+                  public-name (nth field 2)
+                  field-type (nth field 4)
+                  cardinality (nth field 5)
+                  write-mode (nth field 6)
+                  field-storage-id (nth field 7)
+                  required (nth field 8)
                   field-ref-binding (field-ref-name field-name)
                   field-spec-binding (field-spec-name field-name)
-                  field-declaration-id
-                  (str declaration-id "/field/" field-name)
                   field-provenance-token
                   (str "wake:macro:field:" field-declaration-id)]
               (list
-                `(def ~field-ref-binding: FieldRef
+                `(def ~field-ref-binding FieldRef
                    (->FieldRef
                      ~field-declaration-id
-                     ~(str field-name)
+                     ~public-name
                      ~field-provenance-token))
-                `(def ~field-spec-binding: FieldSpec
+                `(def ~field-spec-binding FieldSpec
                    (->FieldSpec
                      ~field-ref-binding
                      ~entity-ref-binding
@@ -1232,30 +1091,59 @@
                      ~field-storage-id
                      ~required)))))
           fields)
+        derived-definitions
+        (mapcat
+          (fn [field] (List Any)
+            (let [field-name (first field)
+                  field-declaration-id (second field)
+                  public-name (nth field 2)
+                  expression (nth field 3)
+                  dependencies (nth field 4)
+                  field-ref-binding (field-ref-name field-name)
+                  field-spec-binding (field-spec-name field-name)
+                  field-provenance-token
+                  (str "wake:macro:derived-field:" field-declaration-id)]
+              (list
+                `(def ~field-ref-binding FieldRef
+                   (->FieldRef
+                     ~field-declaration-id
+                     ~public-name
+                     ~field-provenance-token))
+                `(def ~field-spec-binding DerivedFieldSpec
+                   (->DerivedFieldSpec
+                     ~field-ref-binding
+                     ~entity-ref-binding
+                     ~expression
+                     ~dependencies)))))
+          derived-fields)
         field-specs
         (apply vec
           (map
-            (fn [field]
+            (fn [field] Symbol
               (field-spec-name (first field)))
-            fields))]
+            fields))
+        derived-specs
+        (apply vec
+          (map
+            (fn [field] Symbol
+              (field-spec-name (first field)))
+            derived-fields))]
     `(do
        (defrecord ~record-name ~record-fields)
-       (def ~entity-ref-binding: EntityRef
-         (->EntityRef
-           ~declaration-id
-           ~(str binding)
-           ~entity-provenance-token))
        ~@field-definitions
-       (def ~binding: EntityDeclarationSpec
+       ~@derived-definitions
+       (def ~binding EntityDeclarationSpec
          (->EntityDeclarationSpec
            ~entity-ref-binding
            ~(str record-name)
            ~field-specs
+           ~derived-specs
            ~storage-id)))))
 
 (defmacro defquery-model
   [binding
    declaration-id
+   public-name
    capabilities
    parameters
    bindings
@@ -1265,12 +1153,12 @@
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:query:" declaration-id)]
     `(do
-       (def ~ref-binding: QueryRef
+       (def ~ref-binding QueryRef
          (->QueryRef
            ~declaration-id
-           ~(str binding)
+           ~public-name
            ~provenance-token))
-       (def ~binding: QueryDeclarationSpec
+       (def ~binding QueryDeclarationSpec
          (->QueryDeclarationSpec
            ~ref-binding
            ~capabilities
@@ -1297,7 +1185,7 @@
         provenance-token
         (str "wake:macro:plugin:" package-id "@" version)]
     `(do
-       (def ~identity-binding: PluginIdentity
+       (def ~identity-binding PluginIdentity
          (->PluginIdentity
            ~package-id
            ~version
@@ -1305,7 +1193,7 @@
            ~plugin-abi-version
            ~durable-schema-version
            ~provenance-token))
-       (def ~binding: PluginSpec
+       (def ~binding PluginSpec
          (->PluginSpec
            ~identity-binding
            ~contributions
@@ -1318,33 +1206,25 @@
 (defmacro defplugin-use [binding declaration-id]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:plugin-use:" declaration-id)]
-    `(def ~ref-binding: PluginUseRef
+    `(def ~ref-binding PluginUseRef
        (->PluginUseRef
          ~declaration-id
          ~(str binding)
          ~provenance-token))))
 
 (defmacro use-plugin
-  [binding
-   package-id
-   version
-   allow
-   bindings
-   providers
-   extensions
-   fills
-   mounts]
+  [binding package-id version allow bindings providers extensions fills mounts]
   (let [ref-binding (format-symbol "~a-ref" binding)
         composition-binding (format-symbol "~a-composition" binding)]
     `(do
-       (def ~binding: PluginUseSpec
+       (def ~binding PluginUseSpec
          (->PluginUseSpec
            ~ref-binding
            ~package-id
            ~version
            ~allow
            ~bindings))
-       (def ~composition-binding: PluginComposition
+       (def ~composition-binding PluginComposition
          (->PluginComposition
            ~binding
            ~providers
@@ -1359,42 +1239,204 @@
    storage
    identities
    plugins
-   default-route]
-  `(def ~binding: ApplicationRootSpec
+   default-route
+   theme
+   publications
+   forms
+   list-details]
+  `(def ~binding ApplicationRootSpec
      (->ApplicationRootSpec
        ~id
        ~authority
        ~storage
        ~identities
        ~plugins
-       ~default-route)))
+       ~default-route
+       ~theme
+       ~publications
+       ~forms
+       ~list-details)))
 
-(defmacro defvalue-type
+(defmacro command-receipt-core []
+  `(do
+     (def wake-command-receipt-ref ReceiptEntityRef
+       (->ReceiptEntityRef
+         "wake.core/command-receipt"
+         "wake.core/command-receipt"
+         "wake:macro:receipt-entity:wake.core/command-receipt"))
+     (def wake-command-receipt ReceiptEntitySpec
+       (->ReceiptEntitySpec
+         wake-command-receipt-ref
+         "wake/core/entity/command-receipt"))
+     (def wake-command-receipt-id-ref ReceiptFieldRef
+       (->ReceiptFieldRef
+         "wake.core/command-receipt/id"
+         "id"
+         "wake:macro:receipt-field:wake.core/command-receipt/id"))
+     (def wake-command-receipt-id ReceiptFieldDeclarationSpec
+       (->ReceiptFieldDeclarationSpec
+         wake-command-receipt-id-ref
+         wake-command-receipt-ref
+         (->DigestValueType nil)
+         nil
+         "wake/core/field/command-receipt/id"))
+     (def wake-command-receipt-actor-ref ReceiptFieldRef
+       (->ReceiptFieldRef
+         "wake.core/command-receipt/actor"
+         "actor"
+         "wake:macro:receipt-field:wake.core/command-receipt/actor"))
+     (def wake-command-receipt-actor ReceiptFieldDeclarationSpec
+       (->ReceiptFieldDeclarationSpec
+         wake-command-receipt-actor-ref
+         wake-command-receipt-ref
+         (->StringValueType nil nil nil)
+         nil
+         "wake/core/field/command-receipt/actor"))
+     (def wake-command-receipt-command-ref ReceiptFieldRef
+       (->ReceiptFieldRef
+         "wake.core/command-receipt/command"
+         "command"
+         "wake:macro:receipt-field:wake.core/command-receipt/command"))
+     (def wake-command-receipt-command ReceiptFieldDeclarationSpec
+       (->ReceiptFieldDeclarationSpec
+         wake-command-receipt-command-ref
+         wake-command-receipt-ref
+         (->StringValueType nil nil nil)
+         nil
+         "wake/core/field/command-receipt/command"))
+     (def wake-command-receipt-input-digest-ref ReceiptFieldRef
+       (->ReceiptFieldRef
+         "wake.core/command-receipt/input-digest"
+         "input-digest"
+         "wake:macro:receipt-field:wake.core/command-receipt/input-digest"))
+     (def wake-command-receipt-input-digest ReceiptFieldDeclarationSpec
+       (->ReceiptFieldDeclarationSpec
+         wake-command-receipt-input-digest-ref
+         wake-command-receipt-ref
+         (->DigestValueType nil)
+         nil
+         "wake/core/field/command-receipt/input-digest"))
+     (def wake-command-receipt-created-at-ref ReceiptFieldRef
+       (->ReceiptFieldRef
+         "wake.core/command-receipt/created-at"
+         "created-at"
+         "wake:macro:receipt-field:wake.core/command-receipt/created-at"))
+     (def wake-command-receipt-created-at ReceiptFieldDeclarationSpec
+       (->ReceiptFieldDeclarationSpec
+         wake-command-receipt-created-at-ref
+         wake-command-receipt-ref
+         (->InstantValueType nil)
+         nil
+         "wake/core/field/command-receipt/created-at"))))
+
+(defmacro defcommand-receipt-field
+  [binding declaration-id public-name value-type target storage-id]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token
+        (str "wake:macro:receipt-field:" declaration-id)]
+    `(do
+       (def ~ref-binding ReceiptFieldRef
+         (->ReceiptFieldRef
+           ~declaration-id
+           ~public-name
+           ~provenance-token))
+       (def ~binding ReceiptFieldDeclarationSpec
+         (->ReceiptFieldDeclarationSpec
+           ~ref-binding
+           wake-command-receipt-ref
+           ~value-type
+           ~target
+           ~storage-id)))))
+
+(defmacro defpublication
   [binding
    declaration-id
-   root-spec
-   definitions
-   envelope]
+   public-name
+   owner
+   pointer
+   revision
+   owner-field
+   state-field
+   draft
+   published
+   retired]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:publication:" declaration-id)]
+    `(do
+       (def ~ref-binding PublicationRef
+         (->PublicationRef ~declaration-id ~public-name ~provenance-token))
+       (def ~binding PublicationDeclarationSpec
+         (->PublicationDeclarationSpec
+           ~ref-binding
+           ~owner
+           ~pointer
+           ~revision
+           ~owner-field
+           ~state-field
+           ~draft
+           ~published
+           ~retired)))))
+
+(defmacro defform
+  [binding
+   declaration-id
+   public-name
+   entity
+   fields
+   required
+   submit-label
+   on-success]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:form:" declaration-id)]
+    `(do
+       (def ~ref-binding FormRef
+         (->FormRef ~declaration-id ~public-name ~provenance-token))
+       (def ~binding FormDeclarationSpec
+         (->FormDeclarationSpec
+           ~ref-binding
+           ~entity
+           ~fields
+           ~required
+           ~submit-label
+           ~on-success)))))
+
+(defmacro deflist-detail
+  [binding declaration-id public-name entity title columns search detail-tabs]
+  (let [ref-binding (format-symbol "~a-ref" binding)
+        provenance-token (str "wake:macro:list-detail:" declaration-id)]
+    `(do
+       (def ~ref-binding ListDetailRef
+         (->ListDetailRef ~declaration-id ~public-name ~provenance-token))
+       (def ~binding ListDetailDeclarationSpec
+         (->ListDetailDeclarationSpec
+           ~ref-binding
+           ~entity
+           ~title
+           ~columns
+           ~search
+           ~detail-tabs)))))
+
+(defmacro defvalue-type [binding declaration-id root-spec definitions envelope]
   (let [root-ref-binding (format-symbol "~a-ref" binding)
         root-definition-binding (format-symbol "~a-definition" binding)
         root-provenance-token
         (str "wake:macro:value-type:" declaration-id)
         definition-ref-name
-        (fn [definition-name]
+        (fn [definition-name] Symbol
           (format-symbol "~a-~a-ref" binding definition-name))
         definition-spec-name
-        (fn [definition-name]
+        (fn [definition-name] Symbol
           (format-symbol "~a-~a-definition" binding definition-name))
         definition-ref-forms
         (map
-          (fn [definition]
+          (fn [definition] Any
             (let [definition-name (first definition)
                   ref-binding (definition-ref-name definition-name)
                   nested-declaration-id
                   (str declaration-id "/definition/" definition-name)
                   provenance-token
                   (str "wake:macro:value-type:" nested-declaration-id)]
-              `(def ~ref-binding: ValueTypeRef
+              `(def ~ref-binding ValueTypeRef
                  (->ValueTypeRef
                    ~nested-declaration-id
                    ~(str definition-name)
@@ -1402,12 +1444,12 @@
           definitions)
         definition-spec-forms
         (map
-          (fn [definition]
+          (fn [definition] Any
             (let [definition-name (first definition)
                   definition-spec (second definition)
                   ref-binding (definition-ref-name definition-name)
                   spec-binding (definition-spec-name definition-name)]
-              `(def ~spec-binding: ValueTypeDefinition
+              `(def ~spec-binding ValueTypeDefinition
                  (->ValueTypeDefinition ~ref-binding ~definition-spec))))
           definitions)
         definition-specs
@@ -1415,60 +1457,52 @@
           (cons
             root-definition-binding
             (map
-              (fn [definition]
+              (fn [definition] Symbol
                 (definition-spec-name (first definition)))
               definitions)))]
     `(do
-       (def ~root-ref-binding: ValueTypeRef
+       (def ~root-ref-binding ValueTypeRef
          (->ValueTypeRef
            ~declaration-id
            ~(str binding)
            ~root-provenance-token))
        ~@definition-ref-forms
-       (def ~root-definition-binding: ValueTypeDefinition
+       (def ~root-definition-binding ValueTypeDefinition
          (->ValueTypeDefinition ~root-ref-binding ~root-spec))
        ~@definition-spec-forms
-       (def ~binding: ValueTypeDeclarationSpec
+       (def ~binding ValueTypeDeclarationSpec
          (->ValueTypeDeclarationSpec
            ~root-ref-binding
            ~definition-specs
            ~envelope)))))
 
 (defmacro defprovider-port
-  [binding
-   declaration-id
-   input-type
-   output-type
-   capability]
+  [binding declaration-id input-type output-type capability]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:provider-port:" declaration-id)]
     `(do
-       (def ~ref-binding: ProviderPortRef
+       (def ~ref-binding ProviderPortRef
          (->ProviderPortRef
            ~declaration-id
            ~(str binding)
            ~provenance-token))
-       (def ~binding: ProviderPortSpec
+       (def ~binding ProviderPortSpec
          (->ProviderPortSpec
            ~ref-binding
            ~input-type
            ~output-type
            ~capability)))))
 
-(defmacro defrenderer
-  [binding
-   declaration-id
-   input-type
-   component]
+(defmacro defrenderer [binding declaration-id input-type component]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:renderer:" declaration-id)]
     `(do
-       (def ~ref-binding: RendererRef
+       (def ~ref-binding RendererRef
          (->RendererRef
            ~declaration-id
            ~(str binding)
            ~provenance-token))
-       (def ~binding: RendererSpec
+       (def ~binding RendererSpec
          (->RendererSpec ~ref-binding ~input-type ~component)))))
 
 (defmacro defcommand
@@ -1484,12 +1518,12 @@
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:command:" declaration-id)]
     `(do
-       (def ~ref-binding: CommandRef
+       (def ~ref-binding CommandRef
          (->CommandRef
            ~declaration-id
            ~(str binding)
            ~provenance-token))
-       (def ~binding: CommandSpec
+       (def ~binding CommandSpec
          (->CommandSpec
            ~ref-binding
            ~capabilities
@@ -1500,58 +1534,55 @@
            ~result
            ~receipt)))))
 
-(defmacro defcomponent-model
-  [binding
-   declaration-id
-   properties
-   body]
+(defmacro defcomponent-model [binding declaration-id properties body]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:component:" declaration-id)]
     `(do
-       (def ~ref-binding: ComponentRef
+       (def ~ref-binding ComponentRef
          (->ComponentRef
            ~declaration-id
            ~(str binding)
            ~provenance-token))
-       (def ~binding: ComponentDeclarationSpec
+       (def ~binding ComponentDeclarationSpec
          (->ComponentDeclarationSpec ~ref-binding ~properties ~body)))))
 
 (defmacro defview-model
   [binding
    declaration-id
+   public-name
    entity
    component
-   title]
+   title
+   create-form
+   select-component]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:view:" declaration-id)]
     `(do
-       (def ~ref-binding: ViewRef
+       (def ~ref-binding ViewRef
          (->ViewRef
            ~declaration-id
-           ~(str binding)
+           ~public-name
            ~provenance-token))
-       (def ~binding: ViewDeclarationSpec
+       (def ~binding ViewDeclarationSpec
          (->ViewDeclarationSpec
            ~ref-binding
            ~entity
            ~component
-           ~title)))))
+           ~title
+           ~create-form
+           ~select-component)))))
 
 (defmacro defroute-template
-  [binding
-   declaration-id
-   view
-   queries
-   parameters]
+  [binding declaration-id public-name view queries parameters]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:route-template:" declaration-id)]
     `(do
-       (def ~ref-binding: RouteTemplateRef
+       (def ~ref-binding RouteTemplateRef
          (->RouteTemplateRef
            ~declaration-id
-           ~(str binding)
+           ~public-name
            ~provenance-token))
-       (def ~binding: RouteTemplateSpec
+       (def ~binding RouteTemplateSpec
          (->RouteTemplateSpec
            ~ref-binding
            ~view
@@ -1559,82 +1590,64 @@
            ~parameters)))))
 
 (defmacro defentity-fields-port
-  [binding
-   declaration-id
-   target
-   requirements
-   policy]
+  [binding declaration-id target requirements policy]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:entity-fields-port:" declaration-id)]
     `(do
-       (def ~ref-binding: EntityFieldsPortRef
+       (def ~ref-binding EntityFieldsPortRef
          (->EntityFieldsPortRef
            ~declaration-id
            ~(str binding)
            ~provenance-token))
-       (def ~binding: EntityFieldsPortSpec
+       (def ~binding EntityFieldsPortSpec
          (->EntityFieldsPortSpec
            ~ref-binding
            ~target
            ~requirements
            ~policy)))))
 
-(defmacro defcomponent-slot
-  [binding
-   declaration-id
-   target]
+(defmacro defcomponent-slot [binding declaration-id public-name target]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:component-slot:" declaration-id)]
     `(do
-       (def ~ref-binding: ComponentSlotRef
+       (def ~ref-binding ComponentSlotRef
          (->ComponentSlotRef
            ~declaration-id
-           ~(str binding)
+           ~public-name
            ~provenance-token))
-       (def ~binding: ComponentSlotSpec
+       (def ~binding ComponentSlotSpec
          (->ComponentSlotSpec ~ref-binding ~target)))))
 
-(defmacro defroute-slot
-  [binding
-   declaration-id
-   target]
+(defmacro defroute-slot [binding declaration-id public-name target]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:route-slot:" declaration-id)]
     `(do
-       (def ~ref-binding: RouteSlotRef
+       (def ~ref-binding RouteSlotRef
          (->RouteSlotRef
            ~declaration-id
-           ~(str binding)
+           ~public-name
            ~provenance-token))
-       (def ~binding: RouteSlotSpec
+       (def ~binding RouteSlotSpec
          (->RouteSlotSpec ~ref-binding ~target)))))
 
-(defmacro defint-role
-  [binding
-   declaration-id
-   minimum
-   maximum]
+(defmacro defint-role [binding declaration-id minimum maximum]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:int-role:" declaration-id)]
     `(do
-       (def ~ref-binding: IntRoleRef
+       (def ~ref-binding IntRoleRef
          (->IntRoleRef ~declaration-id ~(str binding) ~provenance-token))
-       (def ~binding: IntRoleSpec
+       (def ~binding IntRoleSpec
          (->IntRoleSpec ~ref-binding ~minimum ~maximum)))))
 
 (defmacro defstring-role
-  [binding
-   declaration-id
-   min-scalars
-   max-scalars
-   max-bytes]
+  [binding declaration-id min-scalars max-scalars max-bytes]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:string-role:" declaration-id)]
     `(do
-       (def ~ref-binding: StringRoleRef
+       (def ~ref-binding StringRoleRef
          (->StringRoleRef ~declaration-id ~(str binding) ~provenance-token))
-       (def ~binding: StringRoleSpec
+       (def ~binding StringRoleSpec
          (->StringRoleSpec
            ~ref-binding
            ~min-scalars
@@ -1645,73 +1658,58 @@
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:bool-role:" declaration-id)]
     `(do
-       (def ~ref-binding: BoolRoleRef
+       (def ~ref-binding BoolRoleRef
          (->BoolRoleRef ~declaration-id ~(str binding) ~provenance-token))
-       (def ~binding: BoolRoleSpec
+       (def ~binding BoolRoleSpec
          (->BoolRoleSpec ~ref-binding)))))
 
-(defmacro defkeyword-role
-  [binding
-   declaration-id
-   allowed]
+(defmacro defkeyword-role [binding declaration-id allowed]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:keyword-role:" declaration-id)]
     `(do
-       (def ~ref-binding: KeywordRoleRef
+       (def ~ref-binding KeywordRoleRef
          (->KeywordRoleRef ~declaration-id ~(str binding) ~provenance-token))
-       (def ~binding: KeywordRoleSpec
+       (def ~binding KeywordRoleSpec
          (->KeywordRoleSpec ~ref-binding ~allowed)))))
 
-(defmacro defentity-name-role
-  [binding
-   declaration-id
-   target]
+(defmacro defentity-name-role [binding declaration-id target]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:entity-name-role:" declaration-id)]
     `(do
-       (def ~ref-binding: EntityNameRoleRef
+       (def ~ref-binding EntityNameRoleRef
          (->EntityNameRoleRef ~declaration-id ~(str binding) ~provenance-token))
-       (def ~binding: EntityNameRoleSpec
+       (def ~binding EntityNameRoleSpec
          (->EntityNameRoleSpec ~ref-binding ~target)))))
 
-(defmacro deffield-name-role
-  [binding
-   declaration-id
-   target]
+(defmacro deffield-name-role [binding declaration-id target]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:field-name-role:" declaration-id)]
     `(do
-       (def ~ref-binding: FieldNameRoleRef
+       (def ~ref-binding FieldNameRoleRef
          (->FieldNameRoleRef ~declaration-id ~(str binding) ~provenance-token))
-       (def ~binding: FieldNameRoleSpec
+       (def ~binding FieldNameRoleSpec
          (->FieldNameRoleSpec ~ref-binding ~target)))))
 
-(defmacro defstate-name-role
-  [binding
-   declaration-id
-   target]
+(defmacro defstate-name-role [binding declaration-id target]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:state-name-role:" declaration-id)]
     `(do
-       (def ~ref-binding: StateNameRoleRef
+       (def ~ref-binding StateNameRoleRef
          (->StateNameRoleRef ~declaration-id ~(str binding) ~provenance-token))
-       (def ~binding: StateNameRoleSpec
+       (def ~binding StateNameRoleSpec
          (->StateNameRoleSpec ~ref-binding ~target)))))
 
-(defmacro defstate-value-name-role
-  [binding
-   declaration-id
-   target]
+(defmacro defstate-value-name-role [binding declaration-id target]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:state-value-name-role:" declaration-id)]
     `(do
-       (def ~ref-binding: StateValueNameRoleRef
+       (def ~ref-binding StateValueNameRoleRef
          (->StateValueNameRoleRef
            ~declaration-id
            ~(str binding)
            ~provenance-token))
-       (def ~binding: StateValueNameRoleSpec
+       (def ~binding StateValueNameRoleSpec
          (->StateValueNameRoleSpec ~ref-binding ~target)))))
 
 (defmacro defexternal-entity-role [binding declaration-id]
@@ -1719,24 +1717,21 @@
         provenance-token
         (str "wake:macro:external-entity-role:" declaration-id)]
     `(do
-       (def ~ref-binding: ExternalEntityRoleRef
+       (def ~ref-binding ExternalEntityRoleRef
          (->ExternalEntityRoleRef
            ~declaration-id
            ~(str binding)
            ~provenance-token))
-       (def ~binding: ExternalEntityRoleSpec
+       (def ~binding ExternalEntityRoleSpec
          (->ExternalEntityRoleSpec ~ref-binding)))))
 
-(defmacro defvalue-role
-  [binding
-   declaration-id
-   value-type]
+(defmacro defvalue-role [binding declaration-id value-type]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:value-role:" declaration-id)]
     `(do
-       (def ~ref-binding: ValueRoleRef
+       (def ~ref-binding ValueRoleRef
          (->ValueRoleRef ~declaration-id ~(str binding) ~provenance-token))
-       (def ~binding: ValueRoleSpec
+       (def ~binding ValueRoleSpec
          (->ValueRoleSpec ~ref-binding ~value-type)))))
 
 (defmacro defplugin-configuration
@@ -1751,7 +1746,7 @@
    state-value-names
    external-entities
    values]
-  `(def ~binding: PluginConfigurationSchema
+  `(def ~binding PluginConfigurationSchema
      (->PluginConfigurationSchema
        ~ints
        ~strings
@@ -1782,7 +1777,7 @@
    entity-fields-ports
    component-slots
    route-slots]
-  `(def ~binding: PluginExports
+  `(def ~binding PluginExports
      (->PluginExports
        ~entities
        ~fields
@@ -1801,189 +1796,145 @@
        ~component-slots
        ~route-slots)))
 
-(defmacro imported-int-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+(defmacro imported-int-binding [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:imported-int:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedIntRoleRef
+       (def ~ref-binding ImportedIntRoleRef
          (->ImportedIntRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: IntBinding
+       (def ~binding IntBinding
          (->IntBinding ~ref-binding ~value)))))
 
-(defmacro imported-string-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+(defmacro imported-string-binding [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:imported-string:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedStringRoleRef
+       (def ~ref-binding ImportedStringRoleRef
          (->ImportedStringRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: StringBinding
+       (def ~binding StringBinding
          (->StringBinding ~ref-binding ~value)))))
 
-(defmacro imported-bool-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+(defmacro imported-bool-binding [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:imported-bool:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedBoolRoleRef
+       (def ~ref-binding ImportedBoolRoleRef
          (->ImportedBoolRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: BoolBinding
+       (def ~binding BoolBinding
          (->BoolBinding ~ref-binding ~value)))))
 
 (defmacro imported-keyword-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+  [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:imported-keyword:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedKeywordRoleRef
+       (def ~ref-binding ImportedKeywordRoleRef
          (->ImportedKeywordRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: KeywordBinding
+       (def ~binding KeywordBinding
          (->KeywordBinding ~ref-binding ~value)))))
 
 (defmacro imported-entity-name-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+  [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:imported-entity-name:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedEntityNameRoleRef
+       (def ~ref-binding ImportedEntityNameRoleRef
          (->ImportedEntityNameRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: EntityNameBinding
+       (def ~binding EntityNameBinding
          (->EntityNameBinding ~ref-binding ~value)))))
 
 (defmacro imported-field-name-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+  [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:imported-field-name:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedFieldNameRoleRef
+       (def ~ref-binding ImportedFieldNameRoleRef
          (->ImportedFieldNameRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: FieldNameBinding
+       (def ~binding FieldNameBinding
          (->FieldNameBinding ~ref-binding ~value)))))
 
 (defmacro imported-state-name-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+  [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:imported-state-name:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedStateNameRoleRef
+       (def ~ref-binding ImportedStateNameRoleRef
          (->ImportedStateNameRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: StateNameBinding
+       (def ~binding StateNameBinding
          (->StateNameBinding ~ref-binding ~value)))))
 
 (defmacro imported-state-value-name-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+  [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:imported-state-value-name:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedStateValueNameRoleRef
+       (def ~ref-binding ImportedStateValueNameRoleRef
          (->ImportedStateValueNameRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: StateValueNameBinding
+       (def ~binding StateValueNameBinding
          (->StateValueNameBinding ~ref-binding ~value)))))
 
 (defmacro imported-external-entity-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+  [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:imported-external-entity:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedExternalEntityRoleRef
+       (def ~ref-binding ImportedExternalEntityRoleRef
          (->ImportedExternalEntityRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: ExternalEntityBinding
+       (def ~binding ExternalEntityBinding
          (->ExternalEntityBinding ~ref-binding ~value)))))
 
-(defmacro imported-value-binding
-  [binding
-   use
-   declaration-id
-   remote-name
-   value]
+(defmacro imported-value-binding [binding use declaration-id remote-name value]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:imported-value:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedValueRoleRef
+       (def ~ref-binding ImportedValueRoleRef
          (->ImportedValueRoleRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: ValueBinding
+       (def ~binding ValueBinding
          (->ValueBinding ~ref-binding ~value)))))
 
 (defmacro defplugin-bindings
@@ -1998,7 +1949,7 @@
    state-value-names
    external-entities
    values]
-  `(def ~binding: PluginBindings
+  `(def ~binding PluginBindings
      (->PluginBindings
        ~ints
        ~strings
@@ -2011,99 +1962,116 @@
        ~external-entities
        ~values)))
 
-(defmacro bind-provider
-  [binding
-   use
-   declaration-id
-   remote-name
-   provider-name]
+(defmacro bind-provider [binding use declaration-id remote-name provider-name]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token (str "wake:macro:imported-provider:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedProviderPortRef
+       (def ~ref-binding ImportedProviderPortRef
          (->ImportedProviderPortRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: ProviderBindingSpec
+       (def ~binding ProviderBindingSpec
          (->ProviderBindingSpec ~provider-name ~ref-binding)))))
 
-(defmacro extend-entity-fields
-  [binding
-   use
-   declaration-id
-   remote-name
-   fields]
+(defmacro extend-entity-fields [binding use declaration-id remote-name fields]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
-        (str "wake:macro:imported-entity-fields:" declaration-id)]
+        (str "wake:macro:imported-entity-fields:" declaration-id)
+        field-ref-name
+        (fn [field-name] Symbol
+          (format-symbol "~a-~a-ref" binding field-name))
+        field-spec-name
+        (fn [field-name] Symbol
+          (format-symbol "~a-~a-spec" binding field-name))
+        field-definitions
+        (mapcat
+          (fn [field] (List Any)
+            (let [field-name (first field)
+                  field-declaration-id (second field)
+                  public-name (nth field 2)
+                  value-type (nth field 3)
+                  cardinality (nth field 4)
+                  write (nth field 5)
+                  storage-id (nth field 6)
+                  required (nth field 7)
+                  field-ref-binding (field-ref-name field-name)
+                  field-spec-binding (field-spec-name field-name)
+                  field-provenance-token
+                  (str "wake:macro:extension-field:" field-declaration-id)]
+              (list
+                `(def ~field-ref-binding ExtensionFieldRef
+                   (->ExtensionFieldRef
+                     ~field-declaration-id
+                     ~public-name
+                     ~field-provenance-token))
+                `(def ~field-spec-binding ExtensionFieldSpec
+                   (->ExtensionFieldSpec
+                     ~field-ref-binding
+                     ~value-type
+                     ~cardinality
+                     ~write
+                     ~storage-id
+                     ~required)))))
+          fields)
+        field-specs
+        (apply vec
+          (map
+            (fn [field] Symbol
+              (field-spec-name (first field)))
+            fields))]
     `(do
-       (def ~ref-binding: ImportedEntityFieldsPortRef
+       (def ~ref-binding ImportedEntityFieldsPortRef
          (->ImportedEntityFieldsPortRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: ExtendSpec
-         (->ExtendSpec ~ref-binding ~fields)))))
+       ~@field-definitions
+       (def ~binding ExtendSpec
+         (->ExtendSpec ~ref-binding ~field-specs)))))
 
-(defmacro fill-component-slot
-  [binding
-   use
-   declaration-id
-   remote-name
-   component]
+(defmacro fill-component-slot [binding use declaration-id remote-name component]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:imported-component-slot:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedComponentSlotRef
+       (def ~ref-binding ImportedComponentSlotRef
          (->ImportedComponentSlotRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: FillSpec
+       (def ~binding FillSpec
          (->FillSpec ~ref-binding ~component)))))
 
-(defmacro mount-route-slot
-  [binding
-   use
-   declaration-id
-   remote-name
-   path]
+(defmacro mount-route-slot [binding use declaration-id remote-name path]
   (let [ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:imported-route-slot:" declaration-id)]
     `(do
-       (def ~ref-binding: ImportedRouteSlotRef
+       (def ~ref-binding ImportedRouteSlotRef
          (->ImportedRouteSlotRef
            ~use
            ~declaration-id
            ~remote-name
            ~provenance-token))
-       (def ~binding: MountSpec
+       (def ~binding MountSpec
          (->MountSpec ~ref-binding ~path)))))
 
 (defmacro application [binding id]
-  `(def ~binding: ApplicationSpec
+  `(def ~binding ApplicationSpec
      (->ApplicationSpec ~id)))
 
 (defmacro backend [binding kind]
-  `(def ~binding: BackendSpec
+  `(def ~binding BackendSpec
      (->BackendSpec ~kind)))
 
-(defmacro defentity
-  [binding
-   record-name
-   fields
-   identity
-   writes
-   derived-fields]
+(defmacro defentity [binding record-name fields identity writes derived-fields]
   `(do
      (defrecord ~record-name ~fields)
-     (def ~binding: EntitySpec
+     (def ~binding EntitySpec
        (->EntitySpec
          ~(str binding)
          ~(str record-name)
@@ -2112,15 +2080,10 @@
          nil
          ~derived-fields))))
 
-(defmacro defstate
-  [binding
-   enum-name
-   states
-   initial
-   transitions]
+(defmacro defstate [binding enum-name states initial transitions]
   `(do
      (defenum ~enum-name ~@states)
-     (def ~binding: StateSpec
+     (def ~binding StateSpec
        (->StateSpec
          ~(str binding)
          ~(str enum-name)
@@ -2128,19 +2091,13 @@
          ~transitions))))
 
 (defmacro defquery
-  [binding
-   params
-   bindings
-   capabilities
-   predicates
-   selection
-   result]
+  [binding params bindings capabilities predicates selection result]
   (let [params-record (format-symbol "~a-params" binding)
         bindings-record (format-symbol "~a-bindings" binding)
         capabilities-value
         (if (pair? capabilities) capabilities (vec capabilities))
         declaration
-        `(def ~binding: QuerySpec
+        `(def ~binding QuerySpec
            (->QuerySpec
              ~(str binding)
              ~(if (= (count params) 0) "" (str params-record))
@@ -2158,44 +2115,28 @@
          (defrecord ~bindings-record ~bindings)
          ~declaration))))
 
-(defmacro component
-  [binding
-   props
-   body]
+(defmacro component [binding props body]
   (let [props-record (format-symbol "~a-props" binding)]
     `(do
        (defrecord ~props-record ~props)
-       (def ~binding: ComponentSpec
+       (def ~binding ComponentSpec
          (->ComponentSpec
            ~(str binding)
            ~(str props-record)
            ~body)))))
 
-(defmacro view
-  [binding
-   entity
-   component-name
-   title]
-  `(def ~binding: ViewSpec
+(defmacro view [binding entity component-name title]
+  `(def ~binding ViewSpec
      (->ViewSpec
        ~(str binding)
        ~entity
        ~component-name
        ~title)))
 
-(defmacro routes
-  [binding
-   default-route
-   routes-value]
-  `(def ~binding: RouterSpec
+(defmacro routes [binding default-route routes-value]
+  `(def ~binding RouterSpec
      (->RouterSpec ~default-route ~routes-value)))
 
-(defmacro list-detail
-  [binding
-   entity
-   title
-   columns
-   search
-   detail-tabs]
-  `(def ~binding: ListDetailSpec
+(defmacro list-detail [binding entity title columns search detail-tabs]
+  `(def ~binding ListDetailSpec
      (->ListDetailSpec ~entity ~title ~columns ~search ~detail-tabs)))

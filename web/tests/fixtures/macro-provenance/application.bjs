@@ -5,59 +5,85 @@
 (wake/defstate-model
   publication-state
   "host/state/publication"
-  [[working :working]
-   [released :released]]
+  "publication-state"
+  [[working "host/state/publication/value/working" "working" :working]
+   [released "host/state/publication/value/released" "released" :released]
+   [retired "host/state/publication/value/retired" "retired" :retired]]
   working
-  [[working [released]]
-   [released []]])
+  [[working [released retired]]
+   [released [retired]]
+   [retired []]])
 
-(wake/defentity-model
+(wake/defentity-ref principal "host/entity/principal" "principal")
+(wake/defentity-ref article "host/entity/article" "article")
+
+(wake/define-entity-model
   principal
   Principal
   "host/entity/principal"
-  "greywrought/principal"
-  [[id String
+  [[id "host/entity/principal/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "greywrought/principal/id"
     true]
-   [display-name String
+   [display-name
+    "host/entity/principal/field/display-name"
+    "display-name"
+    String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "greywrought/principal/display-name"
-    true]])
+    true]]
+  []
+  "greywrought/principal")
 
-(wake/defentity-model
+(wake/define-entity-model
   article
   Article
   "host/entity/article"
-  "greywrought/article"
-  [[id String
+  [[id "host/entity/article/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "greywrought/article/id"
     true]
-   [title String
+   [title "host/entity/article/field/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "greywrought/article/title"
     true]
-   [kind Keyword
+   [kind "host/entity/article/field/kind" "kind" Keyword
     (wake/->KeywordField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "greywrought/article/kind"
     true]
-   [status Keyword
+   [current-revision
+    "host/entity/article/field/current-revision"
+    "current-revision"
+    String
+    (wake/->RefField (wake/->DeclaredEntityTarget article-ref))
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    "greywrought/article/current-revision"
+    false]
+   [owner "host/entity/article/field/owner" "owner" String
+    (wake/->RefField (wake/->DeclaredEntityTarget article-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "greywrought/article/owner"
+    true]
+   [status "host/entity/article/field/status" "status" Keyword
     (wake/->StateField publication-state-ref)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "greywrought/article/status"
-    true]])
+    true]]
+  []
+  "greywrought/article")
 
 (wake/defcomponent-model
   greywrought-card
@@ -66,6 +92,56 @@
      :title
      (wake/->StringValueType nil nil nil))]
   [(wake/->Element :article {} [])])
+
+(wake/defpublication
+  article-publication
+  "host/publication/article"
+  "article-publication"
+  article-ref
+  article-current-revision-ref
+  article-ref
+  article-owner-ref
+  article-status-ref
+  publication-state-working-ref
+  publication-state-released-ref
+  publication-state-retired-ref)
+
+(wake/defform
+  article-form
+  "host/form/article"
+  "article-form"
+  article-ref
+  [article-title-ref article-kind-ref]
+  [article-title-ref]
+  "Save article"
+  (wake/->ClearFormSuccess nil))
+
+(wake/deflist-detail
+  article-list-detail
+  "host/list-detail/article"
+  "article-list-detail"
+  article-ref
+  "Articles"
+  [article-title-ref article-status-ref]
+  [article-title-ref]
+  [(wake/->FieldsDetailTab
+     "Overview"
+     [article-title-ref article-kind-ref article-status-ref])
+   (wake/->RelatedDetailTab
+     "Revisions"
+     article-ref
+     article-owner-ref
+     [article-title-ref article-status-ref])])
+
+(wake/defview-model
+  article-view
+  "host/view/article"
+  "articles"
+  article-ref
+  greywrought-card-ref
+  "Articles"
+  article-form-ref
+  greywrought-card-ref)
 
 (wake/defplugin-use wiki "plugin-use/wiki")
 
@@ -102,28 +178,29 @@
   wiki-ref
   "config/resource"
   "resource-entity"
-  article-ref)
+  (wake/->EntityDeclarationName "article"))
 
 (wake/imported-field-name-binding
   wiki-title-field
   wiki-ref
   "config/title-field"
   "title-field"
-  article-title-ref)
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "title")))
 
 (wake/imported-state-name-binding
   wiki-lifecycle
   wiki-ref
   "config/lifecycle"
   "lifecycle"
-  publication-state-ref)
+  (wake/->StateDeclarationName "publication-state"))
 
 (wake/imported-state-value-name-binding
   wiki-published-state
   wiki-ref
   "config/published-state"
   "published-state"
-  publication-state-released-ref)
+  (wake/->StateValueDeclarationName :released))
 
 (wake/imported-external-entity-binding
   wiki-actor-entity
@@ -183,7 +260,14 @@
   wiki-ref
   "entity-fields-port/revision-fields"
   "revision-fields"
-  [(wake/->NamedFieldSupply "kind" article-kind-ref)])
+  [[kind
+    "entity-fields-port/revision-fields/field/kind"
+    "kind"
+    (wake/->KeywordField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "greywrought/article/kind"
+    true]])
 
 (wake/fill-component-slot
   article-card-fill
@@ -222,4 +306,8 @@
   [(wake/->StorageSpec article-ref "greywrought/article")]
   [(wake/->IdentitySpec article-ref article-id-ref)]
   [wiki-composition]
-  (wake/->MountedDefaultRoute history-mount-ref))
+  (wake/->MountedDefaultRoute history-mount-ref)
+  (wake/->ThemeSpec {"accent" "#6750a4"})
+  [article-publication-ref]
+  [article-form-ref]
+  [article-list-detail-ref])

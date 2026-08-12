@@ -2,14 +2,22 @@
 (ns wake.fixtures.macro-provenance.plugin
   (:require [wake.core :as wake]))
 
-(wake/defcapability browse-published "capability/browse-published" [])
+(wake/defcapability
+  browse-published
+  "capability/browse-published"
+  "browse-published"
+  [])
 
 (wake/defstate-model
   revision-status
   "state/revision-status"
-  [[draft :draft]
-   [published :published]
-   [superseded :superseded]]
+  "revision-status"
+  [[draft "state/revision-status/value/draft" "draft" :draft]
+   [published "state/revision-status/value/published" "published" :published]
+   [superseded
+    "state/revision-status/value/superseded"
+    "superseded"
+    :superseded]]
   draft
   [[draft [published superseded]]
    [published [superseded]]
@@ -17,53 +25,59 @@
 
 (wake/defexternal-entity-role actor-entity "config/actor-entity")
 
-(wake/defentity-model
+(wake/defentity-ref article "entity/article" "article")
+
+(wake/define-entity-model
   article
   Article
   "entity/article"
-  "wiki/article"
-  [[id String
+  [[id "entity/article/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wiki/article/id"
     true]
-   [title String
+   [title "entity/article/field/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wiki/article/title"
     true]
-   [links-to String
+   [links-to "entity/article/field/links-to" "links-to" String
     (wake/->RefField (wake/->DeclaredEntityTarget article-ref))
     (wake/->ManyField nil)
     (wake/->CreateWrite nil)
     "wiki/article/links-to"
     true]
-   [author String
+   [author "entity/article/field/author" "author" String
     (wake/->RefField (wake/->ExternalEntityTarget actor-entity-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wiki/article/author"
     true]
-   [published-at String
+   [published-at
+    "entity/article/field/published-at"
+    "published-at"
+    String
     (wake/->InstantField nil)
     (wake/->SingleField nil)
     (wake/->ServerWrite nil)
     "wiki/article/published-at"
     false]
-   [digest String
+   [digest "entity/article/field/digest" "digest" String
     (wake/->DigestField nil)
     (wake/->SingleField nil)
     (wake/->ServerWrite nil)
     "wiki/article/digest"
     true]
-   [status Keyword
+   [status "entity/article/field/status" "status" Keyword
     (wake/->StateField revision-status-ref)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wiki/article/status"
-    true]])
+    true]]
+  []
+  "wiki/article")
 
 (wake/defvalue-role
   safe-document-limits
@@ -88,11 +102,11 @@
          (wake/->LiteralBound 65536))
        true)]))
 
-(def safe-document-max-bytes: wake/ConfigProjection
+(def safe-document-max-bytes wake/ConfigProjection
   (wake/->ConfigProjection safe-document-limits-ref ["maxBytes"]))
-(def safe-document-max-depth: wake/ConfigProjection
+(def safe-document-max-depth wake/ConfigProjection
   (wake/->ConfigProjection safe-document-limits-ref ["maxDepth"]))
-(def safe-document-max-nodes: wake/ConfigProjection
+(def safe-document-max-nodes wake/ConfigProjection
   (wake/->ConfigProjection safe-document-limits-ref ["maxNodes"]))
 
 (wake/defvalue-type
@@ -142,7 +156,7 @@
 (wake/defentity-fields-port
   revision-fields
   "entity-fields-port/revision-fields"
-  article-ref
+  (wake/->DeclaredEntityFieldsTarget article-ref)
   []
   (wake/->OpenManyEntityFields (wake/->CreateWrite nil) true))
 
@@ -185,6 +199,7 @@
 (wake/defquery-model
   history-superseded
   "query/history-superseded"
+  "history-superseded"
   [browse-published-ref]
   []
   [(wake/->QueryBindingSpec :article article-ref)]
@@ -217,13 +232,17 @@
 (wake/defview-model
   history-view
   "view/history"
+  "history"
   article-ref
   article-card-ref
-  "History")
+  "History"
+  nil
+  nil)
 
 (wake/defroute-template
   history-route
   "route/history"
+  "history"
   history-view-ref
   [(wake/->RouteQuerySpec history-superseded-ref nil)]
   [])
@@ -231,11 +250,13 @@
 (wake/defcomponent-slot
   article-card-slot
   "component-slot/article-card"
+  "article-card"
   article-card-ref)
 
 (wake/defroute-slot
   history-slot
   "route-slot/history"
+  "history"
   history-route-ref)
 
 (wake/defint-role page-limit "config/page-limit" 1 100)
@@ -243,7 +264,10 @@
 (wake/defbool-role show-history "config/show-history")
 (wake/defkeyword-role draft-label "config/draft-label" [:draft :working])
 (wake/defentity-name-role resource-entity "config/resource" article-ref)
-(wake/deffield-name-role title-field "config/title-field" article-title-ref)
+(wake/deffield-name-role
+  title-field
+  "config/title-field"
+  (wake/->EntityFieldNameRoleTarget article-title-ref))
 (wake/defstate-name-role lifecycle "config/lifecycle" revision-status-ref)
 (wake/defstate-value-name-role
   published-state

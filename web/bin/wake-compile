@@ -66,23 +66,13 @@ cp "$wake_root/package.json" "$staging_dir/package.json"
 cp "$BEAGLE_RUNTIME_DIR/core.js" "$dist/beagle/core.js"
 cp "$BEAGLE_RUNTIME_DIR/hamt.js" "$dist/beagle/hamt.js"
 
-modules=(sexpr config-reference command value-type ir graph reader ui js-ast emit-fram codegen)
+modules=(ir graph ui js-ast emit-fram codegen)
 for mod in "${modules[@]}"; do
   echo "compiling $mod.bjs..." >&2
   compile "$compiler/$mod.bjs" "$dist/$mod.js.tmp"
 done
 
-{
-  cat "$dist/sexpr.js.tmp"
-  echo
-  echo "export { parse_all };"
-} > "$dist/sexpr.js"
-
 append_function_exports "$dist/ir.js.tmp" "$dist/ir.js"
-append_function_exports \
-  "$dist/config-reference.js.tmp" "$dist/config-reference.js"
-append_function_exports "$dist/command.js.tmp" "$dist/command.js"
-append_function_exports "$dist/value-type.js.tmp" "$dist/value-type.js"
 
 sed "s|from './wake/ir.js';|from './ir.js';|" \
   "$dist/graph.js.tmp" > "$dist/graph.js.imports"
@@ -90,13 +80,6 @@ append_function_exports "$dist/graph.js.imports" "$dist/graph.js"
 
 append_function_exports "$dist/ui.js.tmp" "$dist/ui.js"
 append_function_exports "$dist/js-ast.js.tmp" "$dist/js-ast.js"
-
-{
-  sed "s|from './wake/sexpr.js';|from './sexpr.js';|; s|from './wake/config-reference.js';|from './config-reference.js';|; s|from './wake/command.js';|from './command.js';|; s|from './wake/value-type.js';|from './value-type.js';|; s|from './wake/ir.js';|from './ir.js';|" \
-    "$dist/reader.js.tmp"
-  echo
-  echo "export { parse_program, parse_program_at, parse_program_configured_at };"
-} > "$dist/reader.js"
 
 # emit-fram owns its public js/export declaration in source.
 sed "s|from './wake/graph.js';|from './graph.js';|" \

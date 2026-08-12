@@ -5,25 +5,23 @@
 ;; Its recursive scope is load-bearing: the stable application and storage IDs
 ;; keep lexical aliases out of FRAM identity.
 
-(defn keyword-term [spelling: String] -> Any
+(defn keyword-term [(spelling String)] Any
   ["keyword" spelling])
 
-(defn triple-term
-  [t1: Any
-   t2: Any
-   t3: Any] -> Any
+(defn triple-term [(t1 Any) (t2 Any) (t3 Any)] Any
   ["triple" t1 t2 t3])
 
-(defn app-scope-term [application-id: String value: Any] -> Any
+(defn app-scope-term [(application-id String) (value Any)] Any
   (triple-term
     (keyword-term "wake/app")
     (keyword-term application-id)
     value))
 
 (defn subject-template
-  [application-id: String
-   entity-storage-id: String
-   identity-storage-id: String] -> Any
+  [(application-id String)
+   (entity-storage-id String)
+   (identity-storage-id String)]
+  Any
   (app-scope-term
     application-id
     (triple-term
@@ -32,9 +30,10 @@
       {:field identity-storage-id})))
 
 (defn predicate-term
-  [application-id: String
-   entity-storage-id: String
-   field-storage-id: String] -> Any
+  [(application-id String)
+   (entity-storage-id String)
+   (field-storage-id String)]
+  Any
   (app-scope-term
     application-id
     (triple-term
@@ -43,9 +42,7 @@
       (keyword-term field-storage-id))))
 
 (defn field-plan
-  [application-id: String
-   entity-storage-id: String
-   field: Any] -> Any
+  [(application-id String) (entity-storage-id String) (field Any)] Any
   (let [plan {:name (.-name field)
               :storageId (.-storage-id field)
               :type (.-type field)
@@ -62,9 +59,7 @@
       plan)))
 
 (defn identity-plan
-  [application-id: String
-   entity-storage-id: String
-   field: Any] -> Any
+  [(application-id String) (entity-storage-id String) (field Any)] Any
   {:field (.-name field)
    :storageId (.-storage-id field)
    :type (.-type field)
@@ -76,7 +71,7 @@
      entity-storage-id
      (.-storage-id field))})
 
-(defn entity-plan [application-id: String entity: Any] -> Any
+(defn entity-plan [(application-id String) (entity Any)] Any
   (let [entity-name (.-name entity)
         entity-storage-id (.-storage-id entity)]
     {:name entity-name
@@ -85,16 +80,16 @@
      (identity-plan
        application-id entity-storage-id (.-identity-field entity))
      :fields (mapv
-               (fn [field: Any] -> Any
+               (fn [(field Any)] Any
                  (field-plan application-id entity-storage-id field))
                (.-stored-fields entity))}))
 
-(defn state-name [state: String] -> String
+(defn state-name [(state String)] String
   (if (.startsWith state ":") (.slice state 1) state))
 
-(defn transition-plan [transitions: Any] -> Any
+(defn transition-plan [(transitions Any)] Any
   (reduce
-    (fn [plan state]
+    (fn [plan state] (Map String (Vec String))
       (assoc
         plan
         (state-name state)
@@ -102,14 +97,14 @@
     {}
     (keys transitions)))
 
-(defn state-machine-plan [machine: Any] -> Any
+(defn state-machine-plan [(machine Any)] Any
   {:entity (.-entity machine)
    :field (.-field machine)
    :stateType (.-state-type machine)
    :initial (state-name (.-initial machine))
    :transitions (transition-plan (.-transitions machine))})
 
-(defn publication-plan [publication: Any] -> Any
+(defn publication-plan [(publication Any)] Any
   {:name (.-name publication)
    :owner {:entity (.-owner-entity publication)
            :pointer (.-pointer-field publication)}
@@ -120,7 +115,7 @@
             :published (.-published-state publication)
             :retired (.-retired-state publication)}})
 
-(defn query-operand-plan [operand: Any] -> Any
+(defn query-operand-plan [(operand Any)] Any
   (let [kind (.-kind operand)]
     (cond
       (= kind "parameter")
@@ -140,12 +135,12 @@
       :else
         {:kind "literal" :type (.-type operand) :value (.-value operand)})))
 
-(defn query-predicate-plan [predicate: Any] -> Any
+(defn query-predicate-plan [(predicate Any)] Any
   {:op (.-op predicate)
    :left (query-operand-plan (.-left predicate))
    :right (query-operand-plan (.-right predicate))})
 
-(defn query-column-plan [column: Any] -> Any
+(defn query-column-plan [(column Any)] Any
   (let [plan
         {:name (.-name column)
          :binding (.-binding column)
@@ -162,34 +157,34 @@
         (assoc checked-plan :internal true)
         checked-plan))))
 
-(defn query-result-provider-plan [provider: Any] -> Any
+(defn query-result-provider-plan [(provider Any)] Any
   {:name (.-name provider)
    :provider (.-provider provider)
    :input (.-input provider)
    :inputType (.-input-type provider)
    :outputType (.-output-type provider)})
 
-(defn query-result-plan [query: Any] -> Any
+(defn query-result-plan [(query Any)] Any
   (if (= (.-result-kind query) "page")
     {:kind "page"
      :defaultLimit (.-default-limit query)
      :maxLimit (.-max-limit query)}
     {:kind (.-result-kind query)}))
 
-(defn route-query-plan [query: Any] -> Any
+(defn route-query-plan [(query Any)] Any
   {:name (.-name query) :prefix (.-prefix query)})
 
-(defn query-plan [query: Any] -> Any
+(defn query-plan [(query Any)] Any
   {:name (.-name query)
    :capabilities (.-capabilities query)
    :parameters
    (mapv
-     (fn [parameter: Any] -> Any
+     (fn [(parameter Any)] Any
        {:name (.-name parameter) :type (.-type parameter)})
      (.-params query))
    :bindings
    (mapv
-     (fn [binding: Any] -> Any
+     (fn [(binding Any)] Any
        {:name (.-name binding) :entity (.-entity binding)})
      (.-bindings query))
    :where (mapv query-predicate-plan (.-predicates query))
@@ -199,11 +194,11 @@
    :result (query-result-plan query)
    :dependencies
    (mapv
-     (fn [dependency: Any] -> Any
+     (fn [(dependency Any)] Any
        {:entity (.-entity dependency) :field (.-field dependency)})
      (.-dependencies query))})
 
-(defn fram-plan [checked: Any] -> Any
+(defn fram-plan [(checked Any)] Any
   (let [application-id (.-application-id checked)]
     {:schemaVersion 2
      :applicationId application-id
@@ -219,7 +214,7 @@
      (if (nil? (.-router checked))
        []
        (mapv
-         (fn [route: Any] -> Any
+         (fn [(route Any)] Any
            {:path (.-path route)
             :parameters (or (.-parameters route) [])
             :inputParameters (or (.-input-parameters route) [])
@@ -228,7 +223,7 @@
             :view (.-view-name route)})
          (.-routes (.-router checked))))
      :entities (mapv
-                 (fn [entity: Any] -> Any
+                 (fn [(entity Any)] Any
                    (entity-plan application-id entity))
                  (.-entities checked))
      :queries (mapv query-plan (or (.-queries checked) []))
@@ -237,5 +232,5 @@
      :publications (mapv publication-plan (.-publications checked))}))
 
 (js/export
-  (defn gen-fram [checked: Any] -> String
+  (defn gen-fram [(checked Any)] String
     (str (JSON/stringify (fram-plan checked) nil 2) "\n")))

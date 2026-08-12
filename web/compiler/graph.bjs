@@ -10,162 +10,157 @@
 ;; --- Graph records ---
 
 (defrecord GField
-  [name: String
-   storage-id: String
-   type: String
-   identity: Bool
-   cardinality: String
-   value-kind: String
-   target-entity: String?
-   write-policy: String
-   derived: Bool
-   deps: (Vec String)
-   expr: IrDerivedExpr?])
+  [(name String)
+   (storage-id String)
+   (type String)
+   (identity Bool)
+   (cardinality String)
+   (value-kind String)
+   (target-entity String?)
+   (write-policy String)
+   (derived Bool)
+   (deps (Vec String))
+   (expr IrDerivedExpr?)])
 
 (defrecord GEntity
-  [name: String
-   storage-id: String
-   fields: (Vec GField)
-   stored-fields: (Vec GField)
-   derived-fields: (Vec GField)
-   ref-fields: (Vec GField)
-   identity-field: GField?
-   store-name: String])
+  [(name String)
+   (storage-id String)
+   (fields (Vec GField))
+   (stored-fields (Vec GField))
+   (derived-fields (Vec GField))
+   (ref-fields (Vec GField))
+   (identity-field GField?)
+   (store-name String)])
 
-(defrecord FkEdge
-  [from-entity: String
-   from-field: String
-   to-entity: String])
+(defrecord FkEdge [(from-entity String) (from-field String) (to-entity String)])
 
 (defrecord StateMachine
-  [entity: String
-   field: String
-   state-type: String
-   transitions: (Map String (Vec String))
-   initial: String])
+  [(entity String)
+   (field String)
+   (state-type String)
+   (transitions (Map String (Vec String)))
+   (initial String)])
 
 (defrecord PublicationPolicy
-  [name: String
-   owner-entity: String
-   pointer-field: String
-   revision-entity: String
-   owner-field: String
-   state-field: String
-   draft-state: String
-   published-state: String
-   retired-state: String])
+  [(name String)
+   (owner-entity String)
+   (pointer-field String)
+   (revision-entity String)
+   (owner-field String)
+   (state-field String)
+   (draft-state String)
+   (published-state String)
+   (retired-state String)])
 
-(defrecord GQueryParam [name: String type: String])
-(defrecord GQueryBinding [name: String entity: String])
+(defrecord GQueryParam [(name String) (type String)])
+(defrecord GQueryBinding [(name String) (entity String)])
 (defrecord GQueryOperand
-  [kind: String
-   type: String
-   target-entity: String?
-   binding: String?
-   entity: String?
-   field: String?
-   parameter: String?
-   value: Any])
+  [(kind String)
+   (type String)
+   (target-entity String?)
+   (binding String?)
+   (entity String?)
+   (field String?)
+   (parameter String?)
+   (value Any)])
 (defrecord GQueryPredicate
-  [op: String
-   left: GQueryOperand
-   right: GQueryOperand])
+  [(op String) (left GQueryOperand) (right GQueryOperand)])
 (defrecord GQueryColumn
-  [name: String
-   binding: String
-   entity: String
-   field: String
-   type: String
-   cardinality: String
-   value-kind: String
-   target-entity: String?
-   internal: Bool])
+  [(name String)
+   (binding String)
+   (entity String)
+   (field String)
+   (type String)
+   (cardinality String)
+   (value-kind String)
+   (target-entity String?)
+   (internal Bool)])
 (defrecord GQueryResultProvider
-  [name: String
-   provider: String
-   input: Any
-   input-type: Any
-   output-type: Any])
-(defrecord GQueryDependency [entity: String field: String])
+  [(name String)
+   (provider String)
+   (input Any)
+   (input-type Any)
+   (output-type Any)])
+(defrecord GQueryDependency [(entity String) (field String)])
 (defrecord GQuery
-  [name: String
-   capabilities: (Vec String)
-   params: (Vec GQueryParam)
-   bindings: (Vec GQueryBinding)
-   predicates: (Vec GQueryPredicate)
-   columns: (Vec GQueryColumn)
-   result-providers: (Vec GQueryResultProvider)
-   result-kind: String
-   default-limit: Int?
-   max-limit: Int?
-   dependencies: (Vec GQueryDependency)])
+  [(name String)
+   (capabilities (Vec String))
+   (params (Vec GQueryParam))
+   (bindings (Vec GQueryBinding))
+   (predicates (Vec GQueryPredicate))
+   (columns (Vec GQueryColumn))
+   (result-providers (Vec GQueryResultProvider))
+   (result-kind String)
+   (default-limit Int?)
+   (max-limit Int?)
+   (dependencies (Vec GQueryDependency))])
 
 (defrecord GDetailTab
-  [label: String
-   content-type: String
-   fields: (Vec String)
-   entity-name: String?
-   relation-field: String?
-   display-fields: (Vec String)])
+  [(label String)
+   (content-type String)
+   (fields (Vec String))
+   (entity-name String?)
+   (relation-field String?)
+   (display-fields (Vec String))])
 
 (defrecord GListDetail
-  [entity-name: String
-   title: String
-   columns: (Vec String)
-   search-cols: (Vec String)
-   detail-tabs: (Vec GDetailTab)])
+  [(entity-name String)
+   (title String)
+   (columns (Vec String))
+   (search-cols (Vec String))
+   (detail-tabs (Vec GDetailTab))])
 
 (defrecord CheckedApplication
-  [schema-version: Int
-   application-id: String
-   source-units: (Vec IrSourceUnit)
-   plugin-closure: (Vec Any)
-   semantic-fingerprint: String?
-   providers: (Vec IrProvider)
-   value-types: (Vec Any)
-   provider-ports: (Vec Any)
-   extensions: (Vec IrExtend)
-   fills: (Vec IrFill)
-   mounts: (Vec IrMount)
-   route-templates: (Vec IrRoute)
-   ns: String
-   backend: IrBackend?
-   entities: (Vec GEntity)
-   fk-edges: (Vec FkEdge)
-   state-machines: (Vec StateMachine)
-   publications: (Vec PublicationPolicy)
-   queries: (Vec GQuery)
-   commands: (Vec Any)
-   persist: IrPersist?
-   defstates: (Vec IrDefstate)
-   list-details: (Vec GListDetail)
-   forms: (Vec IrSmartForm)
-   theme: IrTheme?
-   components: (Vec IrComponent)
-   views: (Vec IrView)
-   router: IrRouter?
-   layout: IrLayout?])
+  [(schema-version Int)
+   (application-id String)
+   (source-units (Vec IrSourceUnit))
+   (plugin-closure (Vec Any))
+   (semantic-fingerprint String?)
+   (providers (Vec IrProvider))
+   (value-types (Vec Any))
+   (provider-ports (Vec Any))
+   (extensions (Vec IrExtend))
+   (fills (Vec IrFill))
+   (mounts (Vec IrMount))
+   (route-templates (Vec IrRoute))
+   (ns String)
+   (backend IrBackend?)
+   (entities (Vec GEntity))
+   (fk-edges (Vec FkEdge))
+   (state-machines (Vec StateMachine))
+   (publications (Vec PublicationPolicy))
+   (queries (Vec GQuery))
+   (commands (Vec Any))
+   (persist IrPersist?)
+   (defstates (Vec IrDefstate))
+   (list-details (Vec GListDetail))
+   (forms (Vec IrSmartForm))
+   (theme IrTheme?)
+   (components (Vec IrComponent))
+   (views (Vec IrView))
+   (router IrRouter?)
+   (layout IrLayout?)])
 
 ;; --- Shared utilities ---
 
-(defn strip-colon [s: String] -> String
+(defn strip-colon [(s String)] String
   (if (.startsWith s ":") (subs s 1) s))
 
-(defn capitalize [s: String] -> String
+(defn capitalize [(s String)] String
   (str (.toUpperCase (subs s 0 1)) (subs s 1)))
 
-(defn titlecase [s: String] -> String
+(defn titlecase [(s String)] String
   (str (.toUpperCase (subs s 0 1)) (subs s 1)))
 
 ;; --- Field analysis ---
 
-(defn graph-error [message: String] -> Any
+(defn graph-error [(message String)] Any
   (throw (ex-info (str "wake: " message) {})))
 
-(def reserved-generated-names: (Vec String)
+(def reserved-generated-names (Vec String)
   ["__proto__" "prototype" "constructor"])
 
-(defn validate-generated-name [kind: String name: String] -> Any
+(defn validate-generated-name [(kind String) (name String)] Any
   (if (.includes reserved-generated-names (strip-colon name))
     (graph-error
       (str kind " name '" name
@@ -173,9 +168,7 @@
     nil))
 
 (defn validate-generated-names
-  [prog: IrProgram
-   entities: (Vec GEntity)
-   defstates: (Vec IrDefstate)] -> Any
+  [(prog IrProgram) (entities (Vec GEntity)) (defstates (Vec IrDefstate))] Any
   (doseq [entity entities]
     (validate-generated-name "entity" (.-name entity))
     (doseq [field (.-fields entity)]
@@ -204,10 +197,9 @@
       nil)))
 
 (defn validate-unique-declaration-names
-  [names: (Vec String)
-   label: String] -> Any
+  [(names (Vec String)) (label String)] Any
   (reduce
-    (fn [seen name]
+    (fn [seen name] (Vec String)
       (if (.includes seen name)
         (graph-error (str label " '" name "' is duplicated"))
         (conj seen name)))
@@ -215,24 +207,23 @@
     names))
 
 (defn validate-declaration-uniqueness
-  [prog: IrProgram
-   entities: (Vec GEntity)] -> Any
+  [(prog IrProgram) (entities (Vec GEntity))] Any
   (validate-unique-declaration-names
-    (mapv (fn [entity] (.-name entity)) entities)
+    (mapv (fn [entity] String (.-name entity)) entities)
     "entity")
   (validate-unique-declaration-names
-    (mapv (fn [component] (.-name component)) (or (.-components prog) []))
+    (mapv (fn [component] String (.-name component)) (or (.-components prog) []))
     "component")
   (validate-unique-declaration-names
-    (mapv (fn [view] (.-name view)) (or (.-views prog) []))
+    (mapv (fn [view] String (.-name view)) (or (.-views prog) []))
     "view"))
 
-(defn validate-ui-references [prog: IrProgram entities: (Vec GEntity)] -> Any
+(defn validate-ui-references [(prog IrProgram) (entities (Vec GEntity))] Any
   (let [components (or (.-components prog) [])
         views (or (.-views prog) [])
-        entity-names (mapv (fn [entity] (.-name entity)) entities)
-        component-names (mapv (fn [component] (.-name component)) components)
-        view-names (mapv (fn [view] (.-name view)) views)]
+        entity-names (mapv (fn [entity] String (.-name entity)) entities)
+        component-names (mapv (fn [component] String (.-name component)) components)
+        view-names (mapv (fn [view] String (.-name view)) views)]
     (doseq [view views]
       (let [name (.-name view)
             entity-name (.-entity-name view)
@@ -258,11 +249,11 @@
     (let [router (.-router prog)]
       (if (some? router)
         (let [routes (or (.-routes router) [])
-              route-paths (mapv (fn [route] (.-path route)) routes)
-              route-views (mapv (fn [route] (.-view-name route)) routes)
+              route-paths (mapv (fn [route] String (.-path route)) routes)
+              route-views (mapv (fn [route] String (.-view-name route)) routes)
               default-route (.-default-route router)]
           (reduce
-            (fn [seen path]
+            (fn [seen path] (Vec String)
               (if (.includes seen path)
                 (graph-error (str "route path '" path "' is duplicated"))
                 (conj seen path)))
@@ -282,20 +273,17 @@
             nil))
         nil))))
 
-(defn nonempty-string? [value: Any] -> Bool
+(defn nonempty-string? [(value Any)] Bool
   (and (string? value) (> (count value) 0)))
 
-(defn declaration-local?
-  [prog: Any
-   kind: String
-   name: String] -> Bool
+(defn declaration-local? [(prog Any) (kind String) (name String)] Bool
   (let [plugin-closure (or (.-plugin-closure prog) [])
         root-source (.-source-unit prog)
         declarations (or (.-declaration-provenance prog) [])
         declaration
         (first
           (filterv
-            (fn [entry]
+            (fn [entry] Bool
               (and (= (.-kind entry) kind)
                    (= (.-name entry) name)))
             declarations))]
@@ -308,10 +296,7 @@
            (.-source-id (.-source (.-provenance declaration))))))))
 
 (defn required-storage-id
-  [value: Any
-   label: String
-   fallback: String
-   local: Bool] -> String
+  [(value Any) (label String) (fallback String) (local Bool)] String
   (if (nonempty-string? value)
     value
     (if local
@@ -320,10 +305,11 @@
         (str "plugin " label " requires a nonempty fixed storage ID")))))
 
 (defn analyze-field
-  [attr: Any
-   entity-name: String
-   entity-local: Bool
-   application-id: String] -> GField
+  [(attr Any)
+   (entity-name String)
+   (entity-local Bool)
+   (application-id String)]
+  GField
   (let [name (.-name attr)
         storage-id
         (required-storage-id
@@ -370,10 +356,10 @@
       (if derived (or (get opts "deps") []) [])
       (if derived (get opts "expr") nil))))
 
-(def derived-expr-keys: (Vec String)
+(def derived-expr-keys (Vec String)
   ["_tag" "kind" "field" "value" "parts"])
 
-(defn require-derived-expr-shape [expr: Any label: String] -> Any
+(defn require-derived-expr-shape [(expr Any) (label String)] Any
   (if (nil? expr)
     (graph-error (str label " requires a closed derived expression"))
     nil)
@@ -390,17 +376,16 @@
     nil))
 
 (defn append-unique-derived-deps
-  [deps: (Vec String)
-   additions: (Vec String)] -> (Vec String)
+  [(deps (Vec String)) (additions (Vec String))] (Vec String)
   (reduce
-    (fn [result dependency]
+    (fn [result dependency] (Vec String)
       (if (.includes result dependency)
         result
         (conj result dependency)))
     deps
     additions))
 
-(defn validate-derived-expression [expr: Any label: String] -> (Vec String)
+(defn validate-derived-expression [(expr Any) (label String)] (Vec String)
   (require-derived-expr-shape expr label)
   (let [kind (.-kind expr)
         field (.-field expr)
@@ -434,7 +419,7 @@
             (graph-error (str label " has an invalid concat derived expression"))
             nil)
           (reduce
-            (fn [deps part]
+            (fn [deps part] (Vec String)
               (append-unique-derived-deps
                 deps
                 (validate-derived-expression part label)))
@@ -444,7 +429,7 @@
         (graph-error
           (str label " has unknown derived expression kind '" kind "'")))))
 
-(defn validate-derived-fields [entity-name: String fields: (Vec GField)] -> Any
+(defn validate-derived-fields [(entity-name String) (fields (Vec GField))] Any
   (doseq [field fields]
     (if (.-derived field)
       (let [label (str "derived field '" entity-name "." (.-name field) "'")
@@ -461,7 +446,7 @@
           (let [resolved
                 (first
                   (filterv
-                    (fn [candidate]
+                    (fn [candidate] Bool
                       (= (.-name candidate) dependency))
                     fields))]
             (if (nil? resolved)
@@ -485,10 +470,7 @@
 
 ;; --- Entity analysis ---
 
-(defn analyze-entity
-  [prog: Any
-   entity: Any
-   application-id: String] -> GEntity
+(defn analyze-entity [(prog Any) (entity Any) (application-id String)] GEntity
   (let [name (.-name entity)
         local (declaration-local? prog "entity" name)
         storage-id
@@ -499,23 +481,23 @@
           local)
         fields
         (mapv
-          (fn [attr]
+          (fn [attr] GField
             (analyze-field attr name local application-id))
           (.-attrs entity))
         validated-derived (validate-derived-fields name fields)
-        stored-fields (filterv (fn [f] (not (.-derived f))) fields)
-        derived-fields (filterv (fn [f] (.-derived f)) fields)
-        ref-fields (filterv (fn [f] (= (.-type f) "Ref")) fields)
-        identity-fields (filterv (fn [f] (.-identity f)) stored-fields)
+        stored-fields (filterv (fn [f] Bool (not (.-derived f))) fields)
+        derived-fields (filterv (fn [f] Bool (.-derived f)) fields)
+        ref-fields (filterv (fn [f] Bool (= (.-type f) "Ref")) fields)
+        identity-fields (filterv (fn [f] Bool (.-identity f)) stored-fields)
         identity-field (if (= (count identity-fields) 1)
                          (first identity-fields)
                          nil)]
     (->GEntity name storage-id fields stored-fields derived-fields ref-fields
                identity-field (str name "s"))))
 
-(defn validate-storage-id-uniqueness [entities: (Vec GEntity)] -> Any
+(defn validate-storage-id-uniqueness [(entities (Vec GEntity))] Any
   (reduce
-    (fn [seen entry]
+    (fn [seen entry] (Map String String)
       (let [storage-id (nth entry 0)
             label (nth entry 1)
             prior (get seen storage-id)]
@@ -526,9 +508,9 @@
           (assoc seen storage-id label))))
     {}
     (reduce
-      (fn [entries entity]
+      (fn [entries entity] (Vec (Vec String))
         (reduce
-          (fn [acc field]
+          (fn [acc field] (Vec (Vec String))
             (conj
               acc
               [(.-storage-id field)
@@ -543,12 +525,12 @@
 
 ;; --- FK edge resolution ---
 
-(defn resolve-fk-edges [entities: (Vec GEntity)] -> (Vec FkEdge)
-  (let [entity-names (mapv (fn [entity] (.-name entity)) entities)]
+(defn resolve-fk-edges [(entities (Vec GEntity))] (Vec FkEdge)
+  (let [entity-names (mapv (fn [entity] String (.-name entity)) entities)]
     (reduce
-      (fn [edges entity]
+      (fn [edges entity] (Vec FkEdge)
         (reduce
-          (fn [acc ref-field]
+          (fn [acc ref-field] (Vec FkEdge)
             (let [target (.-target-entity ref-field)]
               (if (nil? target)
                 (graph-error
@@ -572,7 +554,7 @@
 
 ;; --- Backend invariants ---
 
-(defn fram-literal-type? [type: String] -> Bool
+(defn fram-literal-type? [(type String)] Bool
   (or (= type "String")
       (= type "Digest")
       (= type "Int")
@@ -585,17 +567,15 @@
       (= type "Keyword")
       (= type "Instant")))
 
-(defn fram-stored-field-type?
-  [field: GField
-   defstates: (Vec IrDefstate)] -> Bool
+(defn fram-stored-field-type? [(field GField) (defstates (Vec IrDefstate))] Bool
   (let [type (.-type field)]
     (or (fram-literal-type? type)
         (= type "Ref")
         (some?
           (first
-            (filterv (fn [state] (= (.-name state) type)) defstates))))))
+            (filterv (fn [state] Bool (= (.-name state) type)) defstates))))))
 
-(defn validate-backend [prog: IrProgram entities: (Vec GEntity)] -> Any
+(defn validate-backend [(prog IrProgram) (entities (Vec GEntity))] Any
   (let [backend (.-backend prog)
         defstates (or (.-defstates prog) [])]
     (if (and (some? backend) (not (= (.-kind backend) "fram")))
@@ -607,7 +587,7 @@
     (if (some? backend)
       (doseq [entity entities]
         (let [identity-fields
-              (filterv (fn [field] (.-identity field))
+              (filterv (fn [field] Bool (.-identity field))
                        (.-stored-fields entity))]
           (doseq [field (.-stored-fields entity)]
             (if (not (fram-stored-field-type? field defstates))
@@ -630,7 +610,7 @@
 
 ;; --- State machine resolution ---
 
-(defn validate-defstate [defstate: IrDefstate] -> Any
+(defn validate-defstate [(defstate IrDefstate)] Any
   (let [name (.-name defstate)
         transitions (.-transitions defstate)
         source-names (keys transitions)
@@ -640,7 +620,7 @@
       (graph-error (str "defstate '" name "' must declare at least one state"))
       nil)
     (reduce
-      (fn [seen state]
+      (fn [seen state] (Vec String)
         (if (= state "")
           (graph-error (str "defstate '" name "' declares an empty state"))
           nil)
@@ -661,7 +641,7 @@
             targets (or (get transitions source-name) [])
             normalized-targets (mapv strip-colon targets)]
         (reduce
-          (fn [seen target]
+          (fn [seen target] (Vec String)
             (if (.includes seen target)
               (graph-error
                 (str "defstate '" name "' transition from '" source
@@ -676,25 +656,24 @@
                    "' targets undeclared state '" target "'"))
             nil))))))
 
-(defn validate-defstates [defstates: (Vec IrDefstate)] -> Any
+(defn validate-defstates [(defstates (Vec IrDefstate))] Any
   (doseq [defstate defstates]
     (validate-defstate defstate)))
 
 (defn resolve-state-machines
-  [entities: (Vec GEntity)
-   defstates: (Vec IrDefstate)] -> (Vec StateMachine)
+  [(entities (Vec GEntity)) (defstates (Vec IrDefstate))] (Vec StateMachine)
   (reduce
-    (fn [machines entity]
+    (fn [machines entity] (Vec StateMachine)
       (let [status-fields (filterv
-              (fn [f]
+              (fn [f] Bool
                 (and (not (= (.-type f) "String"))
                      (not (= (.-type f) "Ref"))
                      (not (= (.-type f) "Derived"))
-                     (some? (first (filterv (fn [ds] (= (.-name ds) (.-type f))) defstates)))))
+                     (some? (first (filterv (fn [ds] Bool (= (.-name ds) (.-type f))) defstates)))))
               (.-fields entity))]
         (reduce
-          (fn [acc sf]
-            (let [ds (first (filterv (fn [d] (= (.-name d) (.-type sf))) defstates))]
+          (fn [acc sf] (Vec StateMachine)
+            (let [ds (first (filterv (fn [d] Bool (= (.-name d) (.-type sf))) defstates))]
               (if (not (= (.-cardinality sf) "single"))
                 (graph-error
                   (str "state field '" (.-name entity) "." (.-name sf)
@@ -710,15 +689,15 @@
 
 ;; --- Publication policy resolution ---
 
-(defn entity-named [entities: (Vec GEntity) name: String] -> GEntity?
-  (first (filterv (fn [entity] (= (.-name entity) name)) entities)))
+(defn entity-named [(entities (Vec GEntity)) (name String)] GEntity?
+  (first (filterv (fn [entity] Bool (= (.-name entity) name)) entities)))
 
-(defn field-named [entity: GEntity name: String] -> GField?
-  (first (filterv (fn [field] (= (.-name field) name)) (.-fields entity))))
+(defn field-named [(entity GEntity) (name String)] GField?
+  (first (filterv (fn [field] Bool (= (.-name field) name)) (.-fields entity))))
 
-(defn validate-distinct-names [names: (Vec String) label: String] -> Any
+(defn validate-distinct-names [(names (Vec String)) (label String)] Any
   (reduce
-    (fn [seen name]
+    (fn [seen name] (Vec String)
       (if (.includes seen name)
         (graph-error (str label " repeats '" name "'"))
         (conj seen name)))
@@ -726,10 +705,7 @@
     names)
   nil)
 
-(defn required-list-field
-  [entity: GEntity
-   name: String
-   label: String] -> GField
+(defn required-list-field [(entity GEntity) (name String) (label String)] GField
   (let [field (field-named entity name)]
     (if (nil? field)
       (graph-error
@@ -738,10 +714,11 @@
     (or field (first (.-fields entity)))))
 
 (defn resolve-list-detail-tab
-  [entities: (Vec GEntity)
-   owner: GEntity
-   tab: IrDetailTab
-   label: String] -> GDetailTab
+  [(entities (Vec GEntity))
+   (owner GEntity)
+   (tab IrDetailTab)
+   (label String)]
+  GDetailTab
   (let [content-type (.-content-type tab)]
     (if (= content-type "fields")
       (let [fields (or (.-fields tab) [])]
@@ -758,7 +735,7 @@
           (let [child (or related owner)
                 candidates
                 (filterv
-                  (fn [field]
+                  (fn [field] Bool
                     (and (= (.-type field) "Ref")
                          (= (.-cardinality field) "single")
                          (= (.-target-entity field) (.-name owner))))
@@ -793,17 +770,16 @@
         (graph-error (str label " has unknown content type '" content-type "'"))))))
 
 (defn resolve-list-details
-  [prog: IrProgram
-   entities: (Vec GEntity)] -> (Vec GListDetail)
+  [(prog IrProgram) (entities (Vec GEntity))] (Vec GListDetail)
   (let [details (or (.-list-details prog) [])]
     (if (> (count details) 1)
       (graph-error "program may declare at most one list detail")
       nil)
     (validate-distinct-names
-      (mapv (fn [detail] (.-entity-name detail)) details)
+      (mapv (fn [detail] String (.-entity-name detail)) details)
       "list detail entity")
     (mapv
-      (fn [detail]
+      (fn [detail] GListDetail
         (let [entity-name (.-entity-name detail)
               owner (entity-named entities entity-name)
               label (str "list detail '" entity-name "'")]
@@ -835,22 +811,22 @@
                          "' must be a single stored literal"))
                   nil)))
             (validate-distinct-names
-              (mapv (fn [tab] (.-label tab)) tabs)
+              (mapv (fn [tab] String (.-label tab)) tabs)
               (str label " tab label"))
             (if (> (count (filterv
-                            (fn [tab] (= (.-content-type tab) "fields"))
+                            (fn [tab] Bool (= (.-content-type tab) "fields"))
                             tabs)) 1)
               (graph-error (str label " may declare at most one fields tab"))
               nil)
             (let [resolved-tabs
                   (mapv
-                    (fn [tab]
+                    (fn [tab] GDetailTab
                       (resolve-list-detail-tab
                         entities entity tab
                         (str label " tab '" (.-label tab) "'")))
                     tabs)]
               (reduce
-                (fn [seen tab]
+                (fn [seen tab] (Vec String)
                   (let [folded (.toLowerCase (.-label tab))]
                     (if (and (= (.-content-type tab) "related")
                              (= folded "overview"))
@@ -866,7 +842,7 @@
                 []
                 resolved-tabs)
               (reduce
-                (fn [seen tab]
+                (fn [seen tab] (Vec String)
                   (if (= (.-content-type tab) "related")
                     (let [child (.-entity-name tab)]
                       (if (.includes seen child)
@@ -884,7 +860,7 @@
                 resolved-tabs)))))
       details)))
 
-(defn validate-ui-root-topology [prog: IrProgram] -> Any
+(defn validate-ui-root-topology [(prog IrProgram)] Any
   (let [views (or (.-views prog) [])
         details (or (.-list-details prog) [])
         forms (or (.-forms prog) [])
@@ -914,14 +890,14 @@
       nil)
     (if (some? layout)
       (let [groups (or (.-groups layout) [])
-            view-names (mapv (fn [view] (.-name view)) views)]
+            view-names (mapv (fn [view] String (.-name view)) views)]
         (validate-distinct-names
-          (mapv (fn [group] (.-label group)) groups)
+          (mapv (fn [group] String (.-label group)) groups)
           "layout group label")
         (reduce
-          (fn [seen group]
+          (fn [seen group] (Vec String)
             (reduce
-              (fn [items item]
+              (fn [items item] (Vec String)
                 (if (not (.includes view-names item))
                   (graph-error
                     (str "layout group '" (.-label group)
@@ -954,10 +930,11 @@
   nil)
 
 (defn validate-create-fields
-  [label: String
-   entity-name: String
-   field-names: (Vec String)
-   entities: (Vec GEntity)] -> Any
+  [(label String)
+   (entity-name String)
+   (field-names (Vec String))
+   (entities (Vec GEntity))]
+  Any
   (let [entity (entity-named entities entity-name)]
     (if (nil? entity)
       (graph-error
@@ -984,9 +961,7 @@
                    field-name "'"))
             nil))))))
 
-(defn validate-fram-create-forms
-  [prog: IrProgram
-   entities: (Vec GEntity)] -> Any
+(defn validate-fram-create-forms [(prog IrProgram) (entities (Vec GEntity))] Any
   (if (some? (.-backend prog))
     (do
       (doseq [view (or (.-views prog) [])]
@@ -1007,20 +982,19 @@
     nil))
 
 (defn machine-named
-  [machines: (Vec StateMachine)
-   entity-name: String
-   field-name: String] -> StateMachine?
+  [(machines (Vec StateMachine))
+   (entity-name String)
+   (field-name String)]
+  StateMachine?
   (first
     (filterv
-      (fn [machine]
+      (fn [machine] Bool
         (and (= (.-entity machine) entity-name)
              (= (.-field machine) field-name)))
       machines)))
 
 (defn require-write-policy
-  [entity-name: String
-   field: GField
-   expected: String] -> Any
+  [(entity-name String) (field GField) (expected String)] Any
   (if (not (= (.-write-policy field) expected))
     (graph-error
       (str "publication field '" entity-name "." (.-name field)
@@ -1028,11 +1002,12 @@
     nil))
 
 (defn validate-publication-states
-  [publication-name: String
-   machine: StateMachine
-   draft-state: String
-   published-state: String
-   retired-state: String] -> Any
+  [(publication-name String)
+   (machine StateMachine)
+   (draft-state String)
+   (published-state String)
+   (retired-state String)]
+  Any
   (let [transitions (.-transitions machine)
         states [draft-state published-state retired-state]]
     (if (not (= (count (distinct states)) 3))
@@ -1062,9 +1037,10 @@
       nil)))
 
 (defn resolve-publication
-  [source: IrPublication
-   entities: (Vec GEntity)
-   machines: (Vec StateMachine)] -> PublicationPolicy
+  [(source IrPublication)
+   (entities (Vec GEntity))
+   (machines (Vec StateMachine))]
+  PublicationPolicy
   (let [name (.-name source)
         owner-name (.-owner-entity source)
         revision-name (.-revision-entity source)
@@ -1152,25 +1128,26 @@
             (strip-colon retired-state)))))))
 
 (defn resolve-publications
-  [prog: IrProgram
-   entities: (Vec GEntity)
-   machines: (Vec StateMachine)] -> (Vec PublicationPolicy)
+  [(prog IrProgram)
+   (entities (Vec GEntity))
+   (machines (Vec StateMachine))]
+  (Vec PublicationPolicy)
   (let [sources (or (.-publications prog) [])]
     (if (and (> (count sources) 0) (nil? (.-backend prog)))
       (graph-error "publication policies require (backend :fram)")
       nil)
     (reduce
-      (fn [seen source]
+      (fn [seen source] (Vec String)
         (let [name (.-name source)]
           (if (.includes seen name)
             (graph-error (str "duplicate publication '" name "'"))
             (conj seen name))))
       [] sources)
     (let [policies
-          (mapv (fn [source] (resolve-publication source entities machines))
+          (mapv (fn [source] PublicationPolicy (resolve-publication source entities machines))
                 sources)]
       (reduce
-        (fn [seen policy]
+        (fn [seen policy] (Vec String)
           (let [target (str (.-owner-entity policy) "."
                             (.-pointer-field policy))]
             (if (.includes seen target)
@@ -1183,7 +1160,7 @@
 
 ;; --- Main: build checked application ---
 
-(defn application-id [prog: Any] -> String
+(defn application-id [(prog Any)] String
   (let [application (.-application prog)
         application-id (if (nil? application) nil (.-id application))]
     (if (nonempty-string? application-id)
@@ -1192,7 +1169,7 @@
         (graph-error "linked program requires (application :id \"ID\")")
         ""))))
 
-(defn checked-source-units [prog: Any] -> (Vec IrSourceUnit)
+(defn checked-source-units [(prog Any)] (Vec IrSourceUnit)
   (let [linked (.-source-units prog)
         root (.-source-unit prog)]
     (if (some? linked)
@@ -1201,12 +1178,9 @@
 
 ;; --- Named query analysis ---
 
-(defn query-name-map
-  [items: Any
-   name-fn: Any
-   label: String] -> Any
+(defn query-name-map [(items Any) (name-fn Any) (label String)] Any
   (reduce
-    (fn [result item]
+    (fn [result item] (Map String Any)
       (let [name (name-fn item)]
         (if (some? (get result name))
           (graph-error (str label " '" name "' is duplicated"))
@@ -1214,14 +1188,11 @@
     {}
     items))
 
-(defn query-field
-  [entity: GEntity
-   name: String
-   label: String] -> GField
+(defn query-field [(entity GEntity) (name String) (label String)] GField
   (let [field
         (first
           (filterv
-            (fn [candidate] (= (.-name candidate) name))
+            (fn [candidate] Bool (= (.-name candidate) name))
             (.-fields entity)))]
     (if (nil? field)
       (graph-error
@@ -1234,21 +1205,22 @@
       nil)
     field))
 
-(defn query-type-family [type: String] -> String
+(defn query-type-family [(type String)] String
   (cond
     (or (= type "Int") (= type "Integer")) "integer"
     (or (= type "Float") (= type "Double") (= type "Number")) "float"
     (or (= type "Bool") (= type "Boolean")) "boolean"
     :else type))
 
-(defn query-types-compatible? [left: String right: String] -> Bool
+(defn query-types-compatible? [(left String) (right String)] Bool
   (= (query-type-family left) (query-type-family right)))
 
 (defn resolve-query-operand
-  [raw: IrQueryOperand
-   bindings: Any
-   parameters: Any
-   label: String] -> GQueryOperand
+  [(raw IrQueryOperand)
+   (bindings Any)
+   (parameters Any)
+   (label String)]
+  GQueryOperand
   (let [kind (.-kind raw)]
     (cond
       (= kind "parameter")
@@ -1282,14 +1254,15 @@
           "literal" (or (.-name raw) "") nil nil nil nil nil (.-value raw))
       :else (graph-error (str label " has unknown operand kind '" kind "'")))))
 
-(defn query-state [defstates: Any type: String] -> Any
-  (first (filterv (fn [state] (= (.-name state) type)) defstates)))
+(defn query-state [(defstates Any) (type String)] Any
+  (first (filterv (fn [state] Bool (= (.-name state) type)) defstates)))
 
 (defn coerce-query-literal
-  [operand: GQueryOperand
-   expected-type: String
-   defstates: Any
-   label: String] -> GQueryOperand
+  [(operand GQueryOperand)
+   (expected-type String)
+   (defstates Any)
+   (label String)]
+  GQueryOperand
   (if (not (= (.-kind operand) "literal"))
     operand
     (let [literal-type (.-type operand)
@@ -1310,15 +1283,16 @@
             operand))
         operand))))
 
-(defn query-operand-bindings [operand: GQueryOperand] -> (Vec String)
+(defn query-operand-bindings [(operand GQueryOperand)] (Vec String)
   (if (some? (.-binding operand)) [(or (.-binding operand) "")] []))
 
 (defn analyze-query-predicate
-  [raw: IrQueryPredicate
-   bindings: Any
-   parameters: Any
-   defstates: Any
-   label: String] -> GQueryPredicate
+  [(raw IrQueryPredicate)
+   (bindings Any)
+   (parameters Any)
+   (defstates Any)
+   (label String)]
+  GQueryPredicate
   (let [left0 (resolve-query-operand (.-left raw) bindings parameters label)
         right0 (resolve-query-operand (.-right raw) bindings parameters label)
         left
@@ -1365,13 +1339,14 @@
     (->GQueryPredicate "eq" left right)))
 
 (defn query-binding-connected?
-  [binding: String
-   earlier: (Vec String)
-   predicates: (Vec GQueryPredicate)] -> Bool
+  [(binding String)
+   (earlier (Vec String))
+   (predicates (Vec GQueryPredicate))]
+  Bool
   (some?
     (first
       (filterv
-        (fn [predicate]
+        (fn [predicate] Bool
           (let [names
                 (into
                   (query-operand-bindings (.-left predicate))
@@ -1379,26 +1354,27 @@
             (and (.includes names binding)
                  (some?
                    (first
-                     (filterv (fn [name] (.includes names name)) earlier))))))
+                     (filterv (fn [name] Bool (.includes names name)) earlier))))))
         predicates))))
 
 (defn query-root-identity-constrained?
-  [root: String
-   identity-field: String
-   predicates: (Vec GQueryPredicate)] -> Bool
+  [(root String)
+   (identity-field String)
+   (predicates (Vec GQueryPredicate))]
+  Bool
   (some?
     (first
       (filterv
-        (fn [predicate]
+        (fn [predicate] Bool
           (let [left (.-left predicate)
                 right (.-right predicate)
                 identity?
-                (fn [operand]
+                (fn [operand] Bool
                   (and (= (.-kind operand) "field")
                        (= (.-binding operand) root)
                        (= (.-field operand) identity-field)))
                 bound?
-                (fn [operand]
+                (fn [operand] Bool
                   (or (= (.-kind operand) "parameter")
                       (= (.-kind operand) "literal")))]
             (or (and (identity? left) (bound? right))
@@ -1406,21 +1382,22 @@
         predicates))))
 
 (defn query-dependencies
-  [bindings: (Vec IrQueryBinding)
-   binding-entities: Any
-   predicates: (Vec GQueryPredicate)
-   columns: (Vec GQueryColumn)] -> (Vec GQueryDependency)
+  [(bindings (Vec IrQueryBinding))
+   (binding-entities Any)
+   (predicates (Vec GQueryPredicate))
+   (columns (Vec GQueryColumn))]
+  (Vec GQueryDependency)
   (let [entries
         (reduce
-          (fn [result binding]
+          (fn [result binding] (Vec (Vec String))
             (let [entity (get binding-entities (.-name binding))]
               (conj result [(.-name entity) (.-name (.-identity-field entity))])))
           [] bindings)
         entries
         (reduce
-          (fn [result predicate]
+          (fn [result predicate] (Vec (Vec String))
             (reduce
-              (fn [acc operand]
+              (fn [acc operand] (Vec (Vec String))
                 (if (= (.-kind operand) "field")
                   (conj acc [(or (.-entity operand) "") (or (.-field operand) "")])
                   acc))
@@ -1429,28 +1406,31 @@
         entries
         (into
           entries
-          (mapv (fn [column] [(.-entity column) (.-field column)]) columns))]
+          (mapv
+            (fn [(column GQueryColumn)] (Vec String)
+              [(.-entity column) (.-field column)])
+            columns))]
     (mapv
-      (fn [entry] (->GQueryDependency (nth entry 0) (nth entry 1)))
+      (fn [entry] GQueryDependency (->GQueryDependency (nth entry 0) (nth entry 1)))
       (reduce
-        (fn [unique entry]
+        (fn [unique entry] (Vec (Vec String))
           (if (.includes
-                (mapv (fn [candidate] (str (nth candidate 0) "." (nth candidate 1))) unique)
+                (mapv (fn [candidate] String (str (nth candidate 0) "." (nth candidate 1))) unique)
                 (str (nth entry 0) "." (nth entry 1)))
             unique
             (conj unique entry)))
         [] entries))))
 
-(defn provider-named [providers: Any name: String] -> Any
-  (first (filterv (fn [provider] (= (.-name provider) name)) providers)))
+(defn provider-named [(providers Any) (name String)] Any
+  (first (filterv (fn [provider] Bool (= (.-name provider) name)) providers)))
 
-(defn descriptor-field [descriptor: Any name: String] -> Any
+(defn descriptor-field [(descriptor Any) (name String)] Any
   (first
     (filterv
-      (fn [field] (= (get field "name") name))
+      (fn [field] Bool (= (get field "name") name))
       (or (get descriptor "fields") []))))
 
-(defn provider-field-type-compatible? [field: GField descriptor: Any] -> Bool
+(defn provider-field-type-compatible? [(field GField) (descriptor Any)] Bool
   (let [checked-descriptor
         (if (= (.-cardinality field) "multi")
           (get descriptor "items")
@@ -1472,7 +1452,7 @@
       (and (= (get descriptor "kind") "list") scalar)
       scalar)))
 
-(defn provider-literal-compatible? [value: Any descriptor: Any] -> Bool
+(defn provider-literal-compatible? [(value Any) (descriptor Any)] Bool
   (let [kind (get descriptor "kind")]
     (cond
       (= kind "nullable")
@@ -1483,7 +1463,7 @@
         (some?
           (first
             (filterv
-              (fn [candidate] (js/Object.is candidate value))
+              (fn [candidate] Bool (js/Object.is candidate value))
               (or (get descriptor "values") []))))
       (= kind "string") (string? value)
       (= kind "integer")
@@ -1501,12 +1481,13 @@
       :else false)))
 
 (defn analyze-provider-input
-  [raw: Any
-   expected: Any
-   binding-entities: Any
-   provider-index: Int
-   next-column: Int
-   label: String] -> Any
+  [(raw Any)
+   (expected Any)
+   (binding-entities Any)
+   (provider-index Int)
+   (next-column Int)
+   (label String)]
+  Any
   (let [kind (get raw "kind")]
     (cond
       (= kind "column")
@@ -1556,17 +1537,17 @@
                        (nil?
                          (first
                            (filterv
-                             (fn [candidate]
+                             (fn [candidate] Bool
                                (= (get candidate "name") (get field "name")))
                              raw-fields))))
                 (graph-error
                   (str label " requires provider input field '"
                        (get field "name") "'"))
                 nil))
-            (loop [remaining: Any raw-fields
-                   fields: Any []
-                   columns: Any []
-                   next: Int next-column]
+            (loop [(remaining Any) raw-fields
+                   (fields Any) []
+                   (columns Any) []
+                   (next Int) next-column]
               (if (= (count remaining) 0)
                 [{"kind" "record" "fields" fields} columns next]
                 (let [field (first remaining)
@@ -1585,10 +1566,11 @@
       :else (graph-error (str label " has unknown provider input expression '" kind "'")))))
 
 (defn analyze-query-column
-  [selection: Any
-   binding-entities: Any
-   label: String
-   internal: Bool] -> GQueryColumn
+  [(selection Any)
+   (binding-entities Any)
+   (label String)
+   (internal Bool)]
+  GQueryColumn
   (let [entity (get binding-entities (.-binding selection))]
     (if (nil? entity)
       (graph-error
@@ -1602,16 +1584,13 @@
         (.-value-kind field) (.-target-entity field) internal))))
 
 (defn analyze-query-selections
-  [selections: Any
-   binding-entities: Any
-   providers: Any
-   label: String] -> Any
-  (loop [remaining: Any selections
-         provider-index: Int 0
-         columns: Any []
-         public-columns: Any []
-         result-providers: Any []
-         output-names: (Vec String) []]
+  [(selections Any) (binding-entities Any) (providers Any) (label String)] Any
+  (loop [(remaining Any) selections
+         (provider-index Int) 0
+         (columns Any) []
+         (public-columns Any) []
+         (result-providers Any) []
+         (output-names (Vec String)) []]
     (if (= (count remaining) 0)
       [columns public-columns result-providers]
       (let [selection (first remaining)
@@ -1667,26 +1646,27 @@
             (graph-error (str label " contains an unexpanded query projection"))))))))
 
 (defn analyze-query
-  [raw: IrQuery
-   entities: (Vec GEntity)
-   defstates: (Vec IrDefstate)
-   providers: Any] -> GQuery
+  [(raw IrQuery)
+   (entities (Vec GEntity))
+   (defstates (Vec IrDefstate))
+   (providers Any)]
+  GQuery
   (let [name (.-name raw)
         label (str "query '" name "'")
         entities-by-name
-        (query-name-map entities (fn [entity] (.-name entity)) "entity")
+        (query-name-map entities (fn [entity] String (.-name entity)) "entity")
         capabilities (or (.-capabilities raw) [])
         raw-bindings (.-bindings raw)
         raw-params (.-params raw)
         binding-names
-        (query-name-map raw-bindings (fn [binding] (.-name binding))
+        (query-name-map raw-bindings (fn [binding] String (.-name binding))
                         (str label " binding"))
         parameters
-        (query-name-map raw-params (fn [parameter] (.-name parameter))
+        (query-name-map raw-params (fn [parameter] String (.-name parameter))
                         (str label " parameter"))
         binding-entities
         (reduce
-          (fn [result binding]
+          (fn [result binding] (Map String GEntity)
             (let [entity (get entities-by-name (.-entity-name binding))]
               (if (nil? entity)
                 (graph-error
@@ -1700,7 +1680,7 @@
         (str label " requires from 1 through 16 capabilities"))
       nil)
     (reduce
-      (fn [seen capability]
+      (fn [seen capability] (Vec String)
         (if (or (not (string? capability)) (= (count capability) 0))
           (graph-error (str label " contains an invalid capability"))
           nil)
@@ -1736,13 +1716,13 @@
       nil)
     (let [predicates
           (mapv
-            (fn [predicate]
+            (fn [predicate] GQueryPredicate
               (analyze-query-predicate
                 predicate binding-entities parameters defstates label))
             (.-predicates raw))
           checked-bindings
           (mapv
-            (fn [binding]
+            (fn [binding] GQueryBinding
               (->GQueryBinding (.-name binding) (.-entity-name binding)))
             raw-bindings)
           analyzed-selection
@@ -1764,18 +1744,18 @@
               (some?
                 (first
                   (filterv
-                    (fn [predicate]
+                    (fn [predicate] Bool
                       (or (= (.-parameter (.-left predicate)) (.-name parameter))
                           (= (.-parameter (.-right predicate)) (.-name parameter))))
                     predicates))))
           (graph-error
             (str label " parameter '" (.-name parameter) "' is unused"))
           nil))
-      (loop [index: Int 1]
+      (loop [(index Int) 1]
         (if (< index (count raw-bindings))
           (let [binding (.-name (nth raw-bindings index))
                 earlier
-                (mapv (fn [item] (.-name item)) (subvec raw-bindings 0 index))]
+                (mapv (fn [item] String (.-name item)) (subvec raw-bindings 0 index))]
             (if (not (query-binding-connected? binding earlier predicates))
               (graph-error
                 (str label " binding '" binding "' is disconnected"))
@@ -1803,7 +1783,7 @@
                (some?
                  (first
                    (filterv
-                     (fn [column] (= (.-cardinality column) "multi"))
+                     (fn [column] Bool (= (.-cardinality column) "multi"))
                      columns))))
         (graph-error (str label " paged results cannot project multi fields"))
         nil)
@@ -1811,7 +1791,7 @@
         name
         capabilities
         (mapv
-          (fn [parameter]
+          (fn [parameter] GQueryParam
             (->GQueryParam (.-name parameter) (.-type parameter)))
           raw-params)
         checked-bindings
@@ -1824,33 +1804,35 @@
         (query-dependencies raw-bindings binding-entities predicates columns)))))
 
 (defn resolve-queries
-  [prog: IrProgram
-   entities: (Vec GEntity)
-   defstates: (Vec IrDefstate)] -> (Vec GQuery)
+  [(prog IrProgram)
+   (entities (Vec GEntity))
+   (defstates (Vec IrDefstate))]
+  (Vec GQuery)
   (let [queries (or (.-queries prog) [])]
     (if (and (> (count queries) 0) (nil? (.-backend prog)))
       (graph-error "named queries require (backend :fram)")
       nil)
-    (query-name-map queries (fn [query] (.-name query)) "query")
+    (query-name-map queries (fn [query] String (.-name query)) "query")
     (mapv
-      (fn [query]
+      (fn [query] GQuery
         (analyze-query query entities defstates (or (.-providers prog) [])))
       queries)))
 
-(defn query-named [queries: (Vec GQuery) name: String] -> GQuery?
-  (first (filterv (fn [query] (= (.-name query) name)) queries)))
+(defn query-named [(queries (Vec GQuery)) (name String)] GQuery?
+  (first (filterv (fn [query] Bool (= (.-name query) name)) queries)))
 
-(defn view-named [views: Any name: String] -> Any
-  (first (filterv (fn [view] (= (.-name view) name)) views)))
+(defn view-named [(views Any) (name String)] Any
+  (first (filterv (fn [view] Bool (= (.-name view) name)) views)))
 
-(defn component-named [components: Any name: String] -> Any
-  (first (filterv (fn [component] (= (.-name component) name)) components)))
+(defn component-named [(components Any) (name String)] Any
+  (first (filterv (fn [component] Bool (= (.-name component) name)) components)))
 
 (defn checked-query-route
-  [prog: IrProgram
-   queries: (Vec GQuery)
-   route: IrRoute
-   label: String] -> IrRoute
+  [(prog IrProgram)
+   (queries (Vec GQuery))
+   (route IrRoute)
+   (label String)]
+  IrRoute
   (let [view (view-named (or (.-views prog) []) (.-view-name route))
         parameters (or (.-parameters route) [])
         input-parameters (or (.-input-parameters route) parameters)
@@ -1865,7 +1847,7 @@
             (or (.-components prog) []) (.-component resolved-view))
           resolved-queries
           (mapv
-            (fn [reference]
+            (fn [reference] (Map Keyword Any)
               (let [query (query-named queries (.-name reference))]
                 (if (nil? query)
                   (graph-error
@@ -1883,7 +1865,7 @@
       (doseq [resolved resolved-queries]
         (let [query (get resolved :query)
               query-params
-              (mapv (fn [parameter] (.-name parameter)) (.-params query))]
+              (mapv (fn [parameter] String (.-name parameter)) (.-params query))]
           (if (not (= query-params input-parameters))
             (graph-error
               (str label " input parameters must exactly match query '"
@@ -1891,20 +1873,20 @@
             nil)))
       (let [columns
             (reduce
-              (fn [result resolved]
+              (fn [result resolved] (Vec String)
                 (let [query (get resolved :query)
                       public-column-names
                       (mapv
-                        (fn [column] (.-name column))
+                        (fn [column] String (.-name column))
                         (filterv
-                          (fn [column] (not (.-internal column)))
+                          (fn [column] Bool (not (.-internal column)))
                           (.-columns query)))
                       provider-result-names
                       (mapv
-                        (fn [provider] (.-name provider))
+                        (fn [provider] String (.-name provider))
                         (or (.-result-providers query) []))]
                   (reduce
-                    (fn [names output-name]
+                    (fn [names output-name] (Vec String)
                       (let [prefix (.-prefix (get resolved :reference))
                           projected-name
                           (if (nil? prefix)
@@ -1922,7 +1904,7 @@
             (or component (first (or (.-components prog) [])))
             missing
             (filterv
-              (fn [prop] (not (.includes columns prop)))
+              (fn [prop] Bool (not (.includes columns prop)))
               (.-props checked-component))]
         (if (> (count missing) 0)
           (graph-error
@@ -1938,35 +1920,34 @@
           (.-props checked-component))))))
 
 (defn checked-route-templates
-  [prog: IrProgram
-   queries: (Vec GQuery)] -> (Vec IrRoute)
+  [(prog IrProgram) (queries (Vec GQuery))] (Vec IrRoute)
   (mapv
-    (fn [route]
+    (fn [route] IrRoute
       (checked-query-route
         prog queries route (str "route template '" (.-path route) "'")))
     (or (.-route-templates prog) [])))
 
-(defn checked-router [prog: IrProgram queries: (Vec GQuery)] -> IrRouter?
+(defn checked-router [(prog IrProgram) (queries (Vec GQuery))] IrRouter?
   (let [router (.-router prog)]
     (if (nil? router)
       nil
       (ir/->IrRouter
         (.-default-route router)
         (mapv
-          (fn [route]
+          (fn [route] IrRoute
             (if (> (count (or (.-queries route) [])) 0)
               (checked-query-route
                 prog queries route (str "route '" (.-path route) "'"))
               route))
           (or (.-routes router) []))))))
 
-(defn check-composition [prog: Any] -> Any
+(defn check-composition [(prog Any)] Any
   (let [providers (or (.-providers prog) [])
         extensions (or (.-extends prog) [])
         fills (or (.-fills prog) [])
         mounts (or (.-mounts prog) [])]
     (reduce
-      (fn [seen provider]
+      (fn [seen provider] (Vec String)
         (let [name (.-name provider)]
           (validate-generated-name "provider" name)
           (if (.includes seen name)
@@ -1974,21 +1955,21 @@
             (conj seen name))))
       [] providers)
     (reduce
-      (fn [seen extension]
+      (fn [seen extension] (Vec String)
         (let [port (.-port extension)]
           (if (.includes seen port)
             (graph-error (str "extension port '" port "' is supplied twice"))
             (conj seen port))))
       [] extensions)
     (reduce
-      (fn [seen fill]
+      (fn [seen fill] (Vec String)
         (let [port (.-port fill)]
           (if (.includes seen port)
             (graph-error (str "component port '" port "' is filled twice"))
             (conj seen port))))
       [] fills)
     (reduce
-      (fn [seen mount]
+      (fn [seen mount] (Vec String)
         (let [path (.-path mount)]
           (if (.includes seen path)
             (graph-error (str "route path '" path "' is mounted twice"))
@@ -1996,11 +1977,11 @@
       [] mounts)
     nil))
 
-(defn check-program [prog: Any] -> CheckedApplication
+(defn check-program [(prog Any)] CheckedApplication
   (let [app-id (application-id prog)
         entities
         (mapv
-          (fn [entity]
+          (fn [entity] GEntity
             (analyze-entity prog entity app-id))
           (.-entities prog))
         defstates (or (.-defstates prog) [])

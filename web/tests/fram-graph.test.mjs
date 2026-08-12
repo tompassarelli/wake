@@ -15,7 +15,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
 const beagleRoot = process.env.BEAGLE_ROOT ?? join(homedir(), "code", "beagle", "main");
-const COMPILER_TEST_TIMEOUT_MS = 20_000;
 const sourceUnit = {
   source_id: "test:root",
   path: "fram-graph.test.wake",
@@ -344,33 +343,6 @@ test("defstate transitions may target only declared states", () => {
     /defstate 'Lifecycle' transition from 'draft' targets undeclared state 'missing'/,
   );
 });
-
-test("reader requires the canonical defstate transition arrow", () => {
-  const sourcePath = join(buildDir, "invalid-defstate-arrow.wake");
-  const outputPath = join(buildDir, "invalid-defstate-arrow.fram.json");
-  writeFileSync(sourcePath, `(application :id "type-test")
-(ns invalid.state)
-(backend :fram)
-(defstate Lifecycle
-  [:draft => :canonical]
-  [:canonical ->])
-(entity page
-  (slug : String :identity)
-  (status : Lifecycle))
-`);
-
-  const compiled = spawnSync(
-    join(webRoot, "bin", "wake-compile"),
-    ["--fram", sourcePath, outputPath],
-    { cwd: webRoot },
-  );
-  const diagnostics = `${compiled.stdout}\n${compiled.stderr}`;
-  assert.notEqual(compiled.status, 0, diagnostics);
-  assert.match(
-    diagnostics,
-    /defstate 'Lifecycle' transitions must use -> after the source state/,
-  );
-}, COMPILER_TEST_TIMEOUT_MS);
 
 test("local applications retain open field type spellings", () => {
   const source = program({

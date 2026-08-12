@@ -122,9 +122,11 @@ const pluginInventory = [
     def("actor-entity-ref", "ExternalEntityRoleRef"),
     def("actor-entity", "ExternalEntityRoleSpec"),
   ]],
-  ["defentity-model", [
-    record("Article"),
+  ["defentity-ref", [
     def("article-ref", "EntityRef"),
+  ]],
+  ["define-entity-model", [
+    record("Article"),
     ...[
       "id",
       "title",
@@ -231,21 +233,30 @@ const applicationInventory = [
     def("publication-state-working", "StateValueSpec"),
     def("publication-state-released-ref", "StateValueRef"),
     def("publication-state-released", "StateValueSpec"),
+    def("publication-state-retired-ref", "StateValueRef"),
+    def("publication-state-retired", "StateValueSpec"),
     def("publication-state", "StateDeclarationSpec"),
   ]],
-  ["defentity-model", [
+  ["defentity-ref", [def("principal-ref", "EntityRef")]],
+  ["defentity-ref", [def("article-ref", "EntityRef")]],
+  ["define-entity-model", [
     record("Principal"),
-    def("principal-ref", "EntityRef"),
     def("principal-id-ref", "FieldRef"),
     def("principal-id-spec", "FieldSpec"),
     def("principal-display-name-ref", "FieldRef"),
     def("principal-display-name-spec", "FieldSpec"),
     def("principal", "EntityDeclarationSpec"),
   ]],
-  ["defentity-model", [
+  ["define-entity-model", [
     record("Article"),
-    def("article-ref", "EntityRef"),
-    ...["id", "title", "kind", "status"].flatMap((name) => [
+    ...[
+      "id",
+      "title",
+      "kind",
+      "current-revision",
+      "owner",
+      "status",
+    ].flatMap((name) => [
       def(`article-${name}-ref`, "FieldRef"),
       def(`article-${name}-spec`, "FieldSpec"),
     ]),
@@ -254,6 +265,22 @@ const applicationInventory = [
   ["defcomponent-model", [
     def("greywrought-card-ref", "ComponentRef"),
     def("greywrought-card", "ComponentDeclarationSpec"),
+  ]],
+  ["defpublication", [
+    def("article-publication-ref", "PublicationRef"),
+    def("article-publication", "PublicationDeclarationSpec"),
+  ]],
+  ["defform", [
+    def("article-form-ref", "FormRef"),
+    def("article-form", "FormDeclarationSpec"),
+  ]],
+  ["deflist-detail", [
+    def("article-list-detail-ref", "ListDetailRef"),
+    def("article-list-detail", "ListDetailDeclarationSpec"),
+  ]],
+  ["defview-model", [
+    def("article-view-ref", "ViewRef"),
+    def("article-view", "ViewDeclarationSpec"),
   ]],
   ["defplugin-use", [def("wiki-ref", "PluginUseRef")]],
   ...[
@@ -324,6 +351,8 @@ const applicationInventory = [
   ]],
   ["extend-entity-fields", [
     def("article-fields-extension-ref", "ImportedEntityFieldsPortRef"),
+    def("article-fields-extension-kind-ref", "ExtensionFieldRef"),
+    def("article-fields-extension-kind-spec", "ExtensionFieldSpec"),
     def("article-fields-extension", "ExtendSpec"),
   ]],
   ["fill-component-slot", [
@@ -345,7 +374,7 @@ const tokenPrefixes = new Map([
   ["CapabilityRef", "capability"],
   ["StateRef", "state"],
   ["StateValueRef", "state-value"],
-  ["EntityRef", "entity"],
+  ["EntityRef", "entity-ref"],
   ["FieldRef", "field"],
   ["ValueTypeRef", "value-type"],
   ["ProviderPortRef", "provider-port"],
@@ -355,6 +384,9 @@ const tokenPrefixes = new Map([
   ["ComponentRef", "component"],
   ["ViewRef", "view"],
   ["RouteTemplateRef", "route-template"],
+  ["PublicationRef", "publication"],
+  ["FormRef", "form"],
+  ["ListDetailRef", "list-detail"],
   ["EntityFieldsPortRef", "entity-fields-port"],
   ["ComponentSlotRef", "component-slot"],
   ["RouteSlotRef", "route-slot"],
@@ -383,6 +415,7 @@ const tokenPrefixes = new Map([
   ["ImportedEntityFieldsPortRef", "imported-entity-fields"],
   ["ImportedComponentSlotRef", "imported-component-slot"],
   ["ImportedRouteSlotRef", "imported-route-slot"],
+  ["ExtensionFieldRef", "extension-field"],
 ]);
 
 function literalArguments(form) {
@@ -501,7 +534,7 @@ test("wiki-shaped host owns all imported bindings and nonempty composition", () 
     ["article-card-fill"],
     ["history-mount"],
   ]);
-  expect(definition(ast, "application").value.args.at(-1)).toMatchObject({
+  expect(definition(ast, "application").value.args[5]).toMatchObject({
     inferredType: { kind: "prim", name: "MountedDefaultRoute" },
   });
   executeGeneratedFixture(

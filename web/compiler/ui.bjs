@@ -11,111 +11,87 @@
 
 ;; --- UI node types ---
 
-(defrecord UiComponent [name: String children: Any])
+(defrecord UiComponent [(name String) (children Any)])
 
-(defrecord UiBind
-  [target: String
-   field: String
-   prop: String])
+(defrecord UiBind [(target String) (field String) (prop String)])
 
-(defrecord UiQuery
-  [store: String
-   sort-by: Any
-   filter-by: Any])
+(defrecord UiQuery [(store String) (sort-by Any) (filter-by Any)])
 
-(defrecord UiEach [query: Any item-component: Any])
+(defrecord UiEach [(query Any) (item-component Any)])
 
-(defrecord UiWhen
-  [condition: Any
-   then: Any
-   otherwise: Any])
+(defrecord UiWhen [(condition Any) (then Any) (otherwise Any)])
 
-(defrecord UiAction
-  [event: String
-   handler-type: String
-   config: Any])
+(defrecord UiAction [(event String) (handler-type String) (config Any)])
 
 (defrecord UiElement
-  [tag: String
-   css-class: String
-   attrs: Any
-   children: Any])
+  [(tag String) (css-class String) (attrs Any) (children Any)])
 
-(defrecord UiText [content: String])
+(defrecord UiText [(content String)])
 
-(defrecord UiStore
-  [name: String
-   entity: String
-   fk-methods: (Vec String)])
+(defrecord UiStore [(name String) (entity String) (fk-methods (Vec String))])
 
-(defrecord UiState [name: String initial: Any])
+(defrecord UiState [(name String) (initial Any)])
 
 ;; --- Expanded UI graph types ---
 
 (defrecord UiRelated
-  [entity: String
-   store: String
-   fk-field: String
-   key: String
-   label: String
-   display: (Vec String)])
+  [(entity String)
+   (store String)
+   (fk-field String)
+   (key String)
+   (label String)
+   (display (Vec String))])
 
-(defrecord UiFieldInfo
-  [name: String
-   kind: String
-   options: (Vec String)])
+(defrecord UiFieldInfo [(name String) (kind String) (options (Vec String))])
 
 (defrecord UiForm
-  [name: String
-   fields: (Vec String)
-   required: (Vec String)
-   label: String
-   status-default: String?
-   field-info: (Vec UiFieldInfo)])
+  [(name String)
+   (fields (Vec String))
+   (required (Vec String))
+   (label String)
+   (status-default String?)
+   (field-info (Vec UiFieldInfo))])
 
 (defrecord UiGraph
-  [entity: String
-   store-name: String
-   title: String
-   columns: (Vec String)
-   search-cols: (Vec String)
-   overview-fields: Any
-   derived: Any
-   related: (Vec UiRelated)
-   stores: (Vec UiStore)
-   states: (Vec UiState)
-   form: UiForm?
-   persist: Any
-   all-field-info: (Vec UiFieldInfo)])
+  [(entity String)
+   (store-name String)
+   (title String)
+   (columns (Vec String))
+   (search-cols (Vec String))
+   (overview-fields Any)
+   (derived Any)
+   (related (Vec UiRelated))
+   (stores (Vec UiStore))
+   (states (Vec UiState))
+   (form UiForm?)
+   (persist Any)
+   (all-field-info (Vec UiFieldInfo))])
 
 ;; --- Expansion: list-detail → UI graph ---
 
-(defn expand-list-detail
-  [graph: Any
-   ld: Any
-   sf: Any] -> UiGraph
+(defn expand-list-detail [(graph Any) (ld Any) (sf Any)] UiGraph
   (let [en (.-entity-name ld)
-        ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities graph)))
+        ge (first (filterv (fn [e] Bool (= (.-name e) en)) (.-entities graph)))
         store-name (.-store-name ge)
         columns (.-columns ld)
         search-cols (or (.-search-cols ld) columns)
         detail-tabs (or (.-detail-tabs ld) [])
-        overview-tab (first (filterv (fn [t] (= (.-content-type t) "fields")) detail-tabs))
-        related-tabs (filterv (fn [t] (= (.-content-type t) "related")) detail-tabs)
+        overview-tab (first (filterv (fn [t] Bool (= (.-content-type t) "fields")) detail-tabs))
+        related-tabs (filterv (fn [t] Bool (= (.-content-type t) "related")) detail-tabs)
         requested-overview-fields
         (if (nil? overview-tab) columns (.-fields overview-tab))
         derived (.-derived-fields ge)
-        derived-names (mapv (fn [field] (.-name field)) derived)
+        derived-names (mapv (fn [field] String (.-name field)) derived)
         overview-fields
         (filterv
-          (fn [field] (not (.includes derived-names field)))
+          (fn [field] Bool (not (.includes derived-names field)))
           requested-overview-fields)
         title (or (.-title ld) en)
 
-        related (mapv (fn [rt]
+        related (mapv (fn [rt] UiRelated
           (let [rel-en (.-entity-name rt)
                 rel-display (.-display-fields rt)
-                rel-ge (first (filterv (fn [e] (= (.-name e) rel-en)) (.-entities graph)))
+                rel-ge (first (filterv (fn [e] Bool (= (.-name e) rel-en)) (.-entities graph)))
                 fk-field (.-relation-field rt)]
             (->UiRelated rel-en (.-store-name rel-ge) fk-field
                          (.toLowerCase (.-label rt)) (.-label rt)
@@ -129,14 +105,14 @@
 
         stores (into
           [(->UiStore store-name en [])]
-          (mapv (fn [r] (->UiStore (.-store r) (.-entity r) [(.-fk-field r)])) related))
+          (mapv (fn [r] UiStore (->UiStore (.-store r) (.-entity r) [(.-fk-field r)])) related))
 
         states [(->UiState "selectedEid" nil)
                 (->UiState "activeTab" "overview")
                 (->UiState "searchTerm" "")]
 
         status-default (let [sm (first (filterv
-                          (fn [m] (= (.-entity m) en))
+                          (fn [m] Bool (= (.-entity m) en))
                           (.-state-machines graph)))]
                         (if (nil? sm) nil
                           (let [s (.-initial sm)]
@@ -145,11 +121,11 @@
         all-fields (.-fields ge)
         sms (.-state-machines graph)
 
-        build-fi (fn [fname]
-          (let [gf (first (filterv (fn [f] (= (.-name f) fname)) all-fields))
+        build-fi (fn [fname] UiFieldInfo
+          (let [gf (first (filterv (fn [f] Bool (= (.-name f) fname)) all-fields))
                 typ (if (nil? gf) "String" (.-type gf))
-                sm (first (filterv (fn [m] (= (.-state-type m) typ)) sms))
-                strip (fn [s] (if (.startsWith s ":") (subs s 1) s))]
+                sm (first (filterv (fn [m] Bool (= (.-state-type m) typ)) sms))
+                strip (fn [s] String (if (.startsWith s ":") (subs s 1) s))]
             (cond
               (not (nil? sm))
                 (->UiFieldInfo fname "select" (mapv strip (keys (.-transitions sm))))
@@ -169,7 +145,7 @@
           (->UiForm
             form-name form-fields form-required form-label
             status-default field-info))
-        all-fi (mapv (fn [f] (build-fi (.-name f))) all-fields)]
+        all-fi (mapv (fn [f] UiFieldInfo (build-fi (.-name f))) all-fields)]
 
     (->UiGraph en store-name title columns search-cols overview-fields
                derived related stores states
