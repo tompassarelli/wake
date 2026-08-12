@@ -1,0 +1,22 @@
+(ns wake.tests.named-query-invalid-ref)
+(application :id "wake-named-query-invalid-ref")
+(backend :fram)
+
+(entity release
+  (id : String :identity))
+
+(entity actor
+  (id : String :identity))
+
+(entity approval
+  (id : String :identity)
+  (release : Ref :to release)
+  (actor : Ref :to actor))
+
+(query invalid-reference-comparison
+  :params [(approval-id : String)]
+  :from [(approval : approval)]
+  :where [(= approval.id $approval-id)
+          (= approval.release approval.actor)]
+  :select [(id approval.id)]
+  :result :optional)

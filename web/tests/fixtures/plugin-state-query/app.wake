@@ -1,0 +1,9 @@
+(ns wake.tests.plugin-state-query-app)
+(application :id "wake-plugin-state-query-app")
+(backend :fram)
+
+(use "wake-state-query-fixture"
+  :as fixture
+  :version "0.1.0"
+  :allow [schema query]
+  :config [])

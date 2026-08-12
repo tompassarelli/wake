@@ -1,0 +1,17 @@
+(ns wake.tests.plugin-state-query)
+
+(defstate Phase
+  [:draft -> :published]
+  [:published ->])
+
+(entity release
+  (id : String :identity)
+  (phase : Phase))
+
+(query releases-in-phase
+  :params [(phase : Phase)]
+  :from [(release : release)]
+  :where [(= release.phase $phase)]
+  :select [(id release.id)]
+  :result :page
+  :page [default 10 max 20])

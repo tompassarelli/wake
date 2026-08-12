@@ -28,8 +28,8 @@
 (query release-by-id
   :params [(release-id : String)]
   :from [(release : release)]
-  :where [(= release.id $release-id)]
-  :select [(id release.id)
+  :where [(= (field release id) $release-id)]
+  :select [(id (field release id))
            (state release.state)
            (tags release.tags)]
   :result :optional)
