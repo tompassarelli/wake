@@ -3182,7 +3182,19 @@ async function wakeFramStart() {
                       (filterv
                         (fn [candidate]
                           (= (.-name candidate) (.-name query-reference)))
-                        queries))]
+                        queries))
+                    public-column-names
+                    (mapv
+                      (fn [column] (.-name column))
+                      (filterv
+                        (fn [column] (not (.-internal column)))
+                        (.-columns query)))
+                    provider-result-names
+                    (mapv
+                      (fn [provider] (.-name provider))
+                      (or (.-result-providers query) []))
+                    output-names
+                    (into public-column-names provider-result-names)]
                 (str "{ name: " (q (.-name query-reference))
                      ", prefix: "
                      (if (nil? (.-prefix query-reference))
@@ -3195,7 +3207,7 @@ async function wakeFramStart() {
                      (if (nil? (.-max-limit query)) "null" (str (.-max-limit query)))
                      ", columns: ["
                      (.join
-                       (mapv (fn [column] (q (.-name column))) (.-columns query))
+                       (mapv q output-names)
                        ", ")
                      "]"
                      " }")))
