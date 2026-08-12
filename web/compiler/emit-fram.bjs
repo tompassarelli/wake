@@ -219,6 +219,7 @@
                    (entity-plan application-id entity))
                  (.-entities checked))
      :queries (mapv query-plan (or (.-queries checked) []))
+     :commands (or (.-commands checked) [])
      :stateMachines (mapv state-machine-plan (.-state-machines checked))
      :publications (mapv publication-plan (.-publications checked))}))
 

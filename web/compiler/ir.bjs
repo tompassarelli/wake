@@ -182,6 +182,7 @@
    defstates: (Vec IrDefstate)
    publications: (Vec IrPublication)
    queries: (Vec IrQuery)
+   commands: (Vec Any)
    list-details: (Vec IrListDetail)
    forms: (Vec IrSmartForm)
    theme: IrTheme?

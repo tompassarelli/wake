@@ -12,12 +12,22 @@ import {
   checkPluginConfiguration,
   configurationDeclarationIndex,
 } from "./plugin-configuration.mjs";
+import { checkCommandGraph } from "./command-contract.mjs";
 import { generateDeploymentReceipt } from "./deployment-receipt.mjs";
 
 const DRIVER_SCHEMA_VERSION = 1;
 const FRAM_PLAN_SCHEMA_VERSION = 2;
 const HTTP_OPERATION_PROTOCOL_VERSION = 2;
 const COMPILER_NAME = "wake";
+const COMMAND_RECEIPT_ENTITY = "wake.core/command-receipt";
+const COMMAND_RECEIPT_STORAGE_ID = "wake/core/entity/command-receipt";
+const COMMAND_RECEIPT_FIELDS = Object.freeze({
+  actor: "wake/core/field/command-receipt/actor",
+  command: "wake/core/field/command-receipt/command",
+  "created-at": "wake/core/field/command-receipt/created-at",
+  id: "wake/core/field/command-receipt/id",
+  "input-digest": "wake/core/field/command-receipt/input-digest",
+});
 
 function fail(message) {
   throw new TypeError(`wake-compile: ${message}`);
@@ -117,6 +127,131 @@ function qualify(alias, name) {
   return `${alias}.${name}`;
 }
 
+function qualifyCommandType(type, qualifyExtensionPort) {
+  if (type?.kind === "extension") {
+    return qualifyExtensionPort(type.port, "command input extension");
+  }
+  if (type?.kind === "nullable") {
+    return { ...type, value: qualifyCommandType(type.value, qualifyExtensionPort) };
+  }
+  if (type?.kind === "list") {
+    return { ...type, items: qualifyCommandType(type.items, qualifyExtensionPort) };
+  }
+  if (type?.kind === "record") {
+    return {
+      ...type,
+      fields: type.fields.map(field => ({
+        ...field,
+        type: qualifyCommandType(field.type, qualifyExtensionPort),
+      })),
+    };
+  }
+  return type;
+}
+
+function qualifyPluginCommand(command, {
+  alias,
+  declarations,
+  entityNames,
+  manifest,
+}) {
+  const localName = command.name;
+  if (!manifest.exports.commands.includes(localName)) {
+    fail(`plugin '${manifest.packageId}' declares unexported command '${localName}'`);
+  }
+  const qualifyEntityName = name => entityNames.has(name) ? qualify(alias, name) : name;
+  const extensionPort = (name, label, expectedTarget = null) => {
+    const port = manifest.extensionPorts.find(candidate => candidate.name === name);
+    if (port === undefined) {
+      fail(`plugin '${manifest.packageId}' command '${localName}' ${label} names unknown extension port '${name}'`);
+    }
+    if (port.kind !== "entity-fields") {
+      fail(`plugin '${manifest.packageId}' command '${localName}' ${label} targets ${port.kind}, not entity-fields`);
+    }
+    const targetEntity = port.target.includes("/")
+      ? port.target
+      : qualifyEntityName(declarations.alias("entity", port.target));
+    if (expectedTarget !== null && targetEntity !== expectedTarget) {
+      fail(`plugin '${manifest.packageId}' command '${localName}' ${label} targets '${targetEntity}', not '${expectedTarget}'`);
+    }
+    return { kind: "extension", port: qualify(alias, name), targetEntity };
+  };
+  const qualifyStep = step => {
+    if (step.op === "assert" || step.op === "assert-not-contains") return step;
+    const entity = qualifyEntityName(step.entity);
+    if (step.op !== "create") return { ...step, entity };
+    return {
+      ...step,
+      entity,
+      fields: step.fields.map(field => {
+        if (field.extensionPort === undefined) return field;
+        const extension = extensionPort(
+          field.extensionPort,
+          `extension-fields '${field.extensionPort}'`,
+          entity,
+        );
+        return {
+          extensionPort: extension.port,
+          extensionTarget: extension.targetEntity,
+          value: field.value,
+        };
+      }),
+    };
+  };
+  const capabilities = command.capabilities.map(choice => {
+    if (!manifest.exports.capabilities.includes(choice.capability)) {
+      fail(`plugin '${manifest.packageId}' command '${localName}' names unexported capability '${choice.capability}'`);
+    }
+    return {
+      ...choice,
+      capability: `${manifest.packageId}/cap/${choice.capability}`,
+      guards: (choice.guards ?? []).map(qualifyStep),
+    };
+  });
+  const receiptResultFields = command.receipt.resultFields.map(field => {
+    const declarationId = declarations.declarationId("field", field.field);
+    const storageId = field.storageId ?? manifest.storageIds.fields[declarationId];
+    if (typeof storageId !== "string" || storageId.length === 0) {
+      fail(`plugin '${manifest.packageId}' command '${localName}' receipt field '${field.field}' has no fixed storage ID`);
+    }
+    return {
+      ...field,
+      storageId,
+      ...(field.targetEntity === undefined
+        ? {}
+        : { targetEntity: qualifyEntityName(field.targetEntity) }),
+      type: qualifyCommandType(field.type, name => extensionPort(name, "receipt result type")),
+    };
+  });
+  return {
+    ...command,
+    name: qualify(alias, localName),
+    capabilities,
+    input: command.input.map(field => ({
+      ...field,
+      type: qualifyCommandType(field.type, name => extensionPort(name, "input")),
+    })),
+    injections: command.injections.map(injection => ({
+      ...injection,
+      type: qualifyCommandType(injection.type, name => extensionPort(name, "injection type")),
+    })),
+    steps: command.steps.map(qualifyStep),
+    result: command.result.map(field => ({
+      ...field,
+      type: qualifyCommandType(field.type, name => extensionPort(name, "result type")),
+    })),
+    receipt: {
+      ...command.receipt,
+      entity: qualifyEntityName(command.receipt.entity),
+      extensions: (command.receipt.extensions ?? []).map(name => {
+        const extension = extensionPort(name, `receipt extension '${name}'`, COMMAND_RECEIPT_ENTITY);
+        return extension.port;
+      }),
+      resultFields: receiptResultFields,
+    },
+  };
+}
+
 function splitQualified(value, label) {
   if (typeof value !== "string") fail(`${label} must be ALIAS.PORT`);
   const first = value.indexOf(".");
@@ -167,6 +302,275 @@ function checkedRoutePattern(path, parameters, label) {
     fail(`${label} route parameters do not match its checked path`);
   }
   return segments.map(segment => segment.startsWith(":") ? ":" : segment).join("/");
+}
+
+function commandTypeFromStorage(type, stateNames, label) {
+  switch (type) {
+    case "String": return { kind: "string" };
+    case "Digest": return { kind: "digest" };
+    case "Int":
+    case "Integer": return { kind: "integer" };
+    case "Float":
+    case "Double":
+    case "Number": return { kind: "number" };
+    case "Bool":
+    case "Boolean": return { kind: "boolean" };
+    case "Instant": return { kind: "instant" };
+    case "Keyword": return { kind: "keyword" };
+    default:
+      if (stateNames.has(type)) return { kind: "keyword" };
+      fail(`${label} has unsupported command storage type '${type}'`);
+  }
+}
+
+function storageTypeFromCommand(type, label) {
+  switch (type?.kind) {
+    case "string": return "String";
+    case "digest": return "Digest";
+    case "integer": return "Int";
+    case "number": return "Number";
+    case "boolean": return "Bool";
+    case "instant": return "Instant";
+    case "keyword": return "Keyword";
+    default: fail(`${label} has unsupported receipt storage type '${type?.kind ?? "unknown"}'`);
+  }
+}
+
+function commandTypeForExtensionField(field, entities, stateNames, label) {
+  let type;
+  if (field.type === "Ref") {
+    const targetName = field.opts?.["target-entity"];
+    const target = entities.find(entity => entity.name === targetName);
+    const identity = target?.attrs?.find(attr => attr.opts?.identity === true);
+    if (identity === undefined) {
+      fail(`${label} targets entity '${targetName}' without an identity`);
+    }
+    type = commandTypeFromStorage(identity.type, stateNames, label);
+  } else {
+    type = commandTypeFromStorage(field.type, stateNames, label);
+  }
+  if (field.opts?.many === true) {
+    fail(`${label} cannot be multi-cardinality without an explicit command bound`);
+  }
+  return type;
+}
+
+function receiptCoreEntity(commands) {
+  const attrs = [
+    {
+      _tag: "IrAttr",
+      name: "id",
+      opts: { identity: true },
+      storage_id: COMMAND_RECEIPT_FIELDS.id,
+      type: "Digest",
+    },
+    ...[
+      ["actor", "String"],
+      ["command", "String"],
+      ["input-digest", "Digest"],
+      ["created-at", "Instant"],
+    ].map(([name, type]) => ({
+      _tag: "IrAttr",
+      name,
+      opts: { write: "command" },
+      storage_id: COMMAND_RECEIPT_FIELDS[name],
+      type,
+    })),
+  ];
+  const fields = new Map(attrs.map(field => [field.name, field]));
+  for (const command of commands) {
+    if (command.receipt?.entity !== COMMAND_RECEIPT_ENTITY) continue;
+    for (const result of command.receipt.resultFields ?? []) {
+      const storageId = result.storageId;
+      if (typeof storageId !== "string" || storageId.length === 0) {
+        fail(`command '${command.name}' receipt result '${result.name}' requires fixed storage provenance`);
+      }
+      const field = result.targetEntity === undefined
+        ? {
+            _tag: "IrAttr",
+            name: result.field,
+            opts: { write: "command" },
+            storage_id: storageId,
+            type: storageTypeFromCommand(
+              result.type,
+              `command '${command.name}' receipt result '${result.name}'`,
+            ),
+          }
+        : {
+            _tag: "IrAttr",
+            name: result.field,
+            opts: { "target-entity": result.targetEntity, write: "command" },
+            storage_id: storageId,
+            type: "Ref",
+          };
+      const prior = fields.get(field.name);
+      if (prior !== undefined) {
+        if (canonicalDocument(semanticValue(prior)) !== canonicalDocument(semanticValue(field))) {
+          fail(`command receipt field '${field.name}' has conflicting declarations`);
+        }
+      } else {
+        fields.set(field.name, field);
+        attrs.push(field);
+      }
+    }
+  }
+  return {
+    _tag: "IrEntity",
+    attrs,
+    name: COMMAND_RECEIPT_ENTITY,
+    storage_id: COMMAND_RECEIPT_STORAGE_ID,
+  };
+}
+
+function ensureCommandReceiptCore(linked) {
+  const commands = linked.commands ?? [];
+  if (commands.length === 0) return linked;
+  if (linked.entities.some(entity => entity.name === COMMAND_RECEIPT_ENTITY)) {
+    fail(`entity '${COMMAND_RECEIPT_ENTITY}' is reserved by Wake`);
+  }
+  for (const command of commands) {
+    for (const step of [
+      ...command.steps,
+      ...command.capabilities.flatMap(choice => choice.guards ?? []),
+    ]) {
+      if (step.entity === COMMAND_RECEIPT_ENTITY) {
+        fail(`command '${command.name}' cannot target Wake's reserved receipt entity`);
+      }
+    }
+  }
+  return {
+    ...linked,
+    entities: [...linked.entities, receiptCoreEntity(commands)],
+  };
+}
+
+function stripReceiptLinkMetadata(field) {
+  const { storageId: _storageId, targetEntity: _targetEntity, ...wire } = field;
+  return wire;
+}
+
+function expandCommandComposition(commands, extensions, entities, defstates) {
+  const byPort = new Map(extensions.map(extension => [extension.port, extension]));
+  const stateNames = new Set(defstates.map(state => state.name));
+  const fieldType = (field, label) => (
+    commandTypeForExtensionField(field, entities, stateNames, label)
+  );
+  const expandType = (type, label) => {
+    if (type?.kind === "extension") {
+      const extension = byPort.get(type.port);
+      const fields = extension?.fields ?? [];
+      return {
+        fields: fields.map(field => ({
+          name: field.name,
+          required: field.opts?.required === true,
+          type: fieldType(field, `${label} extension field '${field.name}'`),
+        })),
+        kind: "record",
+      };
+    }
+    if (type?.kind === "nullable") {
+      return { ...type, value: expandType(type.value, label) };
+    }
+    if (type?.kind === "list") {
+      return { ...type, items: expandType(type.items, label) };
+    }
+    if (type?.kind === "record") {
+      return {
+        ...type,
+        fields: type.fields.map(field => ({
+          ...field,
+          type: expandType(field.type, `${label}.${field.name}`),
+        })),
+      };
+    }
+    return type;
+  };
+  return commands.map(command => {
+    const input = command.input.map(field => ({
+      ...field,
+      type: expandType(field.type, `command '${command.name}' input '${field.name}'`),
+    }));
+    const injections = command.injections.map(injection => ({
+      ...injection,
+      type: expandType(injection.type, `command '${command.name}' injection '${injection.name}'`),
+    }));
+    const result = command.result.map(field => ({
+      ...field,
+      type: expandType(field.type, `command '${command.name}' result '${field.name}'`),
+    }));
+    const steps = command.steps.map(step => {
+      if (step.op !== "create") return step;
+      const seen = new Set();
+      return {
+        ...step,
+        fields: step.fields.flatMap(field => {
+          if (field.extensionPort === undefined) return [field];
+          if (seen.has(field.extensionPort)) {
+            fail(`command '${command.name}' repeats extension-fields '${field.extensionPort}'`);
+          }
+          seen.add(field.extensionPort);
+          const extension = byPort.get(field.extensionPort);
+          const target = extension?.target ?? field.extensionTarget;
+          if (target !== step.entity) {
+            fail(`command '${command.name}' extension-fields '${field.extensionPort}' targets '${target}', not '${step.entity}'`);
+          }
+          const fields = extension?.fields ?? [];
+          for (const source of fields) {
+            if (source.opts?.required !== true || source.opts?.server === true) {
+              fail(`command '${command.name}' extension-fields '${field.extensionPort}' requires caller-required immutable fields`);
+            }
+          }
+          return fields.map(source => ({
+            field: source.name,
+            omitIfNull: false,
+            value: { field: source.name, kind: "get", value: field.value },
+          }));
+        }),
+      };
+    });
+    const receipt = {
+      ...command.receipt,
+      resultFields: command.receipt.resultFields.map(stripReceiptLinkMetadata),
+    };
+    for (const port of command.receipt.extensions ?? []) {
+      const extension = byPort.get(port);
+      for (const field of extension?.fields ?? []) {
+        if (extension.target !== COMMAND_RECEIPT_ENTITY
+            || field.opts?.server !== true
+            || field.opts?.required === true
+            || field.opts?.many === true) {
+          fail(`command '${command.name}' receipt extension '${port}' accepts only single server-injected receipt fields`);
+        }
+        const type = fieldType(field, `command '${command.name}' receipt extension '${port}.${field.name}'`);
+        const injectionName = `wake.server:${field.storage_id}`;
+        injections.push({
+          kind: "server-value",
+          name: injectionName,
+          storageId: field.storage_id,
+          type,
+        });
+        result.push({
+          name: field.name,
+          type,
+          value: { kind: "injected", name: injectionName },
+        });
+        receipt.resultFields.push({
+          field: field.name,
+          name: field.name,
+          type,
+        });
+      }
+    }
+    delete receipt.extensions;
+    return {
+      ...command,
+      injections,
+      input,
+      receipt,
+      result,
+      steps,
+    };
+  });
 }
 
 function applyApplicationComposition(linked, direct) {
@@ -234,9 +638,12 @@ function applyApplicationComposition(linked, direct) {
       port: extension.port,
       target: target.port.target.includes("/")
         ? target.port.target
-        : target.resolved.configurationDeclarations.alias(
-            "entity",
-            target.port.target,
+        : qualify(
+            target.target.alias,
+            target.resolved.configurationDeclarations.alias(
+              "entity",
+              target.port.target,
+            ),
           ),
     };
   });
@@ -260,10 +667,7 @@ function applyApplicationComposition(linked, direct) {
     }
   }
   for (const extension of extensions) {
-    const targetAlias = splitQualified(extension.port, `extend '${extension.port}'`).alias;
-    const targetEntityName = extension.target.includes("/")
-      ? extension.target
-      : qualify(targetAlias, extension.target);
+    const targetEntityName = extension.target;
     const targetEntity = entities.find(entity => entity.name === targetEntityName);
     if (targetEntity === undefined) {
       fail(`extend '${extension.port}' targets missing entity '${extension.target}'`);
@@ -413,9 +817,16 @@ function applyApplicationComposition(linked, direct) {
       select_component: selectFill?.component ?? view.select_component,
     };
   });
+  const commands = expandCommandComposition(
+    linked.commands ?? [],
+    extensions,
+    entities,
+    linked.defstates ?? [],
+  );
 
   return {
     ...linked,
+    commands,
     components: filledComponents,
     entities,
     extends: extensions,
@@ -482,6 +893,7 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
   const componentNames = new Set(program.components.map((component) => component.name));
   const viewNames = new Set(program.views.map((view) => view.name));
   const queryNames = new Set((program.queries ?? []).map((query) => query.name));
+  const commandNames = new Set((program.commands ?? []).map((command) => command.name));
   const routeNames = new Set((program.router?.routes ?? []).map((route) => route.path));
 
   if (allow.has("schema")) {
@@ -503,6 +915,20 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
       const declarationId = declarations.declarationId("query", declared);
       if (!manifest.exports.queries.includes(declarationId)) {
         fail(`plugin '${manifest.packageId}' declares unexported query '${declared}'`);
+      }
+    }
+  }
+  if (allow.has("command")) {
+    for (const exported of manifest.exports.commands) {
+      const localName = declarations.alias("command", exported);
+      if (!commandNames.has(localName)) {
+        fail(`plugin '${manifest.packageId}' exports missing command '${exported}'`);
+      }
+    }
+    for (const declared of commandNames) {
+      const declarationId = declarations.declarationId("command", declared);
+      if (!manifest.exports.commands.includes(declarationId)) {
+        fail(`plugin '${manifest.packageId}' declares unexported command '${declared}'`);
       }
     }
   }
@@ -600,6 +1026,14 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
         };
       })
     : [];
+  const commands = allow.has("command")
+    ? (program.commands ?? []).map(command => qualifyPluginCommand(command, {
+        alias,
+        declarations,
+        entityNames,
+        manifest,
+      }))
+    : [];
   const components = allow.has("ui")
     ? program.components.map((component) => ({
         ...component,
@@ -649,7 +1083,7 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
     : [];
 
   const renamed = new Map();
-  for (const kind of ["entity", "defstate", "publication", "query", "component", "view", "form"]) {
+  for (const kind of ["entity", "defstate", "publication", "query", "command", "component", "view", "form"]) {
     renamed.set(kind, true);
   }
   const declarationProvenance = program.declaration_provenance
@@ -660,6 +1094,7 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
     }));
 
   return {
+    commands,
     components,
     declarationProvenance,
     defstates,
@@ -729,13 +1164,14 @@ async function linkProgram(
 ) {
   const uses = root.uses ?? [];
   if (uses.length === 0) {
+    const linked = ensureCommandReceiptCore({
+      ...root,
+      plugin_closure: [],
+      semantic_fingerprint: null,
+      source_units: [root.source_unit],
+    });
     return {
-      linked: {
-        ...root,
-        plugin_closure: [],
-        semantic_fingerprint: null,
-        source_units: [root.source_unit],
-      },
+      linked: applyApplicationComposition(linked, []),
       resolved: [],
     };
   }
@@ -804,6 +1240,7 @@ async function linkProgram(
     linked.defstates = appendUnique(linked.defstates, contribution.defstates, "defstate");
     linked.publications = appendUnique(linked.publications, contribution.publications, "publication");
     linked.queries = appendUnique(linked.queries ?? [], contribution.queries, "query");
+    linked.commands = appendUnique(linked.commands ?? [], contribution.commands, "command");
     linked.components = appendUnique(linked.components, contribution.components, "component");
     linked.views = appendUnique(linked.views, contribution.views, "view");
     linked.forms = appendUnique(linked.forms, contribution.forms, "form");
@@ -843,7 +1280,7 @@ async function linkProgram(
     source: { ...entry.source },
     version: artifact.manifest.version,
   }));
-  linked = applyApplicationComposition({
+  linked = ensureCommandReceiptCore({
     ...linked,
     declaration_provenance: declarationProvenance,
     layout,
@@ -853,7 +1290,8 @@ async function linkProgram(
     semantic_fingerprint: null,
     source_units: sourceUnits,
     theme,
-  }, direct);
+  });
+  linked = applyApplicationComposition(linked, direct);
   return { linked, resolved: direct };
 }
 
@@ -921,6 +1359,7 @@ function checkedOperationSurface(checked, resolved) {
       mounts: semanticValue(checked.mounts ?? []),
       providers: semanticValue(checked.providers ?? []),
     },
+    commands: semanticValue(checked.commands ?? []),
     exports: operationSurface(resolved),
     queries: semanticValue(checked.queries ?? []),
   };
@@ -1020,7 +1459,11 @@ async function main() {
     compilerVersion,
     parseProgramConfiguredAt,
   );
-  const checked = checkProgram(linked);
+  const checkedGraph = checkProgram(linked);
+  const checked = {
+    ...checkedGraph,
+    commands: checkCommandGraph(checkedGraph.commands ?? [], checkedGraph),
+  };
   const fingerprint = sha256Digest(canonicalDocument(semanticValue(checked)));
   const checkedWithFingerprint = { ...checked, semantic_fingerprint: fingerprint };
 

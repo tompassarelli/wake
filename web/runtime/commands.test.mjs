@@ -7,6 +7,7 @@ const fingerprint = `sha256:${"a".repeat(64)}`;
 const stringType = Object.freeze({ kind: "string", minLength: 1, maxBytes: 1024 });
 const nullableString = Object.freeze({ kind: "nullable", value: stringType });
 const instantType = Object.freeze({ kind: "instant" });
+const digestType = Object.freeze({ kind: "digest" });
 
 const input = name => ({ kind: "input", name });
 const injected = name => ({ kind: "injected", name });
@@ -66,7 +67,7 @@ const command = Object.freeze({
         kind: "record",
         fields: [{ name: "content", value: input("content") }],
       },
-      type: stringType,
+      type: digestType,
     },
   ],
   steps: [

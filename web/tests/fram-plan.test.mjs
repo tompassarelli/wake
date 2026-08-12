@@ -224,8 +224,11 @@ test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
     "backend",
     "semanticFingerprint",
     "pluginClosure",
+    "composition",
+    "routes",
     "entities",
     "queries",
+    "commands",
     "stateMachines",
     "publications",
   ]);

@@ -1,0 +1,51 @@
+(ns wake.fixtures.command-app)
+(application :id "wake-command-fixture")
+(backend :fram)
+
+(entity entry
+  :storage-id "wake-command-fixture/entity/entry"
+  (id : String :identity
+    :storage-id "wake-command-fixture/field/entry/id")
+  (links : Ref :many :to entry :write :create
+    :storage-id "wake-command-fixture/field/entry/links")
+  (digest : Digest :write :create
+    :storage-id "wake-command-fixture/field/entry/digest"))
+
+(command create-entry
+  :capability app/cap/create-entry
+  :normalizer-version 1
+  :input [(id : String)
+          (links : (List String :max 8 :normalize :sort-unique))]
+  :inject [(digest :canonical-digest Digest
+             (record [id (input id)
+                      links (input links)]))]
+  :steps [(assert (not-contains (input links) (input id)))
+          (require-each entry (input links))
+          (create entry (input id)
+            :fields [(links (input links))
+                     (digest (injected digest))])]
+  :result [(id : String (input id))]
+  :receipt
+  (receipt
+    :entity wake.core/command-receipt
+    :identity id
+    :actor actor
+    :command command
+    :input-digest input-digest
+    :created-at created-at
+    :result [(id result-entry String
+               :to entry
+               :storage-id "wake-command-fixture/field/receipt/result-entry")]))
+
+(component entry-card
+  :props [id]
+  (main :class "entry-card"
+    (h1 :text id)))
+
+(view entries
+  :entity entry
+  :each entry-card
+  :title "Entries")
+
+(routes :default entries
+  [entries entries :params []])

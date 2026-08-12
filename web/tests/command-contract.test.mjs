@@ -23,11 +23,12 @@ function compile(source, output) {
 }
 
 const field = (name, type, {
+  cardinality = "single",
   identity = false,
   target = null,
   write = "create",
 } = {}) => ({
-  cardinality: "single",
+  cardinality,
   derived: false,
   identity,
   name,
@@ -39,7 +40,7 @@ const field = (name, type, {
 
 const entryId = field("id", "String", { identity: true });
 const versionId = field("id", "String", { identity: true });
-const receiptId = field("id", "String", { identity: true });
+const receiptId = field("id", "Digest", { identity: true });
 
 const checked = {
   backend: { kind: "fram" },
@@ -51,6 +52,7 @@ const checked = {
       fields: [
         entryId,
         field("current-version", "Ref", { target: "version", write: "command" }),
+        field("links", "Ref", { cardinality: "multi", target: "entry" }),
       ],
     },
     {
@@ -75,7 +77,7 @@ const checked = {
         receiptId,
         field("actor", "String"),
         field("command", "String"),
-        field("input-digest", "String"),
+        field("input-digest", "Digest"),
         field("created-at", "Instant"),
         field("result-entry", "Ref", { target: "entry" }),
         field("result-version", "Ref", { target: "version" }),
@@ -110,12 +112,13 @@ const source = `(command replace-release
   :inject [(version :generated-id String)
            (digest :provider content-digest String
              (record [content (input content)]))
-           (payload :canonical-digest String
+           (payload :canonical-digest Digest
              (record [content (input content)]))]
   :steps [
     (assert (= (input entry) (input entry)))
     (require entry (input entry))
     (require-each entry (input links))
+    (guard entry (input entry) links (input links))
     (guard entry (input entry) current-version (input expected))
     (create version (injected version)
       :fields [(entry (input entry))
@@ -197,6 +200,7 @@ test("command grammar parses a closed generic guarded transaction", () => {
     "assert",
     "require",
     "require-each",
+    "guard",
     "guard",
     "create",
     "update",

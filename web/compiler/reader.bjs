@@ -2,6 +2,7 @@
 (ns wake.reader)
 (require wake.sexpr :as sexpr)
 (require wake.config-reference :as config-reference)
+(require wake.command :as command)
 (require wake.ir :as ir)
 
 ;; Reader: s-expressions → IR program.
@@ -1776,6 +1777,9 @@
           (= form-name "query")
             (let [value (parse-query form)]
               (->ParseResult "query" (.-name value) value provenance))
+          (= form-name "command")
+            (let [value (command/parse-command form)]
+              (->ParseResult "command" (get value "name") value provenance))
           (= form-name "list-detail")
             (let [value (parse-list-detail form)]
               (->ParseResult "list-detail" (.-entity-name value) value provenance))
@@ -1877,6 +1881,7 @@
           defstates (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "defstate")) parsed))
           publications (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "publication")) parsed))
           queries   (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "query")) parsed))
+          commands  (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "command")) parsed))
           lds       (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "list-detail")) parsed))
           smart-forms (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "form")) parsed))
           theme     (first (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "theme")) parsed)))
@@ -1902,7 +1907,7 @@
         source-unit application uses providers extends fills mounts
         declaration-provenance
         (or ns-name "wake.app")
-        backend entities persist defstates publications queries lds smart-forms theme components views
+        backend entities persist defstates publications queries commands lds smart-forms theme components views
         router layout))))
 
 (defn parse-program-at

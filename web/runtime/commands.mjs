@@ -2,6 +2,7 @@ import { canonicalDocument, sha256Digest } from "./canonical.mjs";
 
 const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/u;
+const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const MAX_EXPRESSION_DEPTH = 32;
 const MIN_I64 = -(1n << 63n);
 const MAX_I64 = (1n << 63n) - 1n;
@@ -106,6 +107,7 @@ function validateType(type, label) {
     case "boolean":
     case "instant":
     case "keyword":
+    case "digest":
       exactKeys(type, ["kind"], [], label);
       break;
     case "nullable":
@@ -113,11 +115,14 @@ function validateType(type, label) {
       validateType(type.value, `${label}.value`);
       break;
     case "list":
-      exactKeys(type, ["kind", "items", "maxItems"], [], label);
+      exactKeys(type, ["kind", "items", "maxItems"], ["normalizer"], label);
       if (!Number.isSafeInteger(type.maxItems) || type.maxItems < 0) {
         fail("command/invalid-plan", `${label}.maxItems must be a nonnegative integer`);
       }
       validateType(type.items, `${label}.items`);
+      if (own(type, "normalizer") && type.normalizer !== "sort-unique") {
+        fail("command/invalid-plan", `${label}.normalizer must be sort-unique`);
+      }
       break;
     case "record":
       exactKeys(type, ["kind", "fields"], [], label);
@@ -180,6 +185,11 @@ function normalizeValue(value, type, label, code = "command/type-mismatch") {
     case "keyword":
       if (typeof value !== "string" || value.length === 0) fail(code, `${label} must be a keyword spelling`);
       return value;
+    case "digest":
+      if (typeof value !== "string" || !DIGEST.test(value)) {
+        fail(code, `${label} must be a canonical sha256 digest`);
+      }
+      return value;
     case "instant": {
       if (!plainObject(value) || !own(value, "epochSeconds") || !own(value, "nanos")
           || Object.keys(value).length !== 2) {
@@ -194,10 +204,18 @@ function normalizeValue(value, type, label, code = "command/type-mismatch") {
     }
     case "nullable":
       return value === null ? null : normalizeValue(value, type.value, label, code);
-    case "list":
+    case "list": {
       if (!Array.isArray(value)) fail(code, `${label} must be an array`);
       if (value.length > type.maxItems) fail(code, `${label} accepts at most ${type.maxItems} items`);
-      return value.map((item, index) => normalizeValue(item, type.items, `${label}[${index}]`, code));
+      const normalized = value.map((item, index) => (
+        normalizeValue(item, type.items, `${label}[${index}]`, code)
+      ));
+      if (type.normalizer !== "sort-unique") return normalized;
+      const byCanonical = new Map(normalized.map(item => [canonicalDocument(item), item]));
+      return [...byCanonical.entries()]
+        .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+        .map(([, item]) => item);
+    }
     case "record": {
       if (!plainObject(value)) fail(code, `${label} must be an object`);
       const allowed = new Set(type.fields.map(field => field.name));
@@ -323,6 +341,11 @@ function validateStep(step, label) {
     validateExpression(step.left, `${label}.left`);
     validateExpression(step.right, `${label}.right`);
     return step;
+  } else if (op === "assert-not-contains") {
+    exactKeys(step, ["op", "list", "value"], [], label);
+    validateExpression(step.list, `${label}.list`);
+    validateExpression(step.value, `${label}.value`);
+    return step;
   } else if (op === "guard") {
     exactKeys(step, ["op", "entity", "identity", "field", "equals"], ["when"], label);
     nonempty(step.field, `${label}.field`);
@@ -363,9 +386,9 @@ function validateStep(step, label) {
 }
 
 function validateInjection(injection, label) {
-  exactKeys(injection, ["name", "kind", "type"], ["provider", "input"], label);
+  exactKeys(injection, ["name", "kind", "type"], ["provider", "input", "storageId"], label);
   nonempty(injection.name, `${label}.name`);
-  if (!["canonical-digest", "generated-id", "provider"].includes(injection.kind)) {
+  if (!["canonical-digest", "generated-id", "provider", "server-value"].includes(injection.kind)) {
     fail("command/invalid-plan", `${label}.kind '${injection.kind}' is unsupported`);
   }
   validateType(injection.type, `${label}.type`);
@@ -377,10 +400,15 @@ function validateInjection(injection, label) {
       fail("command/invalid-plan", `${label} canonical-digest cannot name a provider`);
     }
     validateExpression(injection.input, `${label}.input`);
-    if (injection.type.kind !== "string") {
-      fail("command/invalid-plan", `${label} canonical-digest output type must be string`);
+    if (injection.type.kind !== "digest") {
+      fail("command/invalid-plan", `${label} canonical-digest output type must be digest`);
     }
-  } else if (own(injection, "provider") || own(injection, "input")) {
+  } else if (injection.kind === "server-value") {
+    nonempty(injection.storageId, `${label}.storageId`);
+    if (own(injection, "provider") || own(injection, "input")) {
+      fail("command/invalid-plan", `${label} server-value cannot name a provider or input`);
+    }
+  } else if (own(injection, "provider") || own(injection, "input") || own(injection, "storageId")) {
     fail("command/invalid-plan", `${label} generated-id cannot name a provider or input`);
   }
   return injection;
@@ -637,6 +665,18 @@ function compileTransaction(command, environment, storage, receiptId, result, au
       }
       continue;
     }
+    if (step.op === "assert-not-contains") {
+      const list = evaluate(step.list, environment);
+      const value = evaluate(step.value, environment);
+      if (!Array.isArray(list)) {
+        fail("command/type-mismatch", `${label} assertion requires a bounded list`);
+      }
+      const expected = canonicalDocument(value);
+      if (list.some(item => canonicalDocument(item) === expected)) {
+        fail("command/assertion-failed", `${label} list contains a forbidden value`);
+      }
+      continue;
+    }
     if (step.op === "require-each") {
       const identities = evaluate(step.identities, environment);
       if (!Array.isArray(identities)) {
@@ -853,6 +893,7 @@ export function createCommandRuntime(plan, {
   providers = {},
   readReceipt,
   schema,
+  serverValues = {},
   storage,
 } = {}) {
   const compiled = compileCommands(plan);
@@ -866,6 +907,44 @@ export function createCommandRuntime(plan, {
     fail("command/invalid-host", "readReceipt, now, and generateId host functions are required");
   }
   if (!plainObject(providers)) fail("command/invalid-host", "providers must be an object");
+  if (!plainObject(serverValues)) {
+    fail("command/invalid-host", "serverValues must be an object");
+  }
+  const serverValueTypes = new Map();
+  for (const command of plan.commands) {
+    for (const injection of command.injections ?? []) {
+      if (injection.kind !== "server-value") continue;
+      const prior = serverValueTypes.get(injection.storageId);
+      if (prior !== undefined && canonicalDocument(prior) !== canonicalDocument(injection.type)) {
+        fail("command/invalid-plan", `server value '${injection.storageId}' has conflicting types`);
+      }
+      serverValueTypes.set(injection.storageId, injection.type);
+    }
+  }
+  const suppliedServerKeys = Reflect.ownKeys(serverValues);
+  if (suppliedServerKeys.some(key => typeof key !== "string")
+      || suppliedServerKeys.length !== serverValueTypes.size
+      || suppliedServerKeys.some(key => !serverValueTypes.has(key))) {
+    fail("command/invalid-host", "serverValues must exactly match checked server-value storage IDs");
+  }
+  const checkedServerValues = {};
+  for (const [storageId, type] of serverValueTypes) {
+    const descriptor = Object.getOwnPropertyDescriptor(serverValues, storageId);
+    if (descriptor === undefined || descriptor.enumerable !== true || !("value" in descriptor)) {
+      fail("command/invalid-host", `serverValues.${storageId} must be an enumerable data property`);
+    }
+    defineData(
+      checkedServerValues,
+      storageId,
+      deepFreeze(normalizeValue(
+        descriptor.value,
+        type,
+        `serverValues.${storageId}`,
+        "command/invalid-host",
+      )),
+    );
+  }
+  deepFreeze(checkedServerValues);
 
   async function invoke(commandName, requestId, input, authority) {
     nonempty(commandName, "command", "command/invalid-input");
@@ -935,6 +1014,8 @@ export function createCommandRuntime(plan, {
         }));
       } else if (injection.kind === "canonical-digest") {
         value = sha256Digest(canonicalDocument(evaluate(injection.input, environment)));
+      } else if (injection.kind === "server-value") {
+        value = checkedServerValues[injection.storageId];
       } else {
         const provider = providers[injection.provider];
         if (typeof provider !== "function") {

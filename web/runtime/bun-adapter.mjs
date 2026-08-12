@@ -447,6 +447,7 @@ export function createWakeBunAdapter({
   plan: planInput,
   providers,
   schema,
+  serverValues,
 } = {}) {
   if (!fram || typeof fram.status !== "function" || typeof fram.query !== "function") {
     fail("adapter/invalid-client", "the official FRAM client must provide status and query");
@@ -506,7 +507,12 @@ export function createWakeBunAdapter({
   const cursorTransport = createWakeCursorTransport(cursorProvider, {
     fingerprint: manifest.checkedApplication.fingerprint,
   });
-  const gateway = createGateway(plan, { fram, providers: providerRegistry, schema });
+  const gateway = createGateway(plan, {
+    fram,
+    providers: providerRegistry,
+    schema,
+    serverValues,
+  });
   if (!gateway || typeof gateway !== "object"
       || typeof gateway.executeQuery !== "function" || typeof gateway.invoke !== "function") {
     fail("adapter/invalid-config", "the Wake gateway factory returned an invalid gateway");

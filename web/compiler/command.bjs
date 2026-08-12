@@ -35,6 +35,11 @@
     (kw-name value)
     (command-error (str label " requires a keyword"))))
 
+(defn require-string [value: Any label: String] -> String
+  (if (string? value)
+    value
+    (command-error (str label " requires a string"))))
+
 (defn require-items [value: Any label: String] -> Any
   (if (sexpr-vec? value)
     (.-items value)
@@ -93,6 +98,7 @@
     (or (= name "Bool") (= name "Boolean")) {"kind" "boolean"}
     (= name "Instant") {"kind" "instant"}
     (= name "Keyword") {"kind" "keyword"}
+    (= name "Digest") {"kind" "digest"}
     :else (command-error (str label " has unsupported type '" name "'"))))
 
 (defn parse-record-type-field [value: Any label: String] -> Any
@@ -153,8 +159,10 @@
             {"kind" "nullable" "value" (parse-type (nth form 1 nil) label)})
         (= name "List")
           (do
-            (if (not (= (count form) 4))
-              (command-error (str label " List must be (List TYPE :max N)"))
+            (if (not (or (= (count form) 4) (= (count form) 6)))
+              (command-error
+                (str label
+                     " List must be (List TYPE :max N [:normalize :sort-unique])"))
               nil)
             (if (not (= (require-keyword (nth form 2 nil) label) ":max"))
               (command-error (str label " List requires :max"))
@@ -165,9 +173,33 @@
                       (< maximum 0))
                 (command-error (str label " List :max must be nonnegative"))
                 nil)
-              {"kind" "list"
-               "items" (parse-type (nth form 1 nil) label)
-               "maxItems" maximum}))
+              (if (= (count form) 6)
+                (do
+                  (if (not
+                        (= (require-keyword (nth form 4 nil) label)
+                           ":normalize"))
+                    (command-error (str label " List accepts only :normalize"))
+                    nil)
+                  (if (not
+                        (= (require-keyword (nth form 5 nil) label)
+                           ":sort-unique"))
+                    (command-error
+                      (str label " List supports only :normalize :sort-unique"))
+                    nil)
+                  {"kind" "list"
+                   "items" (parse-type (nth form 1 nil) label)
+                   "maxItems" maximum
+                   "normalizer" "sort-unique"})
+                {"kind" "list"
+                 "items" (parse-type (nth form 1 nil) label)
+                 "maxItems" maximum})))
+        (= name "Extension")
+          (do
+            (if (not (= (count form) 2))
+              (command-error (str label " Extension requires one port"))
+              nil)
+            {"kind" "extension"
+             "port" (require-symbol (nth form 1 nil) label)})
         (= name "Record")
           (do
             (if (not (= (count form) 2))
@@ -361,7 +393,7 @@
         (do
           (if (not (= (count form) 4))
             (command-error
-              "canonical-digest injection must be (NAME :canonical-digest String INPUT)")
+              "canonical-digest injection must be (NAME :canonical-digest Digest INPUT)")
             nil)
           {"name" name "kind" kind
            "type" (parse-type (nth form 2 nil) "canonical-digest type")
@@ -378,6 +410,19 @@
 
 (defn parse-create-field [value: Any label: String] -> Any
   (let [form (require-form value label)]
+    (if (and (> (count form) 0)
+             (sym? (nth form 0 nil))
+             (= (sym-name (nth form 0 nil)) "extension-fields"))
+      (do
+        (if (not (= (count form) 3))
+          (command-error
+            (str label " extension-fields requires a port and record expression"))
+          nil)
+        {"extensionPort"
+         (require-symbol (nth form 1 nil) (str label " extension port"))
+         "value"
+         (parse-expression (nth form 2 nil) (str label " extension value"))})
+      (do
     (if (or (< (count form) 2) (> (count form) 3))
       (command-error (str label " must be (FIELD EXPR [:omit-if-null])"))
       nil)
@@ -387,7 +432,7 @@
       nil)
     {"field" (require-symbol (nth form 0 nil) (str label " field"))
      "value" (parse-expression (nth form 1 nil) (str label " value"))
-     "omitIfNull" (= (count form) 3)}))
+     "omitIfNull" (= (count form) 3)}))))
 
 (defn parse-update-field [value: Any label: String] -> Any
   (let [form (require-form value label)]
@@ -457,14 +502,30 @@
             nil)
           (let [predicate
                 (require-form (nth form 1 nil) (str label " predicate"))]
-            (if (or
-                  (not (= (count predicate) 3))
-                  (not (= (require-symbol (nth predicate 0 nil) label) "=")))
-              (command-error (str label " requires (= LEFT RIGHT)"))
+            (if (not (= (count predicate) 3))
+              (command-error
+                (str label
+                     " requires (= LEFT RIGHT) or (not-contains LIST VALUE)"))
               nil)
-            {"op" op
-             "left" (parse-expression (nth predicate 1 nil) (str label " left"))
-             "right" (parse-expression (nth predicate 2 nil) (str label " right"))}))
+            (let [predicate-name
+                  (require-symbol (nth predicate 0 nil) label)]
+              (cond
+                (= predicate-name "=")
+                  {"op" op
+                   "left"
+                   (parse-expression (nth predicate 1 nil) (str label " left"))
+                   "right"
+                   (parse-expression (nth predicate 2 nil) (str label " right"))}
+                (= predicate-name "not-contains")
+                  {"op" "assert-not-contains"
+                   "list"
+                   (parse-expression (nth predicate 1 nil) (str label " list"))
+                   "value"
+                   (parse-expression (nth predicate 2 nil) (str label " value"))}
+                :else
+                  (command-error
+                    (str label
+                         " requires (= LEFT RIGHT) or (not-contains LIST VALUE)"))))))
       (= op "guard")
         (do
           (if (< (count form) 5)
@@ -524,12 +585,28 @@
 
 (defn parse-receipt-result [value: Any command-name: String] -> Any
   (let [form (require-form value (str "command '" command-name "' receipt result"))]
-    (if (not (= (count form) 3))
-      (command-error "receipt result must be (NAME FIELD TYPE)")
+    (if (or (< (count form) 3) (not (= (mod (- (count form) 3) 2) 0)))
+      (command-error
+        "receipt result must be (NAME FIELD TYPE [:to ENTITY] [:storage-id ID])")
       nil)
-    {"name" (require-symbol (nth form 0 nil) "receipt result name")
-     "field" (require-symbol (nth form 1 nil) "receipt result field")
-     "type" (parse-type (nth form 2 nil) "receipt result type")}))
+    (let [options
+          (option-map
+            form 3 [":to" ":storage-id"] [] "receipt result")
+          target (get options ":to")
+          storage-id (get options ":storage-id")
+          result
+          {"name" (require-symbol (nth form 0 nil) "receipt result name")
+           "field" (require-symbol (nth form 1 nil) "receipt result field")
+           "type" (parse-type (nth form 2 nil) "receipt result type")}]
+      (if (some? target)
+        (assoc
+          (if (some? storage-id)
+            (assoc result "storageId" (require-string storage-id "receipt result storage ID"))
+            result)
+          "targetEntity" (require-symbol target "receipt result target entity"))
+        (if (some? storage-id)
+          (assoc result "storageId" (require-string storage-id "receipt result storage ID"))
+          result)))))
 
 (defn parse-receipt [value: Any command-name: String] -> Any
   (let [form (require-form value (str "command '" command-name "' receipt"))]
@@ -540,7 +617,7 @@
           (option-map
             form 1
             [":entity" ":identity" ":actor" ":command" ":input-digest"
-             ":created-at" ":result"]
+             ":created-at" ":result" ":extensions"]
             [":entity" ":identity" ":actor" ":command" ":input-digest"
              ":created-at" ":result"]
             (str "command '" command-name "' receipt"))
@@ -557,7 +634,13 @@
        (require-symbol (get options ":input-digest") "receipt :input-digest")
        "createdAtField"
        (require-symbol (get options ":created-at") "receipt :created-at")
-       "resultFields" results})))
+       "resultFields" results
+       "extensions"
+       (if (some? (get options ":extensions"))
+         (mapv
+           (fn [port] (require-symbol port "receipt extension port"))
+           (require-items (get options ":extensions") "receipt :extensions"))
+         [])})))
 
 (defn parse-command [form: Any] -> Any
   (let [name (require-symbol (nth form 1 nil) "command name")

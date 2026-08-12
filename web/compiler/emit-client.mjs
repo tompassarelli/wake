@@ -2,6 +2,7 @@ const PRIMITIVE_TYPES = Object.freeze({
   Bool: Object.freeze({ kind: "boolean" }),
   Boolean: Object.freeze({ kind: "boolean" }),
   Double: Object.freeze({ kind: "number" }),
+  Digest: Object.freeze({ kind: "digest" }),
   Float: Object.freeze({ kind: "number" }),
   Instant: Object.freeze({ kind: "instant" }),
   Int: Object.freeze({ kind: "integer" }),
@@ -144,6 +145,7 @@ function commandValueDescriptor(source, label, active = new Set()) {
       case "boolean":
       case "instant":
       case "keyword":
+      case "digest":
         return { kind: source.kind };
       case "nullable":
         return {
@@ -155,6 +157,7 @@ function commandValueDescriptor(source, label, active = new Set()) {
           items: commandValueDescriptor(source.items, `${label} list item`, active),
           kind: "list",
           maxItems: nonnegativeBound(source.maxItems, `${label} maximum items`),
+          ...(source.normalizer === undefined ? {} : { normalizer: source.normalizer }),
         };
       case "record": {
         if (!Array.isArray(source.fields)) fail(`${label} record fields must be an array`);
@@ -317,6 +320,7 @@ function indexDescriptors(entries, label) {
 const queryIndex = indexDescriptors(operations.queries, "checked query");
 const commandIndex = indexDescriptors(operations.commands, "checked command");
 const integerPattern = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/;
+const digestPattern = /^sha256:[0-9a-f]{64}$/;
 const i64Minimum = -(1n << 63n);
 const i64Maximum = (1n << 63n) - 1n;
 
@@ -367,7 +371,7 @@ function unicodeScalarLength(value, label) {
   return count;
 }
 
-function normalizedArray(value, descriptor, label, maximum) {
+function normalizedArray(value, descriptor, label, maximum, normalizer) {
   if (!Array.isArray(value)) throw new TypeError(label + " must be an array");
   if (maximum !== undefined && value.length > maximum) {
     throw new TypeError(label + " exceeds " + maximum + " items");
@@ -385,7 +389,14 @@ function normalizedArray(value, descriptor, label, maximum) {
     if (!Object.hasOwn(value, index)) throw new TypeError(label + " must be dense");
     result.push(normalizeValue(ownData(value, String(index), label), descriptor, label + "[" + index + "]"));
   }
-  return deepFreeze(result);
+  if (normalizer === undefined) return deepFreeze(result);
+  if (normalizer !== "sort-unique") {
+    throw new TypeError(label + " has an unknown list normalizer");
+  }
+  const unique = new Map(result.map(item => [JSON.stringify(item), item]));
+  return deepFreeze([...unique.entries()]
+    .sort((left, right) => left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)
+    .map(entry => entry[1]));
 }
 
 function normalizedRecord(value, fields, label) {
@@ -452,6 +463,11 @@ function normalizeValue(value, descriptor, label) {
         throw new TypeError(label + " is not a declared state");
       }
       return value;
+    case "digest":
+      if (typeof value !== "string" || !digestPattern.test(value)) {
+        throw new TypeError(label + " must be a canonical sha256 digest");
+      }
+      return value;
     case "instant": {
       const checked = normalizedRecord(value, [
         { name: "epochSeconds", required: true, value: { kind: "integer" } },
@@ -472,7 +488,13 @@ function normalizeValue(value, descriptor, label) {
     case "nullable":
       return value === null ? null : normalizeValue(value, descriptor.value, label);
     case "list":
-      return normalizedArray(value, descriptor.items, label, descriptor.maxItems);
+      return normalizedArray(
+        value,
+        descriptor.items,
+        label,
+        descriptor.maxItems,
+        descriptor.normalizer,
+      );
     case "record":
       return normalizedRecord(value, descriptor.fields, label);
     case "reference":

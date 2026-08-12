@@ -18,6 +18,9 @@ function typeKey(type) {
 
 function sameType(left, right) {
   if (left?.kind === "string" && right?.kind === "string") return true;
+  if (left?.kind === "list" && right?.kind === "list") {
+    return sameType(left.items, right.items);
+  }
   return typeKey(left) === typeKey(right);
 }
 
@@ -32,6 +35,7 @@ function withoutNull(type) {
 function storageType(type, stateNames) {
   switch (type) {
     case "String": return { kind: "string" };
+    case "Digest": return { kind: "digest" };
     case "Int":
     case "Integer": return { kind: "integer" };
     case "Float":
@@ -80,6 +84,7 @@ function fieldValueType(field, entities, stateNames) {
 
 function expectType(actual, expected, label, { allowNull = false } = {}) {
   if (allowNull && nullable(actual) && sameType(withoutNull(actual), expected)) return;
+  if (actual?.kind === "digest" && expected?.kind === "string") return;
   if (!sameType(actual, expected)) {
     fail(`${label} has incompatible type '${actual?.kind ?? "unknown"}', expected '${expected.kind}'`);
   }
@@ -104,7 +109,7 @@ function expressionType(expression, environment, label) {
       if (expression.name !== "id") fail(`${label} may use only the host-derived actor id`);
       return { kind: "string" };
     case "receipt-time": return { kind: "instant" };
-    case "artifact-digest": return { kind: "string" };
+    case "artifact-digest": return { kind: "digest" };
     case "literal":
       if (expression.value === null) return { kind: "nullable", value: { kind: "string" } };
       if (expression.type === "keyword") return { kind: "keyword" };
@@ -217,7 +222,7 @@ function checkReceipt(command, entities, stateNames, environment) {
   const expectedBase = [
     [receipt.actorField, { kind: "string" }],
     [receipt.commandField, { kind: "string" }],
-    [receipt.inputDigestField, { kind: "string" }],
+    [receipt.inputDigestField, { kind: "digest" }],
     [receipt.createdAtField, { kind: "instant" }],
   ];
   for (const [name, expected] of expectedBase) {
@@ -259,7 +264,7 @@ function checkCommand(command, checked, indexes) {
         environment,
         `${label} canonical digest '${injection.name}' input`,
       );
-      expectType(injection.type, { kind: "string" }, `${label} canonical digest '${injection.name}'`);
+      expectType(injection.type, { kind: "digest" }, `${label} canonical digest '${injection.name}'`);
     }
     environment.injected.set(injection.name, injection.type);
   }
@@ -275,6 +280,16 @@ function checkCommand(command, checked, indexes) {
       const left = expressionType(step.left, environment, `${stepLabel} left`);
       const right = expressionType(step.right, environment, `${stepLabel} right`);
       expectType(left, right, stepLabel);
+      continue;
+    }
+    if (step.op === "assert-not-contains") {
+      const list = expressionType(step.list, environment, `${stepLabel} list`);
+      if (list.kind !== "list") fail(`${stepLabel} requires a bounded list`);
+      expectType(
+        expressionType(step.value, environment, `${stepLabel} value`),
+        list.items,
+        `${stepLabel} value`,
+      );
       continue;
     }
     const entity = commandEntity(indexes.entities, step.entity, stepLabel);
@@ -414,6 +429,14 @@ export function checkCommandGraph(commands, checked, {
     }
     if (names.has(command.name)) fail(`command '${command.name}' is duplicated`);
     names.add(command.name);
+    for (const step of [
+      ...(command.steps ?? []),
+      ...(command.capabilities ?? []).flatMap(choice => choice.guards ?? []),
+    ]) {
+      if (step.entity === "wake.core/command-receipt") {
+        fail(`command '${command.name}' cannot target Wake's reserved receipt entity`);
+      }
+    }
     if (capabilities !== null) {
       for (const choice of command.capabilities) {
         if (!capabilities.has(choice.capability)) {

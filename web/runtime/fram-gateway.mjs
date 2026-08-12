@@ -242,6 +242,11 @@ function encodeLiteral(type, value, label) {
     case "String":
       if (typeof value !== "string") fail("gateway/type-mismatch", `${label} must be a string`);
       return ["string", value];
+    case "Digest":
+      if (typeof value !== "string" || !SHA256.test(value)) {
+        fail("gateway/type-mismatch", `${label} must be a canonical sha256 digest`);
+      }
+      return ["string", value];
     case "Int":
     case "Integer":
       return ["integer", canonicalInteger(value, label)];
@@ -292,6 +297,12 @@ function decodeLiteral(type, value, label) {
   switch (type) {
     case "String":
       expected("string", 2);
+      return value[1];
+    case "Digest":
+      expected("string", 2);
+      if (!SHA256.test(value[1])) {
+        fail("gateway/data-integrity", `${label} is not a canonical sha256 digest`);
+      }
       return value[1];
     case "Int":
     case "Integer":
@@ -820,6 +831,7 @@ export function createFramGateway(plan, {
   },
   providers = {},
   schema,
+  serverValues = {},
 } = {}) {
   const compiled = compilePlan(plan);
   if (!fram || typeof fram.query !== "function") {
@@ -906,6 +918,7 @@ export function createFramGateway(plan, {
     providers,
     readReceipt: readOne,
     schema,
+    serverValues,
     storage: commandStorage,
   });
 

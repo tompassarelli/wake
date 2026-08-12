@@ -110,6 +110,7 @@
    state-machines: (Vec StateMachine)
    publications: (Vec PublicationPolicy)
    queries: (Vec GQuery)
+   commands: (Vec Any)
    persist: IrPersist?
    defstates: (Vec IrDefstate)
    list-details: (Vec IrListDetail)
@@ -355,6 +356,7 @@
 
 (defn fram-literal-type? [type: String] -> Bool
   (or (= type "String")
+      (= type "Digest")
       (= type "Int")
       (= type "Integer")
       (= type "Float")
@@ -1315,6 +1317,7 @@
       state-machines
       publications
       queries
+      (or (.-commands prog) [])
       (.-persist prog)
       defstates
       (or (.-list-details prog) [])
