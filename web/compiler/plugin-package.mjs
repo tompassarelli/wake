@@ -3,6 +3,10 @@ import {
   parseCanonicalDocument,
   sha256Digest,
 } from "./canonical.mjs";
+import {
+  configurationDeclarationDescriptors,
+  validateConfigurationSchema,
+} from "./plugin-configuration.mjs";
 
 const PACKAGE_SCHEMA_VERSION = 1;
 const PLUGIN_ABI_VERSION = 1;
@@ -71,15 +75,17 @@ function uniqueStrings(value, label) {
 }
 
 function validateConfiguration(value) {
-  if (!plainObject(value)) fail("manifest.configuration must be an object");
-  for (const [key, descriptor] of Object.entries(value)) {
-    nonempty(key, "manifest.configuration key");
-    exactKeys(descriptor, ["required", "type"], `manifest.configuration.${key}`);
-    if (typeof descriptor.required !== "boolean") {
-      fail(`manifest.configuration.${key}.required must be boolean`);
+  validateConfigurationSchema(value, "manifest.configuration", fail);
+}
+
+function validateConfigurationDeclarations(manifest) {
+  for (const descriptor of configurationDeclarationDescriptors(manifest.configuration)) {
+    const { declarationId, declarationKind, path } = descriptor;
+    if (declarationKind === "entity" && !(declarationId in manifest.storageIds.entities)) {
+      fail(`manifest.configuration.${path}.type.declarationId names unknown entity '${declarationId}'`);
     }
-    if (!plainObject(descriptor.type)) {
-      fail(`manifest.configuration.${key}.type must be an object`);
+    if (declarationKind === "field" && !(declarationId in manifest.storageIds.fields)) {
+      fail(`manifest.configuration.${path}.type.declarationId names unknown field '${declarationId}'`);
     }
   }
 }
@@ -183,6 +189,7 @@ export function validatePluginManifest(value) {
   validateExtensionPorts(value.extensionPorts);
   uniqueStrings(value.requiredHostCapabilities, "manifest.requiredHostCapabilities");
   validateStorageIds(value.storageIds);
+  validateConfigurationDeclarations(value);
   for (const entity of value.exports.entities) {
     if (!(entity in value.storageIds.entities)) {
       fail(`manifest.storageIds.entities is missing exported entity ${entity}`);

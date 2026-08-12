@@ -145,8 +145,84 @@
       "required": ["required", "type"],
       "properties": {
         "required": { "type": "boolean" },
-        "type": { "type": "object" }
+        "type": { "$ref": "#/$defs/configuration-type" }
       }
+    },
+    "configuration-type": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "string" },
+            "minLength": { "type": "integer", "minimum": 0 },
+            "maxLength": { "type": "integer", "minimum": 0 },
+            "maxBytes": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "integer" },
+            "minimum": { "type": "integer" },
+            "maximum": { "type": "integer" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "enum": ["boolean", "keyword"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["declarationKind", "kind"],
+          "properties": {
+            "kind": { "const": "symbol" },
+            "declarationKind": {
+              "enum": [
+                "capability",
+                "command",
+                "component",
+                "entity",
+                "field",
+                "provider-port",
+                "query",
+                "route",
+                "state",
+                "value-type"
+              ]
+            },
+            "declarationId": { "$ref": "#/$defs/name" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["closed", "fields", "kind"],
+          "properties": {
+            "kind": { "const": "record" },
+            "closed": { "const": true },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "required", "type"],
+                "properties": {
+                  "name": { "$ref": "#/$defs/name" },
+                  "required": { "type": "boolean" },
+                  "type": { "$ref": "#/$defs/configuration-type" }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "storage-map": {
       "type": "object",
