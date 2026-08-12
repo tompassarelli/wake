@@ -173,6 +173,9 @@ thematic break, text, emphasis, strong text, inline code, safe link, and line
 break nodes. Raw HTML, SVG, images, styles, event handlers, and trusted strings
 are absent.
 
+[`SAFE-DOCUMENT.md`](SAFE-DOCUMENT.md) freezes the exact v1 tag and field
+spelling consumed by providers, generated clients, and baseline renderers.
+
 The only application data extension ports are:
 
 ```text

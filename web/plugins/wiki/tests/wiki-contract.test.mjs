@@ -358,6 +358,31 @@ describe("wake-wiki K0C data contract", () => {
     expect(entry).not.toMatch(/(?:callback|eval|Function|javascript:)/u);
   });
 
+  test("freezes a closed SafeDocument v1 transport contract", async () => {
+    const contract = await Bun.file(`${pluginRoot}/SAFE-DOCUMENT.md`).text();
+    for (const tag of [
+      "document",
+      "paragraph",
+      "heading",
+      "blockQuote",
+      "list",
+      "codeBlock",
+      "thematicBreak",
+      "text",
+      "emphasis",
+      "strong",
+      "inlineCode",
+      "link",
+      "lineBreak",
+    ]) {
+      expect(contract).toContain(`tag: \"${tag}\"`);
+    }
+    expect(contract).toContain("SafeUrl");
+    expect(contract).toContain("rejects unknown keys");
+    expect(contract).toContain("raw source remains available");
+    expect((await jsonAt("package.json")).files).toContain("SAFE-DOCUMENT.md");
+  });
+
   test("materializes the schema, lifecycle, and every exported component", async () => {
     const manifest = await jsonAt("wake-plugin.json");
     const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
