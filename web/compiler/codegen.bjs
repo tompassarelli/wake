@@ -3245,6 +3245,7 @@ async function wakeFramStart() {
         static-views
         (filterv
           (fn [view] (not (.includes query-route-views (.-name view)))) views)
+        static-view-names (mapv (fn [view] (.-name view)) static-views)
         default-route (.-default-route router)
         is-fram (fram-graph? g)
         persist (.-persist g)
@@ -3469,6 +3470,9 @@ async function wakeFramStart() {
   root.appendChild(app);
 "#
       "\n" navigate-fn "\n"
+      "  const wakeStaticViews = new Set(["
+      (.join (mapv q static-view-names) ", ")
+      "]);\n"
       "  const wakeQueryRoutes = [\n  " query-route-definitions "\n  ];\n"
       #r#"
   let wakeRouteGeneration = 0;
@@ -3608,15 +3612,33 @@ async function wakeFramStart() {
     if (match) { void wakeRenderMatchedRoute(match); return true; }
     return false;
   }
+  function wakeRenderStaticLocation() {
+    if (!location.hash.startsWith('#')) return false;
+    let name;
+    try { name = decodeURIComponent(location.hash.slice(1)); } catch { return false; }
+    if (!wakeStaticViews.has(name)) return false;
+    navigate(name, false);
+    return true;
+  }
+  function wakeRenderBrowserLocation() {
+    return wakeRenderLocation() || wakeRenderStaticLocation();
+  }
   function wakeNavigatePath(path) {
     history.pushState(null, '', path);
     if (!wakeRenderLocation()) throw new Error(`Wake generated no route for ${path}`);
   }
 "#
-      "  if (!wakeRenderLocation()) navigate(" (q default-route) ", false);\n"
+      "  if (!wakeRenderBrowserLocation()) navigate(" (q default-route) ", false);\n"
       #r#"
   window.addEventListener('popstate', () => {
-    if (!wakeRenderLocation()) navigate("" || Object.keys(viewContainers)[0], false);
+"#
+      "    if (!wakeRenderBrowserLocation()) navigate(" (q default-route) ", false);\n"
+      #r#"
+  });
+  window.addEventListener('hashchange', () => {
+"#
+      "    if (!wakeRenderBrowserLocation()) navigate(" (q default-route) ", false);\n"
+      #r#"
   });
 "#
       (if is-fram "" #r#"

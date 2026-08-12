@@ -2,15 +2,19 @@ import { expect, test } from "@playwright/test";
 import { loadBrowserFixture, readBrowserFixture } from "./browser-fixture";
 
 const js = readBrowserFixture("wiki");
+const wikiFingerprint =
+  "sha256:261a292f20aa54b4543b147e230bdedb750810b3f7834ea3bb17e7bfad4b8ec4";
 
 type Row = Record<string, unknown>;
 type WakeCreate = {
   op: "create";
   entity: string;
+  fingerprint: string;
   values: Row;
 };
 type WakePublish = {
   op: "publish";
+  fingerprint: string;
   publication: string;
   owner: unknown;
   revision: unknown;
@@ -78,6 +82,7 @@ test("wiki add forms issue typed FRAM create commands", async ({ page }) => {
   expect(commands[0]).toEqual({
     op: "create",
     entity: "page",
+    fingerprint: wikiFingerprint,
     values: { slug: "home", title: "Home" },
   });
   await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
@@ -98,6 +103,7 @@ test("wiki add forms issue typed FRAM create commands", async ({ page }) => {
   expect(commands[1]).toEqual({
     op: "create",
     entity: "revision",
+    fingerprint: wikiFingerprint,
     values: {
       id: "rev-1",
       page: "home",
@@ -364,6 +370,7 @@ test("wiki publication preserves the invariant across a stale-CAS race and retry
   await expect.poll(() => commands.length).toBe(1);
   expect(commands[0]).toEqual({
     op: "publish",
+    fingerprint: wikiFingerprint,
     publication: "canonical",
     owner: "home",
     revision: "rev-2",
