@@ -3,6 +3,8 @@ import {
   parseCanonicalDocument,
   sha256Digest,
 } from "./canonical.mjs";
+import { constants as fileConstants } from "node:fs";
+import { open } from "node:fs/promises";
 import {
   configurationDeclarationDescriptors,
   validateConfigurationSchema,
@@ -337,14 +339,53 @@ function isSymlink(path) {
   return result.exitCode === 0;
 }
 
-async function readFileBytes(file, maximumBytes, label) {
-  if (!(await file.exists())) fail(`${label} does not exist`);
-  const stats = await file.stat();
-  if (!stats.isFile()) fail(`${label} must be a regular file`);
-  if (stats.size > maximumBytes) fail(`${label} exceeds ${maximumBytes} bytes`);
-  const bytes = new Uint8Array(await file.slice(0, maximumBytes + 1).arrayBuffer());
-  if (bytes.byteLength > maximumBytes) fail(`${label} exceeds ${maximumBytes} bytes`);
-  return bytes;
+async function readFileBytes(path, maximumBytes, label) {
+  let handle;
+  try {
+    handle = await open(
+      path,
+      fileConstants.O_RDONLY | fileConstants.O_NOFOLLOW | fileConstants.O_NONBLOCK,
+    );
+  } catch (error) {
+    if (error?.code === "ENOENT") fail(`${label} does not exist`);
+    if (error?.code === "ELOOP") fail(`${label} must not be a symlink`);
+    throw new TypeError(`wake plugin: ${label} could not be opened as a regular file`, {
+      cause: error,
+    });
+  }
+
+  try {
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile()) fail(`${label} must be a regular file`);
+    if (before.size > BigInt(maximumBytes)) {
+      fail(`${label} exceeds ${maximumBytes} bytes`);
+    }
+
+    const buffer = Buffer.allocUnsafe(Number(before.size) + 1);
+    let length = 0;
+    while (length < buffer.byteLength) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        length,
+        buffer.byteLength - length,
+        length,
+      );
+      if (bytesRead === 0) break;
+      length += bytesRead;
+    }
+
+    const after = await handle.stat({ bigint: true });
+    if (before.dev !== after.dev
+        || before.ino !== after.ino
+        || before.size !== after.size
+        || before.mtimeNs !== after.mtimeNs) {
+      fail(`${label} changed while being read`);
+    }
+    if (length > maximumBytes) fail(`${label} exceeds ${maximumBytes} bytes`);
+    return buffer.subarray(0, length);
+  } finally {
+    await handle.close();
+  }
 }
 
 async function readFileSnapshot(file, maximumBytes, label) {
@@ -357,7 +398,7 @@ export async function packPlugin(packageRoot) {
   const manifestPath = joined(packageRoot, "wake-plugin.json");
   if (isSymlink(manifestPath)) fail("wake-plugin.json must not be a symlink");
   const manifestSnapshot = await readFileSnapshot(
-    Bun.file(manifestPath),
+    manifestPath,
     MAX_MANIFEST_BYTES,
     "wake-plugin.json",
   );
@@ -375,7 +416,7 @@ export async function packPlugin(packageRoot) {
       }
     }
     const snapshot = await readFileSnapshot(
-      Bun.file(sourcePath),
+      sourcePath,
       MAX_SOURCE_BYTES,
       `manifest source ${path}`,
     );
@@ -412,7 +453,7 @@ export function readPluginArtifact(input, expectedDigest, label) {
 }
 
 export async function readPluginArtifactFile(path, expectedDigest, label) {
-  const bytes = await readFileBytes(Bun.file(path), MAX_ARTIFACT_BYTES, label);
+  const bytes = await readFileBytes(path, MAX_ARTIFACT_BYTES, label);
   return readPluginArtifact(bytes, expectedDigest, label);
 }
 

@@ -1,8 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import { constants as fileConstants } from "node:fs";
 import {
   mkdir,
   mkdtemp,
+  open,
+  rename,
   rm,
+  symlink,
   truncate,
   writeFile,
 } from "node:fs/promises";
@@ -259,6 +263,78 @@ describe("plugin package raw-byte boundary", () => {
         )).rejects.toThrow(
           `exceeds ${pluginPackageLimits.artifactBytes} bytes`,
         );
+      },
+    );
+  });
+
+  test("rejects artifact symlinks and non-regular files", async () => {
+    await temporaryPackage(
+      canonicalDocument(manifest()),
+      { "plugin.bjs": validSource },
+      async (root) => {
+        const packed = await packPlugin(root);
+        const targetPath = join(root, "target.wakepkg.json");
+        const symlinkPath = join(root, "symlink.wakepkg.json");
+        await writeFile(targetPath, packed.bytes);
+        await symlink("target.wakepkg.json", symlinkPath);
+        await expect(readPluginArtifactFile(
+          symlinkPath,
+          packed.digest,
+          "symlink.wakepkg.json",
+        )).rejects.toThrow("must not be a symlink");
+
+        const directoryPath = join(root, "directory.wakepkg.json");
+        await mkdir(directoryPath);
+        await expect(readPluginArtifactFile(
+          directoryPath,
+          packed.digest,
+          "directory.wakepkg.json",
+        )).rejects.toThrow("must be a regular file");
+      },
+    );
+  });
+
+  test("reads only the identity opened before pathname replacement", async () => {
+    await temporaryPackage(
+      canonicalDocument(manifest()),
+      { "plugin.bjs": validSource },
+      async (root) => {
+        const packed = await packPlugin(root);
+        const artifactPath = join(root, "plugin.wakepkg.json");
+        const displacedPath = join(root, "opened.wakepkg.json");
+        const replacementPath = join(root, "replacement.wakepkg.json");
+        await writeFile(artifactPath, packed.bytes);
+        await writeFile(replacementPath, "replacement");
+
+        const probe = await open(
+          artifactPath,
+          fileConstants.O_RDONLY | fileConstants.O_NOFOLLOW,
+        );
+        const fileHandlePrototype = Object.getPrototypeOf(probe);
+        const originalRead = fileHandlePrototype.read;
+        await probe.close();
+
+        let replaced = false;
+        const readSpy = spyOn(fileHandlePrototype, "read")
+          .mockImplementation(async function (...arguments_) {
+            if (!replaced) {
+              replaced = true;
+              await rename(artifactPath, displacedPath);
+              await rename(replacementPath, artifactPath);
+            }
+            return originalRead.apply(this, arguments_);
+          });
+        try {
+          await expect(readPluginArtifactFile(
+            artifactPath,
+            packed.digest,
+            "plugin.wakepkg.json",
+          )).resolves.toEqual(packed.artifact);
+          expect(replaced).toBe(true);
+          expect(await Bun.file(artifactPath).text()).toBe("replacement");
+        } finally {
+          readSpy.mockRestore();
+        }
       },
     );
   });
