@@ -1,4 +1,4 @@
-import { canonicalDocument, sha256Digest } from "../compiler/canonical.mjs";
+import { canonicalDocument, sha256Digest } from "./canonical.mjs";
 
 const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/u;
