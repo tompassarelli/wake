@@ -7,6 +7,7 @@ const keyword = value => ["keyword", value];
 const string = value => ["string", value];
 const triple = (t1, t2, t3) => ["triple", t1, t2, t3];
 const APP = "wiki.app";
+const SEMANTIC_FINGERPRINT = `sha256:${"a".repeat(64)}`;
 const appScope = (app, value) => triple(keyword("wake/app"), keyword(app), value);
 const subjectTemplate = (entity, identityField, app = APP) => appScope(
   app,
@@ -36,9 +37,11 @@ const REVISION = Object.freeze({
 });
 
 const plan = {
-  schemaVersion: 1,
-  app: APP,
+  schemaVersion: 2,
+  applicationId: APP,
   backend: "fram",
+  semanticFingerprint: SEMANTIC_FINGERPRINT,
+  pluginClosure: [],
   entities: [
     {
       name: "page",
@@ -126,7 +129,7 @@ const plan = {
 
 function planForApp(app) {
   const scoped = structuredClone(plan);
-  scoped.app = app;
+  scoped.applicationId = app;
   for (const entity of scoped.entities) {
     entity.identity.subjectTemplate = subjectTemplate(
       entity.name,
@@ -704,11 +707,11 @@ test("gateway rejects empty or relabeled app scopes", () => {
   const mismatchedPredicate = planForApp("other.app");
   mismatchedPredicate.entities[0].fields[0].predicateTerm = PAGE.slug;
   assert.throws(
-    () => createFramGateway({ ...plan, app: "" }, mock),
+    () => createFramGateway({ ...plan, applicationId: "" }, mock),
     rejectsCode("gateway/invalid-plan"),
   );
   assert.throws(
-    () => createFramGateway({ ...plan, app: "other.app" }, mock),
+    () => createFramGateway({ ...plan, applicationId: "other.app" }, mock),
     rejectsCode("gateway/invalid-plan"),
   );
   assert.throws(
@@ -716,6 +719,21 @@ test("gateway rejects empty or relabeled app scopes", () => {
     rejectsCode("gateway/invalid-plan"),
   );
   assert.doesNotThrow(() => createFramGateway(planForApp("other.app"), mock));
+});
+
+test("gateway accepts only the current plan-v2 application envelope", () => {
+  const mock = mocks();
+  for (const invalid of [
+    { ...plan, schemaVersion: 1 },
+    { ...plan, semanticFingerprint: "sha256:not-a-digest" },
+    { ...plan, pluginClosure: null },
+    { ...plan, pluginClosure: ["wake-wiki"] },
+  ]) {
+    assert.throws(
+      () => createFramGateway(invalid, mock),
+      rejectsCode("gateway/invalid-plan"),
+    );
+  }
 });
 
 test("app-scoped Terms isolate same-named schemas in one FRAM database", async () => {

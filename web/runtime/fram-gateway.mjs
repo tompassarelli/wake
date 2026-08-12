@@ -6,6 +6,7 @@ const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/;
 const FLOAT64 = /^[0-9a-f]{16}$/;
+const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const MISMATCH = Symbol("template-mismatch");
 
 export class GatewayError extends Error {
@@ -314,12 +315,21 @@ function decodeLiteral(type, value, label) {
 }
 
 function compilePlan(plan) {
-  if (!plainObject(plan) || plan.schemaVersion !== 1 || plan.backend !== "fram"
-      || typeof plan.app !== "string" || !Array.isArray(plan.entities)
+  if (!plainObject(plan) || plan.schemaVersion !== 2 || plan.backend !== "fram"
+      || typeof plan.applicationId !== "string"
+      || typeof plan.semanticFingerprint !== "string"
+      || !SHA256.test(plan.semanticFingerprint)
+      || !Array.isArray(plan.pluginClosure)
+      || !Array.isArray(plan.entities)
       || !Array.isArray(plan.stateMachines) || !Array.isArray(plan.publications)) {
-    fail("gateway/invalid-plan", "expected a Wake FRAM plan with schemaVersion 1");
+    fail("gateway/invalid-plan", "expected a Wake FRAM plan with schemaVersion 2");
   }
-  const app = requiredName(plan.app, "app");
+  const applicationId = requiredName(plan.applicationId, "applicationId");
+  const semanticFingerprint = plan.semanticFingerprint;
+  const pluginClosure = structuredClone(plan.pluginClosure);
+  if (pluginClosure.some(plugin => !plainObject(plugin))) {
+    fail("gateway/invalid-plan", "pluginClosure entries must be objects");
+  }
 
   const names = new Set();
   const entities = plan.entities.map((source, entityIndex) => {
@@ -339,7 +349,7 @@ function compilePlan(plan) {
     }
     requireAppScope(
       source.identity.subjectTemplate,
-      app,
+      applicationId,
       `${name}.identity.subjectTemplate`,
     );
     const state = { holes: 0 };
@@ -371,7 +381,11 @@ function compilePlan(plan) {
         field.predicateTerm,
         `${name}.${fieldName}.predicateTerm`,
       );
-      requireAppScope(plannedPredicate, app, `${name}.${fieldName}.predicateTerm`);
+      requireAppScope(
+        plannedPredicate,
+        applicationId,
+        `${name}.${fieldName}.predicateTerm`,
+      );
       return {
         name: fieldName,
         type: requiredName(field.type, `${name}.${fieldName}.type`),
@@ -523,6 +537,9 @@ function compilePlan(plan) {
     return { name, owner, pointer, revision, ownerField, stateField, states };
   });
   return {
+    applicationId,
+    semanticFingerprint,
+    pluginClosure,
     entities,
     byName,
     predicates,
