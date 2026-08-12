@@ -1480,93 +1480,119 @@
 (defn component-named [components: Any name: String] -> Any
   (first (filterv (fn [component] (= (.-name component) name)) components)))
 
-(defn checked-route-templates [prog: Any queries: (Vec GQuery)] -> (Vec IrRoute)
+(defn checked-query-route
+  [prog: IrProgram
+   queries: (Vec GQuery)
+   route: IrRoute
+   label: String] -> IrRoute
+  (let [view (view-named (or (.-views prog) []) (.-view-name route))
+        parameters (or (.-parameters route) [])
+        input-parameters (or (.-input-parameters route) parameters)
+        query-names (or (.-queries route) [])]
+    (if (nil? view)
+      (graph-error
+        (str label " names unknown view '" (.-view-name route) "'"))
+      nil)
+    (let [resolved-view (or view (first (or (.-views prog) [])))
+          component
+          (component-named
+            (or (.-components prog) []) (.-component resolved-view))
+          resolved-queries
+          (mapv
+            (fn [reference]
+              (let [query (query-named queries (.-name reference))]
+                (if (nil? query)
+                  (graph-error
+                    (str label " names unknown query '"
+                         (.-name reference) "'"))
+                  nil)
+                {:query (or query (first queries))
+                 :reference reference}))
+            query-names)]
+      (if (nil? component)
+        (graph-error
+          (str label " view names unknown component '"
+               (.-component resolved-view) "'"))
+        nil)
+      (doseq [resolved resolved-queries]
+        (let [query (get resolved :query)
+              query-params
+              (mapv (fn [parameter] (.-name parameter)) (.-params query))]
+          (if (not (= query-params input-parameters))
+            (graph-error
+              (str label " input parameters must exactly match query '"
+                   (.-name query) "' parameters"))
+            nil)))
+      (let [columns
+            (reduce
+              (fn [result resolved]
+                (let [query (get resolved :query)
+                      public-column-names
+                      (mapv
+                        (fn [column] (.-name column))
+                        (filterv
+                          (fn [column] (not (.-internal column)))
+                          (.-columns query)))
+                      provider-result-names
+                      (mapv
+                        (fn [provider] (.-name provider))
+                        (or (.-result-providers query) []))]
+                  (reduce
+                    (fn [names output-name]
+                      (let [prefix (.-prefix (get resolved :reference))
+                          projected-name
+                          (if (nil? prefix)
+                            output-name
+                            (str prefix "-" output-name))]
+                        (if (.includes names projected-name)
+                          (graph-error
+                            (str label " query projections collide on '"
+                                 projected-name "'"))
+                          (conj names projected-name))))
+                    result
+                    (into public-column-names provider-result-names))))
+              [] resolved-queries)
+            checked-component
+            (or component (first (or (.-components prog) [])))
+            missing
+            (filterv
+              (fn [prop] (not (.includes columns prop)))
+              (.-props checked-component))]
+        (if (> (count missing) 0)
+          (graph-error
+            (str label " queries do not provide component props: "
+                 (.join missing ", ")))
+          nil)
+        (ir/->IrRoute
+          (.-path route)
+          (.-view-name route)
+          query-names
+          parameters
+          input-parameters
+          (.-props checked-component))))))
+
+(defn checked-route-templates
+  [prog: IrProgram
+   queries: (Vec GQuery)] -> (Vec IrRoute)
   (mapv
     (fn [route]
-      (let [label (str "route template '" (.-path route) "'")
-            view (view-named (or (.-views prog) []) (.-view-name route))
-            parameters (or (.-parameters route) [])
-            query-names (or (.-queries route) [])]
-        (if (nil? view)
-          (graph-error
-            (str label " names unknown view '" (.-view-name route) "'"))
-          nil)
-        (let [resolved-view (or view (first (or (.-views prog) [])))
-              component
-              (component-named
-                (or (.-components prog) []) (.-component resolved-view))
-              resolved-queries
-              (mapv
-                (fn [reference]
-                  (let [query (query-named queries (.-name reference))]
-                    (if (nil? query)
-                      (graph-error
-                        (str label " names unknown query '"
-                             (.-name reference) "'"))
-                      nil)
-                    {:query (or query (first queries))
-                     :reference reference}))
-                query-names)]
-          (if (nil? component)
-            (graph-error
-              (str label " view names unknown component '"
-                   (.-component resolved-view) "'"))
-            nil)
-          (doseq [resolved resolved-queries]
-            (let [query (get resolved :query)
-                  query-params
-                  (mapv (fn [parameter] (.-name parameter)) (.-params query))]
-              (if (not (= query-params parameters))
-                (graph-error
-                  (str label " parameters must exactly match query '"
-                       (.-name query) "' parameters"))
-                nil)))
-          (let [columns
-                (reduce
-                  (fn [result resolved]
-                    (let [query (get resolved :query)
-                          public-column-names
-                          (mapv
-                            (fn [column] (.-name column))
-                            (filterv
-                              (fn [column] (not (.-internal column)))
-                              (.-columns query)))
-                          provider-result-names
-                          (mapv
-                            (fn [provider] (.-name provider))
-                            (or (.-result-providers query) []))]
-                      (reduce
-                        (fn [names output-name]
-                          (let [prefix (.-prefix (get resolved :reference))
-                              projected-name
-                              (if (nil? prefix)
-                                output-name
-                                (str prefix "-" output-name))]
-                            (if (.includes names projected-name)
-                              (graph-error
-                                (str label " query projections collide on '"
-                                     projected-name "'"))
-                              (conj names projected-name))))
-                        result
-                        (into public-column-names provider-result-names))))
-                  [] resolved-queries)
-                missing
-                (filterv
-                  (fn [prop] (not (.includes columns prop)))
-                  (.-props (or component (first (or (.-components prog) [])))))]
-            (if (> (count missing) 0)
-              (graph-error
-                (str label " queries do not provide component props: "
-                     (.join missing ", ")))
-              nil)
-            (ir/->IrRoute
-              (.-path route)
-              (.-view-name route)
-              query-names
-              parameters
-              (or (.-input-parameters route) parameters)
-              (.-props (or component (first (or (.-components prog) [])))))))))
+      (checked-query-route
+        prog queries route (str "route template '" (.-path route) "'")))
     (or (.-route-templates prog) [])))
+
+(defn checked-router [prog: IrProgram queries: (Vec GQuery)] -> IrRouter?
+  (let [router (.-router prog)]
+    (if (nil? router)
+      nil
+      (ir/->IrRouter
+        (.-default-route router)
+        (mapv
+          (fn [route]
+            (if (> (count (or (.-queries route) [])) 0)
+              (checked-query-route
+                prog queries route (str "route '" (.-path route) "'"))
+              route))
+          (or (.-routes router) []))))))
 
 (defn check-composition [prog: Any] -> Any
   (let [providers (or (.-providers prog) [])
@@ -1625,7 +1651,8 @@
         (resolve-state-machines entities defstates)
         publications (resolve-publications prog entities state-machines)
         queries (resolve-queries prog entities defstates)
-        route-templates (checked-route-templates prog queries)]
+        route-templates (checked-route-templates prog queries)
+        router (checked-router prog queries)]
     (->CheckedApplication
       1
       app-id
@@ -1654,5 +1681,5 @@
       (.-theme prog)
       (or (.-components prog) [])
       (or (.-views prog) [])
-      (.-router prog)
+      router
       (.-layout prog))))

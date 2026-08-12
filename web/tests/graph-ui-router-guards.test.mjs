@@ -63,14 +63,55 @@ function view(name, entityName, componentName, selectComponent = null) {
   };
 }
 
-function route(path, viewName) {
+function route(path, viewName, {
+  inputParameters = [],
+  parameters = [],
+  queries = [],
+} = {}) {
   return {
     path,
     view_name: viewName,
-    queries: [],
-    parameters: [],
-    input_parameters: [],
+    queries,
+    parameters,
+    input_parameters: inputParameters,
     required_props: [],
+  };
+}
+
+function query(name, parameters = []) {
+  const predicates = parameters.map(parameter => ({
+    op: "eq",
+    left: {
+      kind: "field",
+      name: null,
+      binding: "item",
+      field: "id",
+      value: null,
+    },
+    right: {
+      kind: "parameter",
+      name: parameter,
+      binding: null,
+      field: null,
+      value: null,
+    },
+  }));
+  return {
+    name,
+    capabilities: ["test/read-page"],
+    params: parameters.map(parameter => ({ name: parameter, type: "String" })),
+    bindings: [{ name: "item", entity_name: "page" }],
+    predicates,
+    selection: [{
+      _tag: "IrQuerySelect",
+      name: "id",
+      binding: "item",
+      field: "id",
+    }],
+    result_kind: parameters.length === 0 ? "page" : "optional",
+    page: parameters.length === 0
+      ? { default_limit: 20, max_limit: 64 }
+      : null,
   };
 }
 
@@ -125,7 +166,29 @@ beforeAll(async () => {
     "from './ir.js';",
   );
   writeFileSync(join(buildDir, "graph.js"), `${compiled}\nexport { check_program };\n`);
-  writeFileSync(join(buildDir, "ir.js"), "export {};\n");
+  writeFileSync(join(buildDir, "ir.js"), `
+export function IrRoute(
+  path,
+  view_name,
+  queries,
+  parameters,
+  input_parameters,
+  required_props,
+) {
+  return {
+    _tag: "IrRoute",
+    path,
+    view_name,
+    queries,
+    parameters,
+    input_parameters,
+    required_props,
+  };
+}
+export function IrRouter(default_route, routes) {
+  return { _tag: "IrRouter", default_route, routes };
+}
+`);
   writeFileSync(join(buildDir, "package.json"), '{"type":"module"}\n');
   mkdirSync(join(buildDir, "beagle"));
   copyFileSync(
@@ -154,6 +217,84 @@ test("accepts a complete UI and router graph", () => {
       routes: [route("pages", "pages"), route("home", "pages")],
     },
   })));
+});
+
+test("treats the routes default as a view name rather than a route path", () => {
+  assert.doesNotThrow(() => checkProgram(program({
+    router: {
+      default_route: "pages",
+      routes: [route("browse-pages", "pages")],
+    },
+  })));
+  assert.throws(
+    () => checkProgram(program({
+      router: {
+        default_route: "browse-pages",
+        routes: [route("browse-pages", "pages")],
+      },
+    })),
+    /routes default 'browse-pages' does not name a routed view/,
+  );
+});
+
+test("checks root route queries before code generation", () => {
+  const pageById = query("page-by-id", ["id"]);
+  const mounted = checkProgram(program({
+    queries: [pageById],
+    router: {
+      default_route: "pages",
+      routes: [route("/pages/:page-id", "pages", {
+        inputParameters: ["id"],
+        parameters: ["page-id"],
+        queries: [{ name: "page-by-id", prefix: null }],
+      })],
+    },
+  }));
+  assert.deepEqual(mounted.router.routes[0].input_parameters, ["id"]);
+  assert.deepEqual(mounted.router.routes[0].parameters, ["page-id"]);
+  assert.deepEqual(mounted.router.routes[0].required_props, ["id"]);
+
+  assert.throws(
+    () => checkProgram(program({
+      router: {
+        default_route: "pages",
+        routes: [route("browse-pages", "pages", {
+          queries: [{ name: "missing-query", prefix: null }],
+        })],
+      },
+    })),
+    /route 'browse-pages' names unknown query 'missing-query'/,
+  );
+  assert.throws(
+    () => checkProgram(program({
+      queries: [pageById],
+      router: {
+        default_route: "pages",
+        routes: [route("browse-pages", "pages", {
+          inputParameters: ["page-id"],
+          parameters: ["page-id"],
+          queries: [{ name: "page-by-id", prefix: null }],
+        })],
+      },
+    })),
+    /route 'browse-pages' input parameters must exactly match query 'page-by-id' parameters/,
+  );
+});
+
+test("requires root route query projections to cover component props", () => {
+  assert.throws(
+    () => checkProgram(program({
+      components: [{ name: "page-row", props: ["id", "title"], body: [] }],
+      queries: [query("pages-query")],
+      router: {
+        default_route: "pages",
+        routes: [route("browse-pages", "pages", {
+          queries: [{ name: "pages-query", prefix: null }],
+        })],
+      },
+    })),
+    /route 'browse-pages' queries do not provide component props: title/,
+  );
 });
 
 test("rejects duplicate entity, component, and view declarations", () => {
