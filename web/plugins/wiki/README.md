@@ -12,6 +12,20 @@ are all version 1. The consuming application's immutable ID scopes storage;
 lexical aliases, import aliases, display labels, package versions, and hostnames
 never participate in storage identity.
 
+## Materialization status
+
+`plugin.wake` currently materializes both durable entities, the three-state
+revision lifecycle, and all twelve exported UI components. A neutral substrate
+fixture is packed, digest-pinned, linked, checked, and emitted as a FRAM plan in
+the package tests.
+
+The remaining frozen exports—five commands, six queries, twelve capabilities,
+the content-parser provider port, extension ports, and six route slots—stay in
+the version-1 public contract while Wake's shared checked declaration grammars
+land. They are not implemented as callbacks or a package-local mini-language.
+Consumers must not treat an operation-surface manifest entry as executable
+until the checked application artifact contains its declaration.
+
 ## Fixed storage roles
 
 | Role | Storage ID |

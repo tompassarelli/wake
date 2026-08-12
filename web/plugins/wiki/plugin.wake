@@ -1,5 +1,106 @@
 (ns wake.plugins.wiki)
 
-;; K0's public data contract is declared by wake-plugin.json. Contribution
-;; source forms land with the single W0 linker grammar; this package does not
-;; invent or execute a parallel expansion language.
+(defstate RevisionLifecycle
+  [:draft -> :published :superseded]
+  [:published -> :superseded]
+  [:superseded ->])
+
+(entity resource
+  (id : String :identity)
+  (published-revision : Ref :to revision :write :command)
+  (draft-revision : Ref :to revision :write :command))
+
+(entity revision
+  (id : String :identity)
+  (resource : Ref :to resource :write :create)
+  (based-on : Ref :to revision :write :create)
+  (replaces-draft : Ref :to revision :write :create)
+  (state : RevisionLifecycle :write :command)
+  (author : String :write :create)
+  (created-at : Instant :write :create)
+  (digest : String :write :create)
+  (links-to : Ref :to resource :many :write :create)
+  (title : String :write :create)
+  (summary : String :write :create)
+  (content-source : String :write :create))
+
+(component browse-page
+  :props [title summary]
+  (main :class "wake-wiki-browse-page"
+    (h1 :class "wake-wiki-page-title" :text title)
+    (p :class "wake-wiki-page-summary" :text summary)))
+
+(component new-draft-page
+  :props [title guidance]
+  (main :class "wake-wiki-new-draft-page"
+    (h1 :class "wake-wiki-page-title" :text title)
+    (p :class "wake-wiki-page-guidance" :text guidance)))
+
+(component read-page
+  :props [title summary content-source]
+  (main :class "wake-wiki-read-page"
+    (h1 :class "wake-wiki-page-title" :text title)
+    (p :class "wake-wiki-page-summary" :text summary)
+    (p :class "wake-wiki-safe-text" :text content-source)))
+
+(component edit-draft-page
+  :props [title content-source]
+  (main :class "wake-wiki-edit-draft-page"
+    (h1 :class "wake-wiki-page-title" :text title)
+    (p :class "wake-wiki-safe-text" :text content-source)))
+
+(component review-page
+  :props [title summary state]
+  (main :class "wake-wiki-review-page"
+    (h1 :class "wake-wiki-page-title" :text title)
+    (p :class "wake-wiki-page-summary" :text summary)
+    (p :class "wake-wiki-revision-state" :text state)))
+
+(component history-page
+  :props [title state created-at]
+  (main :class "wake-wiki-history-page"
+    (h1 :class "wake-wiki-page-title" :text title)
+    (p :class "wake-wiki-revision-state" :text state)
+    (p :class "wake-wiki-revision-created" :text created-at)))
+
+(component resource-card
+  :props [id published-revision draft-revision]
+  (section :class "wake-wiki-resource-card"
+    (h2 :class "wake-wiki-resource-card__id" :text id)
+    (when published-revision
+      (p :class "wake-wiki-resource-card__published"
+        :text published-revision))
+    (when draft-revision
+      (p :class "wake-wiki-resource-card__draft" :text draft-revision))))
+
+(component revision-summary
+  :props [id title summary state author created-at digest]
+  (section :class "wake-wiki-revision-summary"
+    (h2 :class "wake-wiki-revision-summary__title" :text title)
+    (p :class "wake-wiki-revision-summary__summary" :text summary)
+    (p :class "wake-wiki-revision-summary__state" :text state)
+    (p :class "wake-wiki-revision-summary__id" :text id)
+    (p :class "wake-wiki-revision-summary__author" :text author)
+    (p :class "wake-wiki-revision-summary__created" :text created-at)
+    (p :class "wake-wiki-revision-summary__digest" :text digest)))
+
+(component safe-document
+  :props [content-source]
+  (div :class "wake-wiki-safe-document"
+    (p :class "wake-wiki-safe-text" :text content-source)))
+
+(component link-list
+  :props [links-to]
+  (section :class "wake-wiki-link-list"
+    (h2 :class "wake-wiki-section-title" :text "Links")
+    (p :class "wake-wiki-link-list__items" :text links-to)))
+
+(component backlink-list
+  :props [resource]
+  (section :class "wake-wiki-backlink-list"
+    (h2 :class "wake-wiki-section-title" :text "Backlinks")
+    (p :class "wake-wiki-backlink-list__resource" :text resource)))
+
+(component conflict-notice
+  :props [message]
+  (p :class "wake-wiki-conflict-notice" :text message))
