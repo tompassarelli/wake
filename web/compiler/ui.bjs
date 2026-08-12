@@ -13,44 +13,87 @@
 
 (defrecord UiComponent [name: String children: Any])
 
-(defrecord UiBind [target: String field: String prop: String])
+(defrecord UiBind
+  [target: String
+   field: String
+   prop: String])
 
-(defrecord UiQuery [store: String sort-by: Any filter-by: Any])
+(defrecord UiQuery
+  [store: String
+   sort-by: Any
+   filter-by: Any])
 
 (defrecord UiEach [query: Any item-component: Any])
 
-(defrecord UiWhen [condition: Any then: Any otherwise: Any])
+(defrecord UiWhen
+  [condition: Any
+   then: Any
+   otherwise: Any])
 
-(defrecord UiAction [event: String handler-type: String config: Any])
+(defrecord UiAction
+  [event: String
+   handler-type: String
+   config: Any])
 
-(defrecord UiElement [tag: String css-class: String attrs: Any children: Any])
+(defrecord UiElement
+  [tag: String
+   css-class: String
+   attrs: Any
+   children: Any])
 
 (defrecord UiText [content: String])
 
-(defrecord UiStore [name: String entity: String fk-methods: (Vec String)])
+(defrecord UiStore
+  [name: String
+   entity: String
+   fk-methods: (Vec String)])
 
 (defrecord UiState [name: String initial: Any])
 
 ;; --- Expanded UI graph types ---
 
-(defrecord UiRelated [entity: String store: String fk-field: String
-                      key: String label: String display: (Vec String)])
+(defrecord UiRelated
+  [entity: String
+   store: String
+   fk-field: String
+   key: String
+   label: String
+   display: (Vec String)])
 
-(defrecord UiFieldInfo [name: String kind: String options: (Vec String)])
+(defrecord UiFieldInfo
+  [name: String
+   kind: String
+   options: (Vec String)])
 
-(defrecord UiForm [name: String fields: (Vec String) required: (Vec String)
-                   label: String status-default: String? field-info: (Vec UiFieldInfo)])
+(defrecord UiForm
+  [name: String
+   fields: (Vec String)
+   required: (Vec String)
+   label: String
+   status-default: String?
+   field-info: (Vec UiFieldInfo)])
 
-(defrecord UiGraph [entity: String store-name: String title: String
-                    columns: (Vec String) search-cols: (Vec String)
-                    overview-fields: Any derived: Any
-                    related: (Vec UiRelated) stores: (Vec UiStore)
-                    states: (Vec UiState) form: UiForm persist: Any
-                    all-field-info: (Vec UiFieldInfo)])
+(defrecord UiGraph
+  [entity: String
+   store-name: String
+   title: String
+   columns: (Vec String)
+   search-cols: (Vec String)
+   overview-fields: Any
+   derived: Any
+   related: (Vec UiRelated)
+   stores: (Vec UiStore)
+   states: (Vec UiState)
+   form: UiForm
+   persist: Any
+   all-field-info: (Vec UiFieldInfo)])
 
 ;; --- Expansion: list-detail → UI graph ---
 
-(defn expand-list-detail [graph: Any ld: Any sf: Any] :- UiGraph
+(defn expand-list-detail
+  [graph: Any
+   ld: Any
+   sf: Any] -> UiGraph
   (let [en (.-entity-name ld)
         ge (first (filterv (fn [e] (= (.-name e) en)) (.-entities graph)))
         store-name (.-store-name ge)
