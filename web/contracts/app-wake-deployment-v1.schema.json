@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wake.invalid/contracts/app-wake-deployment-v1.schema.json",
+  "title": "Wake Application Deployment Artifact Receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "applicationId",
+    "applicationManifestDigest",
+    "browserClientDigest",
+    "browserJavaScriptDigest",
+    "framPlanDigest",
+    "schemaVersion"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "applicationId": { "type": "string", "minLength": 1 },
+    "applicationManifestDigest": { "$ref": "#/$defs/digest" },
+    "browserClientDigest": { "$ref": "#/$defs/digest" },
+    "browserJavaScriptDigest": { "$ref": "#/$defs/digest" },
+    "framPlanDigest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}
