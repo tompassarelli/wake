@@ -69,6 +69,7 @@ function realFixture({ title = "Wake" } = {}) {
   }];
   planValue.queries = [{
     name: "browse-entries",
+    capabilities: ["wake-wiki/cap/read-published"],
     parameters: [],
     bindings: [{ name: "entry", entity: "entry" }],
     where: [],
@@ -98,6 +99,10 @@ function realFixture({ title = "Wake" } = {}) {
       { entity: "entry", field: "title" },
     ],
   }];
+  planValue.queries.push({
+    ...structuredClone(planValue.queries[0]),
+    name: "browse-other",
+  });
   value.plan = `${JSON.stringify(planValue, null, 2)}\n`;
   const planDigest = sha256Digest(value.plan);
   const manifestValue = JSON.parse(value.manifest);
@@ -117,6 +122,7 @@ function realFixture({ title = "Wake" } = {}) {
   ));
   return {
     ...value,
+    cursor: { activeKeyId: "test", keys: { test: new Uint8Array(32) } },
     framResult: {
       page: { done: true, nextCursor: null, ordinal: 0 },
       result: [[subject, term("string", "wake"), term("string", title)]],
@@ -125,7 +131,33 @@ function realFixture({ title = "Wake" } = {}) {
   };
 }
 
+function reboundFingerprint(value, nextFingerprint) {
+  const next = {
+    ...value,
+    applicationReceipt: { ...value.applicationReceipt },
+  };
+  next.browserJavaScript = value.browserJavaScript.replace(fingerprint, nextFingerprint);
+  const plan = JSON.parse(value.plan);
+  plan.semanticFingerprint = nextFingerprint;
+  next.plan = `${JSON.stringify(plan, null, 2)}\n`;
+  const manifest = JSON.parse(value.manifest);
+  manifest.checkedApplication.fingerprint = nextFingerprint;
+  manifest.artifacts.browserJavaScript.sha256 = sha256Digest(next.browserJavaScript);
+  manifest.artifacts.framPlan.sha256 = sha256Digest(next.plan);
+  next.manifest = canonicalDocument(manifest);
+  const receipt = JSON.parse(value.deploymentReceipt);
+  receipt.applicationManifestDigest = sha256Digest(next.manifest);
+  receipt.browserJavaScriptDigest = sha256Digest(next.browserJavaScript);
+  receipt.framPlanDigest = sha256Digest(next.plan);
+  next.deploymentReceipt = canonicalDocument(receipt);
+  next.applicationReceipt.deploymentArtifactReceiptDigest = sha256Digest(next.deploymentReceipt);
+  next.applicationReceipt.semanticFingerprint = nextFingerprint;
+  return next;
+}
+
 function fixture({ providerNames = [] } = {}) {
+  const browserClient = "export const wakeClient = true;\n";
+  const browserClientDigest = sha256Digest(browserClient);
   const browserJavaScript = `// wake: checked-application ${fingerprint}\n`;
   const browserDigest = sha256Digest(browserJavaScript);
   const plugin = {
@@ -154,6 +186,7 @@ function fixture({ providerNames = [] } = {}) {
         port_name: "content-parser",
       })),
     },
+    commands: [],
     entities: [],
     pluginClosure: [plugin],
     publications: [],
@@ -167,6 +200,7 @@ function fixture({ providerNames = [] } = {}) {
   const manifestValue = {
     applicationId: "neutral.fixture",
     artifacts: {
+      browserClient: { path: "wake-client.js", sha256: browserClientDigest },
       browserJavaScript: { path: "app.js", sha256: browserDigest },
       framPlan: { path: "app.fram.json", sha256: planDigest },
     },
@@ -186,6 +220,7 @@ function fixture({ providerNames = [] } = {}) {
   const deploymentReceiptValue = {
     applicationId: "neutral.fixture",
     applicationManifestDigest: sha256Digest(manifest),
+    browserClientDigest,
     browserJavaScriptDigest: browserDigest,
     framPlanDigest: planDigest,
     schemaVersion: 1,
@@ -200,11 +235,18 @@ function fixture({ providerNames = [] } = {}) {
     semanticFingerprint: fingerprint,
     storageProjectionDigest: storageDigest,
   };
-  return { applicationReceipt, browserJavaScript, deploymentReceipt, manifest, plan };
+  return {
+    applicationReceipt,
+    browserClient,
+    browserJavaScript,
+    deploymentReceipt,
+    manifest,
+    plan,
+  };
 }
 
 function runtime(overrides = {}) {
-  const calls = { gateway: [], http: [], authorized: [] };
+  const calls = { gateway: [], http: [], authorized: [], invoked: [], queried: [] };
   const fram = {
     query: async () => ({ result: [], servedVersion: 1n }),
     status: async () => ({ result: { state: "ready" }, servedVersion: 1n }),
@@ -217,7 +259,17 @@ function runtime(overrides = {}) {
   };
   const createGateway = (plan, clients) => {
     calls.gateway.push({ clients, plan });
-    return { checked: true };
+    return {
+      checked: true,
+      executeQuery: async (name, input, options, actor) => {
+        calls.queried.push({ actor, input, name, options });
+        return { input, name, options };
+      },
+      invoke: async (name, requestId, input, actor) => {
+        calls.invoked.push({ actor, input, name, requestId });
+        return { actor, input, name, requestId };
+      },
+    };
   };
   const createHttpHandler = (gateway, options) => {
     calls.http.push({ gateway, options });
@@ -225,8 +277,11 @@ function runtime(overrides = {}) {
       const body = await request.json();
       const decision = await options.authorize({
         entity: body.entity,
+        ...(Object.hasOwn(body, "input") ? { input: body.input } : {}),
         op: body.op,
+        ...(Object.hasOwn(body, "options") ? { options: body.options } : {}),
         payload: body,
+        ...(Object.hasOwn(body, "query") ? { query: body.query } : {}),
         request,
         route: new URL(request.url).pathname,
       });
@@ -271,7 +326,8 @@ test("composes only the public FRAM and Wake runtime interfaces", async () => {
   expect(await response.json()).toEqual({ actor: "principal-1", allowed: true });
   expect(input.calls.http[0].options.expectedFingerprint).toBe(fingerprint);
   expect(input.calls.authorized).toHaveLength(1);
-  expect(input.calls.authorized[0].actor).toBe(actor);
+  expect(input.calls.authorized[0].actor).toEqual(actor);
+  expect(Object.isFrozen(input.calls.authorized[0].actor)).toBe(true);
   expect(input.calls.authorized[0].traceId).toBe("trace_0001");
   expect(input.calls.authorized[0].entity).toBe("entry");
 });
@@ -340,6 +396,7 @@ test("fails construction before runtime composition on plan or receipt drift", (
     },
     input => { input.applicationReceipt.semanticFingerprint = `sha256:${"b".repeat(64)}`; },
     input => { input.applicationReceipt.deploymentArtifactReceiptDigest = `sha256:${"c".repeat(64)}`; },
+    input => { input.browserClient += "tampered\n"; },
     input => { input.browserJavaScript += "tampered\n"; },
   ]) {
     const input = runtime();
@@ -390,6 +447,37 @@ test("operation context is required and authorization is host-derived", async ()
     adapter.handleOperation(request(), { actor: { id: "principal-1" }, traceId: "" }),
   ).rejects.toMatchObject({ code: "adapter/invalid-context" });
   expect(input.calls.authorized).toHaveLength(0);
+});
+
+test("HTTP authorization receives an immutable snapshot separate from dispatch", async () => {
+  const input = runtime({
+    authorize: context => {
+      input.calls.authorized.push(context);
+      expect(Object.isFrozen(context.payload)).toBe(true);
+      expect(Object.isFrozen(context.input)).toBe(true);
+      expect(Object.isFrozen(context.input.nested)).toBe(true);
+      try { context.input.nested.value = "mutated"; } catch {}
+      try { context.payload.query = "mutated"; } catch {}
+      return true;
+    },
+  });
+  const adapter = createWakeBunAdapter(input);
+  await adapter.handleOperation(new Request("https://wake.test/api/wake/query", {
+    body: JSON.stringify({
+      fingerprint,
+      input: { nested: { value: "checked" } },
+      op: "execute",
+      options: {},
+      query: "find-entry",
+    }),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  }), {
+    actor: { id: "principal-1" },
+    traceId: "trace_http_snapshot",
+  });
+  expect(input.calls.authorized[0].input).toEqual({ nested: { value: "checked" } });
+  expect(input.calls.authorized[0].payload.query).toBe("find-entry");
 });
 
 test("concurrent operations keep their host-derived authority isolated", async () => {
@@ -450,7 +538,8 @@ test("forwards only a closed host authorization decision actor", async () => {
 
   expect(await response.json()).toEqual({ actor: "principal-1", allowed: true });
   const decision = await input.calls.http[0].options.authorize({ op: "list" });
-  expect(decision.actor).toBe(mappedActor);
+  expect(decision.actor).toEqual(mappedActor);
+  expect(Object.isFrozen(decision.actor)).toBe(true);
   expect(Object.isFrozen(decision)).toBe(true);
 
   for (const invalid of [
@@ -474,6 +563,235 @@ test("forwards only a closed host authorization decision actor", async () => {
     const denied = await deniedInput.calls.http[0].options.authorize({ op: "list" });
     expect(denied.allowed).toBe(false);
   }
+});
+
+test("direct query and command calls authorize before the gateway with mapped authority", async () => {
+  const mappedActor = Object.freeze({
+    capabilities: Object.freeze(["wiki.article.read"]),
+    id: "mapped-principal",
+  });
+  const input = runtime({
+    authorize: context => {
+      input.calls.authorized.push(context);
+      return Object.freeze({ actor: mappedActor, allowed: true });
+    },
+  });
+  const adapter = createWakeBunAdapter(input);
+  const actor = Object.freeze({ id: "host-principal" });
+  const context = Object.freeze({ actor, traceId: "trace_direct" });
+
+  await adapter.executeQuery("find-entry", { id: "entry-1" }, { asOf: "7" }, context);
+  await adapter.invokeCommand("publish-entry", "request-1", { id: "entry-1" }, context);
+
+  expect(input.calls.authorized).toHaveLength(2);
+  expect(input.calls.authorized[0]).toEqual({
+    actor,
+    input: { id: "entry-1" },
+    kind: "query",
+    name: "find-entry",
+    op: "execute",
+    options: { asOf: "7" },
+    query: "find-entry",
+    surface: "direct",
+    traceId: "trace_direct",
+  });
+  expect(input.calls.authorized[1]).toEqual({
+    actor,
+    command: "publish-entry",
+    kind: "command",
+    name: "publish-entry",
+    op: "invoke",
+    requestId: "request-1",
+    surface: "direct",
+    traceId: "trace_direct",
+  });
+  expect(input.calls.authorized.every(Object.isFrozen)).toBe(true);
+  expect(input.calls.queried[0].actor).toEqual(mappedActor);
+  expect(input.calls.invoked[0].actor).toEqual(mappedActor);
+  expect(Object.isFrozen(input.calls.queried[0].actor)).toBe(true);
+
+  for (const authorize of [() => false, () => { throw new Error("secret"); }]) {
+    const denied = runtime({ authorize });
+    const deniedAdapter = createWakeBunAdapter(denied);
+    await expect(deniedAdapter.executeQuery("find-entry", {}, {}, context))
+      .rejects.toMatchObject({ code: "adapter/forbidden" });
+    await expect(deniedAdapter.invokeCommand("publish-entry", "request-2", {}, context))
+      .rejects.toMatchObject({ code: "adapter/forbidden" });
+    expect(denied.calls.queried).toHaveLength(0);
+    expect(denied.calls.invoked).toHaveLength(0);
+  }
+});
+
+test("direct authorization snapshots nested input and actor authority across awaits", async () => {
+  let releaseAuthorization;
+  const authorizationGate = new Promise(resolve => { releaseAuthorization = resolve; });
+  let releaseGateway;
+  const gatewayGate = new Promise(resolve => { releaseGateway = resolve; });
+  let notifyGateway;
+  const gatewayStarted = new Promise(resolve => { notifyGateway = resolve; });
+  const mappedActor = { capabilities: ["wiki.article.read"], id: "mapped-principal" };
+  const dispatched = [];
+  const input = runtime({
+    authorize: async context => {
+      expect(Object.isFrozen(context)).toBe(true);
+      expect(Object.isFrozen(context.input)).toBe(true);
+      expect(Object.isFrozen(context.input.nested)).toBe(true);
+      expect(Object.isFrozen(context.actor)).toBe(true);
+      await authorizationGate;
+      return { actor: mappedActor, allowed: true };
+    },
+    createGateway: () => ({
+      async executeQuery(name, queryInput, options, actor) {
+        notifyGateway();
+        await gatewayGate;
+        dispatched.push({ actor, input: queryInput, name, options });
+        return {};
+      },
+      invoke: async () => ({}),
+    }),
+  });
+  const adapter = createWakeBunAdapter(input);
+  const queryInput = { nested: { value: "checked" } };
+  const options = { asOf: "7" };
+  const actor = { id: "host-principal", nested: { tenant: "checked" } };
+  const pending = adapter.executeQuery(
+    "find-entry",
+    queryInput,
+    options,
+    { actor, traceId: "trace_snapshot" },
+  );
+  queryInput.nested.value = "mutated";
+  options.asOf = "99";
+  actor.nested.tenant = "mutated";
+  releaseAuthorization();
+  await gatewayStarted;
+  mappedActor.id = "mutated";
+  mappedActor.capabilities.push("admin");
+  releaseGateway();
+  await pending;
+  expect(dispatched).toEqual([{
+    actor: { capabilities: ["wiki.article.read"], id: "mapped-principal" },
+    input: { nested: { value: "checked" } },
+    name: "find-entry",
+    options: { asOf: "7" },
+  }]);
+  expect(Object.isFrozen(dispatched[0].actor)).toBe(true);
+});
+
+test("direct paged queries seal and validate opaque continuation cursors", async () => {
+  let clock = 1_000;
+  let scope = "principal-1:wiki.article.read";
+  const gatewayCalls = [];
+  const checked = realFixture();
+  checked.cursor = {
+    ...checked.cursor,
+    now: () => clock,
+    ttlMs: 1_000,
+  };
+  const input = runtime({
+    ...checked,
+    authorize: () => Object.freeze({
+      actor: Object.freeze({
+        capabilities: Object.freeze(["wiki.article.read"]),
+        id: "principal-1",
+      }),
+      allowed: true,
+      authorizationScope: scope,
+    }),
+    createGateway: () => ({
+      async executeQuery(name, queryInput, options, actor) {
+        gatewayCalls.push({ actor, input: queryInput, name, options });
+        return gatewayCalls.length === 1
+          ? {
+              page: { done: false, nextCursor: term("string", "raw-next"), ordinal: 0 },
+              rows: [{ id: "wake" }],
+              servedVersion: 7n,
+            }
+          : {
+              page: { done: true, nextCursor: null, ordinal: 1 },
+              rows: [],
+              servedVersion: 7n,
+            };
+      },
+      invoke: async () => ({}),
+    }),
+  });
+  const adapter = createWakeBunAdapter(input);
+  const context = Object.freeze({ actor: Object.freeze({ id: "principal-1" }), traceId: "trace_page" });
+  const first = await adapter.executeQuery("browse-entries", {}, { limit: 1 }, context);
+  expect(typeof first.page.nextCursor).toBe("string");
+  expect(first.page.nextCursor).not.toContain("raw-next");
+
+  const token = first.page.nextCursor;
+  await adapter.executeQuery("browse-entries", {}, { cursor: token, limit: 1 }, context);
+  expect(gatewayCalls[1].options).toEqual({
+    asOf: 7n,
+    cursor: term("string", "raw-next"),
+    limit: 1,
+  });
+
+  for (const attempt of [
+    () => ({ mutate: () => { scope = "other-principal"; }, name: "browse-entries", input: {}, limit: 1, token }),
+    () => ({ mutate: () => { scope = "principal-1:wiki.article.read"; }, name: "browse-other", input: {}, limit: 1, token }),
+    () => ({ mutate: () => {}, name: "unknown-query", input: {}, limit: 1, token }),
+    () => ({ mutate: () => {}, name: "browse-entries", input: { changed: true }, limit: 1, token }),
+    () => ({ mutate: () => {}, name: "browse-entries", input: {}, limit: 2, token }),
+    () => ({
+      mutate: () => {},
+      name: "browse-entries",
+      input: {},
+      limit: 1,
+      token: `${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`,
+    }),
+  ]) {
+    const attemptValue = attempt();
+    attemptValue.mutate();
+    const before = gatewayCalls.length;
+    await expect(adapter.executeQuery(
+      attemptValue.name,
+      attemptValue.input,
+      { cursor: attemptValue.token, limit: attemptValue.limit },
+      context,
+    )).rejects.toMatchObject({ code: "invalid_cursor" });
+    expect(gatewayCalls).toHaveLength(before);
+  }
+
+  scope = "principal-1:wiki.article.read";
+  clock = 2_000;
+  await expect(adapter.executeQuery(
+    "browse-entries",
+    {},
+    { cursor: token, limit: 1 },
+    context,
+  )).rejects.toMatchObject({ code: "invalid_cursor" });
+  expect(gatewayCalls).toHaveLength(2);
+
+  clock = 1_000;
+  const foreignCalls = [];
+  const foreign = reboundFingerprint(realFixture(), `sha256:${"2".repeat(64)}`);
+  foreign.cursor = { ...foreign.cursor, now: () => clock, ttlMs: 1_000 };
+  const foreignAdapter = createWakeBunAdapter(runtime({
+    ...foreign,
+    authorize: () => Object.freeze({
+      actor: Object.freeze({
+        capabilities: Object.freeze(["wiki.article.read"]),
+        id: "principal-1",
+      }),
+      allowed: true,
+      authorizationScope: scope,
+    }),
+    createGateway: () => ({
+      executeQuery: async (...args) => { foreignCalls.push(args); return {}; },
+      invoke: async () => ({}),
+    }),
+  }));
+  await expect(foreignAdapter.executeQuery(
+    "browse-entries",
+    {},
+    { cursor: token, limit: 1 },
+    context,
+  )).rejects.toMatchObject({ code: "invalid_cursor" });
+  expect(foreignCalls).toHaveLength(0);
 });
 
 test("runs a fingerprinted named query through the real HTTP and FRAM boundary", async () => {
@@ -532,7 +850,8 @@ test("runs a fingerprinted named query through the real HTTP and FRAM boundary",
   expect(framCalls).toHaveLength(1);
   expect(framCalls[0].options).toEqual({ page: { limit: 1 }, timeoutMs: 5_000 });
   expect(authorized).toHaveLength(1);
-  expect(authorized[0].actor).toBe(actor);
+  expect(authorized[0].actor).toEqual(actor);
+  expect(Object.isFrozen(authorized[0].actor)).toBe(true);
   expect(authorized[0].traceId).toBe("trace_real");
   expect(authorized[0].query).toBe("browse-entries");
 
@@ -549,7 +868,10 @@ test("runs a fingerprinted named query through the real HTTP and FRAM boundary",
 });
 
 test("enforces exact Wake request and response byte ceilings through the adapter", async () => {
-  const actor = Object.freeze({ id: "principal-1" });
+  const actor = Object.freeze({
+    capabilities: Object.freeze(["wake-wiki/cap/read-published"]),
+    id: "principal-1",
+  });
   const request = body => new Request("https://wake.test/api/wake/query", {
     body,
     headers: { "content-type": "application/json" },

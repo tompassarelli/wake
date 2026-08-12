@@ -1,4 +1,8 @@
 import { canonicalDocument, sha256Digest } from "./canonical.mjs";
+import {
+  createWakeCursorProvider,
+  createWakeCursorTransport,
+} from "./cursor-provider.mjs";
 import { createFramGateway } from "./fram-gateway.mjs";
 import { createWakeHttpHandler } from "./fram-http.mjs";
 
@@ -93,10 +97,12 @@ function applicationManifest(input) {
     }
   }
   if (!plainObject(value.artifacts)
+      || !plainObject(value.artifacts.browserClient)
       || !plainObject(value.artifacts.browserJavaScript)
       || !plainObject(value.artifacts.framPlan)) {
     fail("adapter/invalid-manifest", "manifest.artifacts is invalid");
   }
+  digest(value.artifacts.browserClient.sha256, "manifest browser client artifact digest");
   digest(value.artifacts.browserJavaScript.sha256, "manifest browser artifact digest");
   digest(value.artifacts.framPlan.sha256, "manifest FRAM plan digest");
   if (!plainObject(value.digests)) {
@@ -119,7 +125,8 @@ function framPlan(input) {
   const artifact = documentArtifact(input, "plan");
   const value = artifact.value;
   if (!plainObject(value) || value.schemaVersion !== EXPECTED_PROTOCOLS.framPlanSchemaVersion
-      || value.backend !== "fram" || !Array.isArray(value.pluginClosure)) {
+      || value.backend !== "fram" || !Array.isArray(value.pluginClosure)
+      || !Array.isArray(value.queries) || !Array.isArray(value.commands)) {
     fail("adapter/invalid-plan", "expected the current Wake FRAM application plan");
   }
   nonempty(value.applicationId, "plan.applicationId");
@@ -133,6 +140,7 @@ function deploymentReceipt(input) {
   exactKeys(value, [
     "applicationId",
     "applicationManifestDigest",
+    "browserClientDigest",
     "browserJavaScriptDigest",
     "framPlanDigest",
     "schemaVersion",
@@ -142,6 +150,7 @@ function deploymentReceipt(input) {
   }
   nonempty(value.applicationId, "deploymentReceipt.applicationId");
   digest(value.applicationManifestDigest, "deploymentReceipt.applicationManifestDigest");
+  digest(value.browserClientDigest, "deploymentReceipt.browserClientDigest");
   digest(value.browserJavaScriptDigest, "deploymentReceipt.browserJavaScriptDigest");
   digest(value.framPlanDigest, "deploymentReceipt.framPlanDigest");
   return Object.freeze({ ...artifact, value: structuredClone(value) });
@@ -222,6 +231,12 @@ function assertArtifactBinding({ manifestArtifact, planArtifact, receiptArtifact
     manifestDigest,
     "adapter/receipt-mismatch",
     "receipt manifest digest",
+  );
+  assertSame(
+    receipt.browserClientDigest,
+    manifest.artifacts.browserClient.sha256,
+    "adapter/receipt-mismatch",
+    "receipt browser client digest",
   );
   assertSame(
     receipt.browserJavaScriptDigest,
@@ -322,25 +337,95 @@ function checkedProviderRegistry(plan, input) {
   return Object.freeze(checked);
 }
 
-function checkedContext(value) {
-  if (!plainObject(value) || !plainObject(value.actor)
+function checkedContext(value, operation = "operation") {
+  if (!plainObject(value) || Reflect.ownKeys(value).length !== 2
+      || !Object.hasOwn(value, "actor") || !Object.hasOwn(value, "traceId")
+      || !plainObject(value.actor)
       || typeof value.traceId !== "string" || value.traceId.length === 0) {
-    fail("adapter/invalid-context", "handleOperation requires actor and traceId context");
+    fail("adapter/invalid-context", `${operation} requires actor and traceId context`);
   }
-  return value;
+  let actor;
+  try {
+    actor = structuredClone(value.actor);
+  } catch {
+    fail("adapter/invalid-context", `${operation} actor must be structured-cloneable`);
+  }
+  return Object.freeze({ actor: freezeTree(actor), traceId: value.traceId });
+}
+
+function freezeTree(value, seen = new WeakSet()) {
+  if (value === null || typeof value !== "object" || seen.has(value)) return value;
+  seen.add(value);
+  for (const key of Reflect.ownKeys(value)) freezeTree(value[key], seen);
+  return Object.freeze(value);
 }
 
 function checkedAuthorizationDecision(value, actor) {
   if (value === true) return Object.freeze({ allowed: true, actor });
-  if (!plainObject(value)
-      || Object.keys(value).length !== 2
-      || !Object.hasOwn(value, "allowed")
-      || !Object.hasOwn(value, "actor")
-      || typeof value.allowed !== "boolean"
-      || !plainObject(value.actor)) {
+  const keys = plainObject(value) ? Reflect.ownKeys(value) : [];
+  if (!plainObject(value) || !Object.hasOwn(value, "allowed")
+      || !Object.hasOwn(value, "actor") || keys.length < 2 || keys.length > 3
+      || keys.some(key => !["allowed", "actor", "authorizationScope"].includes(key))
+      || typeof value.allowed !== "boolean" || !plainObject(value.actor)
+      || typeof value.actor.id !== "string" || value.actor.id.length === 0
+      || !Array.isArray(value.actor.capabilities)
+      || value.actor.capabilities.some(capability => typeof capability !== "string"
+        || capability.length === 0)
+      || new Set(value.actor.capabilities).size !== value.actor.capabilities.length
+      || (Object.hasOwn(value, "authorizationScope")
+        && (typeof value.authorizationScope !== "string"
+          || value.authorizationScope.length === 0))) {
     return Object.freeze({ allowed: false, actor });
   }
-  return Object.freeze({ allowed: value.allowed, actor: value.actor });
+  let mappedActor;
+  try {
+    mappedActor = freezeTree(structuredClone(value.actor));
+  } catch {
+    return Object.freeze({ allowed: false, actor });
+  }
+  const decision = { allowed: value.allowed, actor: mappedActor };
+  if (Object.hasOwn(value, "authorizationScope")) {
+    decision.authorizationScope = value.authorizationScope;
+  }
+  return Object.freeze(decision);
+}
+
+function bytesArtifact(input, label) {
+  const bytes = input instanceof Uint8Array
+    ? input.slice()
+    : typeof input === "string"
+      ? new TextEncoder().encode(input)
+      : null;
+  if (bytes === null) fail("adapter/invalid-config", `${label} must be a string or Uint8Array`);
+  return bytes;
+}
+
+function pagedQueries(plan) {
+  const names = new Set();
+  for (const query of plan.queries) {
+    if (plainObject(query) && plainObject(query.result) && query.result.kind === "page") {
+      names.add(nonempty(query.name, "paged query name"));
+    }
+  }
+  return names;
+}
+
+function httpAuthorizationSnapshot(operation, actor, traceId) {
+  if (!plainObject(operation)) {
+    fail("adapter/invalid-config", "Wake HTTP supplied an invalid authorization operation");
+  }
+  const snapshot = {};
+  for (const key of Reflect.ownKeys(operation)) {
+    if (typeof key !== "string") {
+      fail("adapter/invalid-config", "Wake HTTP supplied an invalid authorization operation");
+    }
+    snapshot[key] = key === "request"
+      ? operation[key]
+      : freezeTree(structuredClone(operation[key]));
+  }
+  snapshot.actor = actor;
+  snapshot.traceId = traceId;
+  return Object.freeze(snapshot);
 }
 
 /**
@@ -351,9 +436,11 @@ function checkedAuthorizationDecision(value, actor) {
 export function createWakeBunAdapter({
   applicationReceipt: installedReceipt,
   authorize,
+  browserClient,
   browserJavaScript,
   createGateway = createFramGateway,
   createHttpHandler = createWakeHttpHandler,
+  cursor,
   deploymentReceipt: artifactReceipt,
   fram,
   manifest: manifestInput,
@@ -390,23 +477,56 @@ export function createWakeBunAdapter({
     receiptArtifact,
   });
   const providerRegistry = checkedProviderRegistry(plan, providers);
-  const browserBytes = browserJavaScript instanceof Uint8Array
-    ? browserJavaScript
-    : typeof browserJavaScript === "string"
-      ? new TextEncoder().encode(browserJavaScript)
-      : null;
-  if (browserBytes === null) {
-    fail("adapter/invalid-config", "browserJavaScript must be a string or Uint8Array");
-  }
+  const browserClientBytes = bytesArtifact(browserClient, "browserClient");
+  const browserBytes = bytesArtifact(browserJavaScript, "browserJavaScript");
+  assertSame(
+    sha256Digest(browserClientBytes),
+    manifest.artifacts.browserClient.sha256,
+    "adapter/artifact-mismatch",
+    "browser client digest",
+  );
   assertSame(
     sha256Digest(browserBytes),
     manifest.artifacts.browserJavaScript.sha256,
     "adapter/artifact-mismatch",
     "browser JavaScript digest",
   );
+  const pagedQueryNames = pagedQueries(plan);
+  if (pagedQueryNames.size > 0 && cursor === undefined) {
+    fail("adapter/missing-cursor-config", "paged queries require cursor key configuration");
+  }
+  let cursorProvider = null;
+  if (cursor !== undefined) {
+    try {
+      cursorProvider = createWakeCursorProvider(cursor);
+    } catch {
+      fail("adapter/invalid-cursor-config", "cursor key configuration is invalid");
+    }
+  }
+  const cursorTransport = createWakeCursorTransport(cursorProvider, {
+    fingerprint: manifest.checkedApplication.fingerprint,
+  });
   const gateway = createGateway(plan, { fram, providers: providerRegistry, schema });
-  if (!gateway || typeof gateway !== "object") {
+  if (!gateway || typeof gateway !== "object"
+      || typeof gateway.executeQuery !== "function" || typeof gateway.invoke !== "function") {
     fail("adapter/invalid-config", "the Wake gateway factory returned an invalid gateway");
+  }
+
+  async function authorizeOperation(operation, context, label) {
+    const checked = checkedContext(context, label);
+    let value;
+    try {
+      value = await authorize(freezeTree({
+        ...operation,
+        actor: checked.actor,
+        traceId: checked.traceId,
+      }));
+    } catch {
+      fail("adapter/forbidden", "the host denied the operation");
+    }
+    const decision = checkedAuthorizationDecision(value, checked.actor);
+    if (!decision.allowed) fail("adapter/forbidden", "the host denied the operation");
+    return decision;
   }
 
   async function checkReadiness() {
@@ -426,14 +546,19 @@ export function createWakeBunAdapter({
     }
     const checked = checkedContext(context);
     const handleHttp = createHttpHandler(gateway, {
+      cursorProvider,
       expectedFingerprint: manifest.checkedApplication.fingerprint,
       authorize: async operation => {
-        const decision = await authorize(Object.freeze({
-          ...operation,
-          actor: checked.actor,
-          traceId: checked.traceId,
-        }));
-        return checkedAuthorizationDecision(decision, checked.actor);
+        try {
+          const decision = await authorize(httpAuthorizationSnapshot(
+            operation,
+            checked.actor,
+            checked.traceId,
+          ));
+          return checkedAuthorizationDecision(decision, checked.actor);
+        } catch {
+          return Object.freeze({ allowed: false, actor: checked.actor });
+        }
       },
     });
     if (typeof handleHttp !== "function") {
@@ -442,11 +567,68 @@ export function createWakeBunAdapter({
     return handleHttp(request);
   }
 
+  async function executeQuery(name, input = {}, options = {}, context) {
+    nonempty(name, "query name");
+    if (!plainObject(input) || !plainObject(options)) {
+      fail("adapter/invalid-request", "executeQuery input and options must be objects");
+    }
+    const executionInput = structuredClone(input);
+    const executionOptions = structuredClone(options);
+    const decision = await authorizeOperation(Object.freeze({
+      input: structuredClone(executionInput),
+      kind: "query",
+      name,
+      op: "execute",
+      options: structuredClone(executionOptions),
+      query: name,
+      surface: "direct",
+    }), context, "executeQuery");
+    if (!pagedQueryNames.has(name) && !Object.hasOwn(executionOptions, "cursor")) {
+      return gateway.executeQuery(name, executionInput, executionOptions, decision.actor);
+    }
+    if (typeof decision.authorizationScope !== "string"
+        || decision.authorizationScope.length === 0) {
+      fail(
+        "adapter/cursor-scope-unavailable",
+        "paged query authorization must provide authorizationScope",
+      );
+    }
+    return cursorTransport.execute(Object.freeze({
+      authorizationScope: decision.authorizationScope,
+      input: executionInput,
+      options: executionOptions,
+      query: name,
+    }), operation => gateway.executeQuery(
+      operation.query,
+      operation.input,
+      operation.options,
+      decision.actor,
+    ));
+  }
+
+  async function invokeCommand(name, requestId, input = {}, context) {
+    nonempty(name, "command name");
+    nonempty(requestId, "requestId");
+    if (!plainObject(input)) fail("adapter/invalid-request", "invokeCommand input must be an object");
+    const executionInput = structuredClone(input);
+    const decision = await authorizeOperation(Object.freeze({
+      command: name,
+      kind: "command",
+      name,
+      op: "invoke",
+      requestId,
+      surface: "direct",
+    }), context, "invokeCommand");
+    return gateway.invoke(name, requestId, executionInput, decision.actor);
+  }
+
   return Object.freeze({
     applicationId: manifest.applicationId,
     artifacts,
     checkReadiness,
+    executeQuery,
     handleOperation,
+    invokeCommand,
     semanticFingerprint: manifest.checkedApplication.fingerprint,
   });
 }

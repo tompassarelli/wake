@@ -913,8 +913,8 @@ export function createFramGateway(plan, {
     applicationId: compiled.applicationId,
     semanticFingerprint: compiled.semanticFingerprint,
 
-    async executeQuery(name, input, options = {}) {
-      return namedQueries.execute(name, input, options);
+    async executeQuery(name, input, options = {}, authority) {
+      return namedQueries.execute(name, input, options, authority);
     },
 
     async invoke(name, requestId, input, actor) {

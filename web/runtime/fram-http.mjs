@@ -24,6 +24,7 @@ const GATEWAY_ERROR_STATUS = new Map([
   ["gateway/unknown-field", 404],
   ["gateway/unknown-publication", 404],
   ["gateway/unknown-query", 404],
+  ["gateway/forbidden", 403],
   ["gateway/result-limit", 409],
   ["gateway/protocol", 500],
   ["gateway/data-integrity", 500],
@@ -51,6 +52,8 @@ const GATEWAY_ERROR_STATUS = new Map([
   ["command/ambiguous-outcome", 503],
   ["command/invalid-authority", 500],
   ["command/provider-output", 500],
+  ["command/provider-rejected", 400],
+  ["command/provider-failed", 500],
   ["command/result-invalid", 500],
   ["command/missing-provider", 500],
   ["command/receipt-corrupt", 500],
@@ -540,7 +543,7 @@ async function dispatch(gateway, route, payload, decision) {
       payload.query,
       payload.input,
       payload.options ?? {},
-      decision,
+      decision.actor,
     );
   }
   if (route === "/api/wake/command") {

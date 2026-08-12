@@ -188,8 +188,11 @@ test("application fingerprint is checked before authorization and dispatch", asy
   assert.equal(gatewayCalls, 0);
 });
 
-test("named queries use a closed envelope and preserve the authorization decision", async () => {
-  const actor = Object.freeze({ id: "actor-1" });
+test("named queries use a closed envelope and pass only the transformed actor", async () => {
+  const actor = Object.freeze({
+    capabilities: Object.freeze(["wake-wiki/cap/browse-published"]),
+    id: "actor-1",
+  });
   let call;
   const handle = createWakeHttpHandler(gateway({
     executeQuery(...args) {
@@ -217,8 +220,7 @@ test("named queries use a closed envelope and preserve the authorization decisio
     { phase: "published" },
     { limit: 20, asOf: 7n },
   ]);
-  assert.equal(call[3].allowed, true);
-  assert.equal(call[3].actor, actor);
+  assert.equal(call[3], actor);
   assert.deepEqual(await json(response), {
     rows: [{ id: "release-1" }],
     page: { done: true, nextCursor: null },
@@ -582,6 +584,7 @@ test("stable gateway and schema failures keep their code and HTTP meaning", asyn
     ["gateway/write-policy", 400],
     ["gateway/unknown-entity", 404],
     ["gateway/unknown-publication", 404],
+    ["gateway/forbidden", 403],
     ["gateway/result-limit", 409],
     ["schema/identity-missing", 404],
     ["schema/identity-exists", 409],
@@ -594,6 +597,8 @@ test("stable gateway and schema failures keep their code and HTTP meaning", asyn
     ["command/unknown", 404],
     ["command/idempotency-conflict", 409],
     ["command/ambiguous-outcome", 503],
+    ["command/provider-rejected", 400],
+    ["command/provider-failed", 500],
     ["command/receipt-corrupt", 500],
   ];
 
