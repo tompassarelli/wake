@@ -17,7 +17,7 @@ const webRoot = join(testDir, "..");
 const beagleRoot = process.env.BEAGLE_ROOT ?? join(homedir(), "code", "beagle", "main");
 const sourceUnit = {
   source_id: "test:graph-ui-router-guards",
-  path: "graph-ui-router-guards.test.wake",
+  path: "graph-ui-router-guards.test.bjs",
   package_id: "application",
   package_version: "0.1.0",
 };

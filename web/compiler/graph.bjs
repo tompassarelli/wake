@@ -188,22 +188,29 @@
           (validate-generated-name "route view" (.-view-name route))))
       nil)))
 
-(defn validate-unique-declarations [items: Any label: String] -> Any
+(defn validate-unique-declaration-names
+  [names: (Vec String)
+   label: String] -> Any
   (reduce
-    (fn [seen item]
-      (let [name (.-name item)]
-        (if (.includes seen name)
-          (graph-error (str label " '" name "' is duplicated"))
-          (conj seen name))))
+    (fn [seen name]
+      (if (.includes seen name)
+        (graph-error (str label " '" name "' is duplicated"))
+        (conj seen name)))
     []
-    items))
+    names))
 
 (defn validate-declaration-uniqueness
   [prog: IrProgram
    entities: (Vec GEntity)] -> Any
-  (validate-unique-declarations entities "entity")
-  (validate-unique-declarations (or (.-components prog) []) "component")
-  (validate-unique-declarations (or (.-views prog) []) "view"))
+  (validate-unique-declaration-names
+    (mapv (fn [entity] (.-name entity)) entities)
+    "entity")
+  (validate-unique-declaration-names
+    (mapv (fn [component] (.-name component)) (or (.-components prog) []))
+    "component")
+  (validate-unique-declaration-names
+    (mapv (fn [view] (.-name view)) (or (.-views prog) []))
+    "view"))
 
 (defn validate-ui-references [prog: IrProgram entities: (Vec GEntity)] -> Any
   (let [components (or (.-components prog) [])
