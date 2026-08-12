@@ -614,4 +614,13 @@ test("rejects list-detail tab codegen collisions", () => {
     })),
     /tab labels collide case-insensitively at 'notes'/,
   );
+  assert.throws(
+    () => checkProgram(program({
+      entities: [entity("page"), note],
+      list_details: [listDetail({
+        detail_tabs: [related("OVERVIEW", "note", "page")],
+      })],
+    })),
+    /related tab label 'OVERVIEW' conflicts with the built-in overview tab/,
+  );
 });

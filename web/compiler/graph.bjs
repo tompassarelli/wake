@@ -849,6 +849,12 @@
               (reduce
                 (fn [seen tab]
                   (let [folded (.toLowerCase (.-label tab))]
+                    (if (and (= (.-content-type tab) "related")
+                             (= folded "overview"))
+                      (graph-error
+                        (str label " related tab label '" (.-label tab)
+                             "' conflicts with the built-in overview tab"))
+                      nil)
                     (if (.includes seen folded)
                       (graph-error
                         (str label " tab labels collide case-insensitively at '"
