@@ -85,6 +85,7 @@ describe("W1 checked named query compiler", () => {
     ]);
 
     expect(plan.queries[0]).toMatchObject({
+      capabilities: ["wake-tests/cap/browse-releases"],
       parameters: [],
       bindings: [{ name: "release", entity: "release" }],
       where: [{
@@ -125,6 +126,10 @@ describe("W1 checked named query compiler", () => {
     });
 
     const join = plan.queries[2];
+    expect(join.capabilities).toEqual([
+      "wake-tests/cap/read-approvals",
+      "wake-tests/cap/admin",
+    ]);
     expect(join.where[1]).toEqual({
       op: "eq",
       left: {
@@ -186,6 +191,9 @@ describe("W1 checked named query compiler", () => {
     expect(plan.queries).toHaveLength(1);
     expect(plan.queries[0].parameters).toEqual([
       { name: "phase", type: "fixture.Phase" },
+    ]);
+    expect(plan.queries[0].capabilities).toEqual([
+      "wake-state-query-fixture/cap/read-releases",
     ]);
     expect(plan.queries[0].where[0]).toMatchObject({
       left: { type: "fixture.Phase" },
