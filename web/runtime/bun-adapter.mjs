@@ -273,6 +273,19 @@ function checkedContext(value) {
   return value;
 }
 
+function checkedAuthorizationDecision(value, actor) {
+  if (value === true) return Object.freeze({ allowed: true, actor });
+  if (!plainObject(value)
+      || Object.keys(value).length !== 2
+      || !Object.hasOwn(value, "allowed")
+      || !Object.hasOwn(value, "actor")
+      || typeof value.allowed !== "boolean"
+      || !plainObject(value.actor)) {
+    return Object.freeze({ allowed: false, actor });
+  }
+  return Object.freeze({ allowed: value.allowed, actor: value.actor });
+}
+
 /**
  * Composes Wake's checked artifacts and public FRAM clients into a Bun host
  * adapter. Authentication stays in the host; this boundary accepts only the
@@ -356,12 +369,12 @@ export function createWakeBunAdapter({
     const handleHttp = createHttpHandler(gateway, {
       expectedFingerprint: manifest.checkedApplication.fingerprint,
       authorize: async operation => {
-        const allowed = await authorize(Object.freeze({
+        const decision = await authorize(Object.freeze({
           ...operation,
           actor: checked.actor,
           traceId: checked.traceId,
         }));
-        return Object.freeze({ allowed: allowed === true, actor: checked.actor });
+        return checkedAuthorizationDecision(decision, checked.actor);
       },
     });
     if (typeof handleHttp !== "function") {
