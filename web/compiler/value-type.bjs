@@ -1,0 +1,335 @@
+#lang beagle/js
+(ns wake.value-type)
+
+;; Closed source grammar for recursive provider values. The output is the
+;; runtime checked-value descriptor ABI; recursion is named and bounded only at
+;; a value-type root.
+
+(defn value-type-error [message: String] -> Any
+  (throw (ex-info (str "wake: " message) {})))
+
+(defn sym? [value: Any] -> Bool
+  (and (some? value) (= (.-_tag value) "Sym")))
+
+(defn kw? [value: Any] -> Bool
+  (and (some? value) (= (.-_tag value) "Kw")))
+
+(defn sexpr-vec? [value: Any] -> Bool
+  (and (some? value) (= (.-_tag value) "SexprVec")))
+
+(defn require-symbol [value: Any label: String] -> String
+  (if (sym? value)
+    (.-name value)
+    (value-type-error (str label " requires a symbol"))))
+
+(defn require-keyword [value: Any label: String] -> String
+  (if (kw? value)
+    (.-name value)
+    (value-type-error (str label " requires a keyword"))))
+
+(defn require-form [value: Any label: String] -> Any
+  (if (vector? value)
+    value
+    (value-type-error (str label " requires a list form"))))
+
+(defn require-items [value: Any label: String] -> Any
+  (if (sexpr-vec? value)
+    (.-items value)
+    (value-type-error (str label " requires a vector"))))
+
+(defn safe-nonnegative [value: Any label: String] -> Int
+  (if (or (not (number? value))
+          (not (js/Number.isSafeInteger value))
+          (< value 0))
+    (value-type-error (str label " must be a nonnegative safe integer"))
+    value))
+
+(defn safe-positive [value: Any label: String] -> Int
+  (let [checked (safe-nonnegative value label)]
+    (if (= checked 0)
+      (value-type-error (str label " must be positive"))
+      checked)))
+
+(defn scalar-literal [value: Any label: String] -> Any
+  (cond
+    (and (sym? value) (= (.-name value) "nil")) nil
+    (and (sym? value) (= (.-name value) "true")) true
+    (and (sym? value) (= (.-name value) "false")) false
+    (or (string? value) (number? value) (boolean? value) (nil? value)) value
+    :else (value-type-error (str label " requires a scalar JSON literal"))))
+
+(defn duplicate-name [items: Any key: String label: String] -> Any
+  (reduce
+    (fn [seen item]
+      (let [name (get item key)]
+        (if (.includes seen name)
+          (value-type-error (str label " repeats '" name "'"))
+          (conj seen name))))
+    [] items)
+  items)
+
+(defn option-map
+  [form: Any
+   start: Int
+   allowed: (Vec String)
+   required: (Vec String)
+   label: String] -> Any
+  (loop [index: Int start result: Any {} seen: (Vec String) []]
+    (if (>= index (count form))
+      (do
+        (doseq [name required]
+          (if (not (.includes seen name))
+            (value-type-error (str label " requires " name))
+            nil))
+        result)
+      (let [name (require-keyword (nth form index nil) (str label " option"))]
+        (if (not (.includes allowed name))
+          (value-type-error (str label " has unknown option " name))
+          nil)
+        (if (.includes seen name)
+          (value-type-error (str label " repeats option " name))
+          nil)
+        (if (>= (+ index 1) (count form))
+          (value-type-error (str label " option " name " requires a value"))
+          nil)
+        (recur
+          (+ index 2)
+          (assoc result name (nth form (+ index 1)))
+          (conj seen name))))))
+
+(defn primitive-or-reference [name: String] -> Any
+  (cond
+    (= name "String") {"kind" "string"}
+    (or (= name "Integer") (= name "Int")) {"kind" "integer"}
+    (or (= name "Number") (= name "Float") (= name "Double"))
+      {"kind" "number"}
+    (or (= name "Boolean") (= name "Bool")) {"kind" "boolean"}
+    :else {"kind" "ref" "name" name}))
+
+(declare-extern parse-type [Any String -> Any])
+
+(defn parse-field [value: Any label: String] -> Any
+  (let [form (require-form value label)]
+    (if (not (or (= (count form) 3) (= (count form) 4)))
+      (value-type-error
+        (str label " must be (NAME : TYPE) or (NAME : TYPE :optional)"))
+      nil)
+    (if (not (= (require-keyword (nth form 1 nil) label) ":"))
+      (value-type-error (str label " must separate name and type with :"))
+      nil)
+    (let [required
+          (if (= (count form) 4)
+            (do
+              (if (not (= (require-keyword (nth form 3 nil) label) ":optional"))
+                (value-type-error (str label " accepts only :optional"))
+                nil)
+              false)
+            true)]
+      {"name" (require-symbol (nth form 0 nil) (str label " name"))
+       "required" required
+       "value" (parse-type (nth form 2 nil) (str label " type"))})))
+
+(defn parse-fields [value: Any label: String] -> Any
+  (let [fields
+        (mapv
+          (fn [field] (parse-field field (str label " field")))
+          (require-items value label))]
+    (duplicate-name fields "name" label)))
+
+(defn parse-string-type [form: Any label: String] -> Any
+  (let [options (option-map form 1 [":min" ":max" ":bytes"] [] label)
+        minimum (get options ":min")
+        maximum (get options ":max")
+        bytes (get options ":bytes")]
+    (if (some? minimum) (safe-nonnegative minimum (str label " :min")) nil)
+    (if (some? maximum) (safe-nonnegative maximum (str label " :max")) nil)
+    (if (some? bytes) (safe-nonnegative bytes (str label " :bytes")) nil)
+    (if (and (some? minimum) (some? maximum) (> minimum maximum))
+      (value-type-error (str label " :min must not exceed :max"))
+      nil)
+    (cond
+      (and (some? minimum) (some? maximum) (some? bytes))
+        {"kind" "string" "minLength" minimum
+         "maxLength" maximum "maxBytes" bytes}
+      (and (some? minimum) (some? maximum))
+        {"kind" "string" "minLength" minimum "maxLength" maximum}
+      (and (some? minimum) (some? bytes))
+        {"kind" "string" "minLength" minimum "maxBytes" bytes}
+      (and (some? maximum) (some? bytes))
+        {"kind" "string" "maxLength" maximum "maxBytes" bytes}
+      (some? minimum) {"kind" "string" "minLength" minimum}
+      (some? maximum) {"kind" "string" "maxLength" maximum}
+      (some? bytes) {"kind" "string" "maxBytes" bytes}
+      :else {"kind" "string"})))
+
+(defn parse-integer-type [form: Any label: String] -> Any
+  (let [options (option-map form 1 [":min" ":max"] [] label)
+        minimum (get options ":min")
+        maximum (get options ":max")]
+    (doseq [entry [[":min" minimum] [":max" maximum]]]
+      (let [option (nth entry 0) value (nth entry 1)]
+        (if (and (some? value) (not (js/Number.isSafeInteger value)))
+          (value-type-error (str label " " option " must be a safe integer"))
+          nil)))
+    (if (and (some? minimum) (some? maximum) (> minimum maximum))
+      (value-type-error (str label " :min must not exceed :max"))
+      nil)
+    (cond
+      (and (some? minimum) (some? maximum))
+        {"kind" "integer" "minimum" minimum "maximum" maximum}
+      (some? minimum) {"kind" "integer" "minimum" minimum}
+      (some? maximum) {"kind" "integer" "maximum" maximum}
+      :else {"kind" "integer"})))
+
+(defn parse-variant [value: Any label: String] -> Any
+  (let [form (require-form value label)]
+    (if (not (= (count form) 2))
+      (value-type-error (str label " must be (TAG [FIELDS...])"))
+      nil)
+    {"tag" (require-symbol (nth form 0 nil) (str label " tag"))
+     "fields" (parse-fields (nth form 1 nil) (str label " fields"))}))
+
+(defn parse-type [value: Any label: String] -> Any
+  (if (sym? value)
+    (primitive-or-reference (.-name value))
+    (let [form (require-form value label)
+          name (require-symbol (nth form 0 nil) label)]
+      (cond
+        (= name "String") (parse-string-type form label)
+        (or (= name "Integer") (= name "Int"))
+          (parse-integer-type form label)
+        (= name "Nullable")
+          (do
+            (if (not (= (count form) 2))
+              (value-type-error (str label " Nullable requires one type"))
+              nil)
+            {"kind" "nullable" "value" (parse-type (nth form 1 nil) label)})
+        (= name "List")
+          (do
+            (if (not (= (count form) 4))
+              (value-type-error (str label " List must be (List TYPE :max N)"))
+              nil)
+            (if (not (= (require-keyword (nth form 2 nil) label) ":max"))
+              (value-type-error (str label " List requires :max"))
+              nil)
+            {"kind" "list"
+             "items" (parse-type (nth form 1 nil) (str label " item"))
+             "maxItems" (safe-nonnegative (nth form 3 nil) (str label " :max"))})
+        (= name "Record")
+          (do
+            (if (not (= (count form) 2))
+              (value-type-error (str label " Record requires one field vector"))
+              nil)
+            {"kind" "record"
+             "fields" (parse-fields (nth form 1 nil) (str label " Record"))})
+        (= name "Tagged")
+          (do
+            (if (not (= (count form) 3))
+              (value-type-error
+                (str label " Tagged must be (Tagged TAG-FIELD [VARIANTS...])"))
+              nil)
+            (let [variants
+                  (mapv
+                    (fn [variant]
+                      (parse-variant variant (str label " Tagged variant")))
+                    (require-items (nth form 2 nil) (str label " Tagged")))]
+              (if (= (count variants) 0)
+                (value-type-error (str label " Tagged requires a variant"))
+                nil)
+              (duplicate-name variants "tag" (str label " Tagged"))
+              {"kind" "tagged"
+               "tag" (require-symbol (nth form 1 nil) (str label " tag field"))
+               "variants" variants}))
+        (= name "Literal")
+          (do
+            (if (not (= (count form) 2))
+              (value-type-error (str label " Literal requires one value"))
+              nil)
+            {"kind" "literal"
+             "value" (scalar-literal (nth form 1 nil) label)})
+        (= name "Enum")
+          (do
+            (if (not (= (count form) 2))
+              (value-type-error (str label " Enum requires one value vector"))
+              nil)
+            (let [values
+                  (mapv
+                    (fn [item] (scalar-literal item label))
+                    (require-items (nth form 1 nil) (str label " Enum")))]
+              (if (= (count values) 0)
+                (value-type-error (str label " Enum requires a value"))
+                nil)
+              {"kind" "enum" "values" values}))
+        :else
+          (value-type-error (str label " has unsupported type form '" name "'"))))))
+
+(defn parse-bound-map [value: Any label: String] -> Any
+  (let [items (require-items value label)]
+    (if (not (= (count items) 6))
+      (value-type-error
+        (str label " must be [maxBytes N maxDepth N maxNodes N]"))
+      nil)
+    (loop [index: Int 0 result: Any {} seen: (Vec String) []]
+      (if (>= index (count items))
+        result
+        (let [name (require-symbol (nth items index nil) (str label " name"))
+              value (nth items (+ index 1) nil)]
+          (if (not (.includes ["maxBytes" "maxDepth" "maxNodes"] name))
+            (value-type-error (str label " has unknown bound '" name "'"))
+            nil)
+          (if (.includes seen name)
+            (value-type-error (str label " repeats '" name "'"))
+            nil)
+          (recur
+            (+ index 2)
+            (assoc result name (safe-positive value (str label " " name)))
+            (conj seen name)))))))
+
+(defn parse-definition [value: Any label: String] -> Any
+  (let [form (require-form value label)]
+    (if (not (= (count form) 2))
+      (value-type-error (str label " must be (NAME TYPE)"))
+      nil)
+    {"name" (require-symbol (nth form 0 nil) (str label " name"))
+     "value" (parse-type (nth form 1 nil) (str label " type"))}))
+
+(defn parse-value-type [form: Any] -> Any
+  (let [name (require-symbol (nth form 1 nil) "value-type name")
+        label (str "value-type '" name "'")
+        options
+        (option-map
+          form 2
+          [":bounds" ":definitions" ":root"]
+          [":bounds" ":definitions" ":root"]
+          label)
+        bounds (parse-bound-map (get options ":bounds") (str label " :bounds"))
+        definitions
+        (mapv
+          (fn [definition]
+            (parse-definition definition (str label " definition")))
+          (require-items (get options ":definitions") (str label " :definitions")))
+        root (require-symbol (get options ":root") (str label " :root"))]
+    (if (= (count definitions) 0)
+      (value-type-error (str label " requires a definition"))
+      nil)
+    (duplicate-name definitions "name" (str label " definitions"))
+    (if (not (.includes (mapv (fn [definition] (get definition "name")) definitions) root))
+      (value-type-error (str label " root names unknown definition '" root "'"))
+      nil)
+    {"name" name
+     "descriptor"
+     {"kind" "bounded"
+      "definitions" definitions
+      "maxBytes" (get bounds "maxBytes")
+      "maxDepth" (get bounds "maxDepth")
+      "maxNodes" (get bounds "maxNodes")
+      "value" {"kind" "ref" "name" root}}}))
+
+(defn parse-provider-port [form: Any] -> Any
+  (let [name (require-symbol (nth form 1 nil) "provider-port name")
+        label (str "provider-port '" name "'")
+        options
+        (option-map form 2 [":input" ":output"] [":input" ":output"] label)]
+    {"name" name
+     "input" (parse-type (get options ":input") (str label " :input"))
+     "output" (parse-type (get options ":output") (str label " :output"))}))
