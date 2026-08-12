@@ -120,6 +120,68 @@
             :published (.-published-state publication)
             :retired (.-retired-state publication)}})
 
+(defn query-operand-plan [operand: Any] -> Any
+  (let [kind (.-kind operand)]
+    (cond
+      (= kind "parameter")
+        {:kind "parameter" :name (.-parameter operand) :type (.-type operand)}
+      (= kind "binding")
+        {:kind "binding" :binding (.-binding operand) :entity (.-entity operand)}
+      (= kind "field")
+        {:kind "field"
+         :binding (.-binding operand)
+         :entity (.-entity operand)
+         :field (.-field operand)
+         :type (.-type operand)}
+      :else
+        {:kind "literal" :type (.-type operand) :value (.-value operand)})))
+
+(defn query-predicate-plan [predicate: Any] -> Any
+  {:op (.-op predicate)
+   :left (query-operand-plan (.-left predicate))
+   :right (query-operand-plan (.-right predicate))})
+
+(defn query-column-plan [column: Any] -> Any
+  (let [plan
+        {:name (.-name column)
+         :binding (.-binding column)
+         :entity (.-entity column)
+         :field (.-field column)
+         :type (.-type column)
+         :cardinality (.-cardinality column)
+         :valueKind (.-value-kind column)}]
+    (if (= (.-value-kind column) "ref")
+      (assoc plan :targetEntity (.-target-entity column))
+      plan)))
+
+(defn query-result-plan [query: Any] -> Any
+  (if (= (.-result-kind query) "page")
+    {:kind "page"
+     :defaultLimit (.-default-limit query)
+     :maxLimit (.-max-limit query)}
+    {:kind (.-result-kind query)}))
+
+(defn query-plan [query: Any] -> Any
+  {:name (.-name query)
+   :parameters
+   (mapv
+     (fn [parameter: Any] -> Any
+       {:name (.-name parameter) :type (.-type parameter)})
+     (.-params query))
+   :bindings
+   (mapv
+     (fn [binding: Any] -> Any
+       {:name (.-name binding) :entity (.-entity binding)})
+     (.-bindings query))
+   :where (mapv query-predicate-plan (.-predicates query))
+   :select (mapv query-column-plan (.-columns query))
+   :result (query-result-plan query)
+   :dependencies
+   (mapv
+     (fn [dependency: Any] -> Any
+       {:entity (.-entity dependency) :field (.-field dependency)})
+     (.-dependencies query))})
+
 (defn fram-plan [checked: Any] -> Any
   (let [application-id (.-application-id checked)]
     {:schemaVersion 2
@@ -131,6 +193,7 @@
                  (fn [entity: Any] -> Any
                    (entity-plan application-id entity))
                  (.-entities checked))
+     :queries (mapv query-plan (or (.-queries checked) []))
      :stateMachines (mapv state-machine-plan (.-state-machines checked))
      :publications (mapv publication-plan (.-publications checked))}))
 

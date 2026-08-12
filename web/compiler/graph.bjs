@@ -55,6 +55,41 @@
    published-state: String
    retired-state: String])
 
+(defrecord GQueryParam [name: String type: String])
+(defrecord GQueryBinding [name: String entity: String])
+(defrecord GQueryOperand
+  [kind: String
+   type: String
+   binding: String?
+   entity: String?
+   field: String?
+   parameter: String?
+   value: Any])
+(defrecord GQueryPredicate
+  [op: String
+   left: GQueryOperand
+   right: GQueryOperand])
+(defrecord GQueryColumn
+  [name: String
+   binding: String
+   entity: String
+   field: String
+   type: String
+   cardinality: String
+   value-kind: String
+   target-entity: String?])
+(defrecord GQueryDependency [entity: String field: String])
+(defrecord GQuery
+  [name: String
+   params: (Vec GQueryParam)
+   bindings: (Vec GQueryBinding)
+   predicates: (Vec GQueryPredicate)
+   columns: (Vec GQueryColumn)
+   result-kind: String
+   default-limit: Int?
+   max-limit: Int?
+   dependencies: (Vec GQueryDependency)])
+
 (defrecord CheckedApplication
   [schema-version: Int
    application-id: String
@@ -67,6 +102,7 @@
    fk-edges: (Vec FkEdge)
    state-machines: (Vec StateMachine)
    publications: (Vec PublicationPolicy)
+   queries: (Vec GQuery)
    persist: IrPersist?
    defstates: (Vec IrDefstate)
    list-details: (Vec IrListDetail)
@@ -699,6 +735,371 @@
       linked
       (if (some? root) [root] []))))
 
+;; --- Named query analysis ---
+
+(defn query-name-map
+  [items: Any
+   name-fn: Any
+   label: String] -> Any
+  (reduce
+    (fn [result item]
+      (let [name (name-fn item)]
+        (if (some? (get result name))
+          (graph-error (str label " '" name "' is duplicated"))
+          (assoc result name item))))
+    {}
+    items))
+
+(defn query-field
+  [entity: GEntity
+   name: String
+   label: String] -> GField
+  (let [field
+        (first
+          (filterv
+            (fn [candidate] (= (.-name candidate) name))
+            (.-fields entity)))]
+    (if (nil? field)
+      (graph-error
+        (str label " names unknown field '" (.-name entity) "." name "'"))
+      field)))
+
+(defn query-type-family [type: String] -> String
+  (cond
+    (or (= type "Int") (= type "Integer")) "integer"
+    (or (= type "Float") (= type "Double") (= type "Number")) "float"
+    (or (= type "Bool") (= type "Boolean")) "boolean"
+    :else type))
+
+(defn query-types-compatible? [left: String right: String] -> Bool
+  (= (query-type-family left) (query-type-family right)))
+
+(defn resolve-query-operand
+  [raw: IrQueryOperand
+   bindings: Any
+   parameters: Any
+   label: String] -> GQueryOperand
+  (let [kind (.-kind raw)]
+    (cond
+      (= kind "parameter")
+        (let [name (or (.-name raw) "")
+              parameter (get parameters name)]
+          (if (nil? parameter)
+            (graph-error (str label " names unknown parameter '$" name "'"))
+            nil)
+          (->GQueryOperand
+            "parameter" (.-type parameter) nil nil nil name nil))
+      (= kind "binding")
+        (let [name (or (.-binding raw) "")
+              entity (get bindings name)]
+          (if (nil? entity)
+            (graph-error (str label " names unknown binding '" name "'"))
+            nil)
+          (->GQueryOperand
+            "binding" "Ref" name (.-name entity) nil nil nil))
+      (= kind "field")
+        (let [binding (or (.-binding raw) "")
+              entity (get bindings binding)]
+          (if (nil? entity)
+            (graph-error (str label " names unknown binding '" binding "'"))
+            nil)
+          (let [field (query-field entity (or (.-field raw) "") label)]
+            (->GQueryOperand
+              "field" (.-type field) binding (.-name entity)
+              (.-name field) nil nil)))
+      (= kind "literal")
+        (->GQueryOperand
+          "literal" (or (.-name raw) "") nil nil nil nil (.-value raw))
+      :else (graph-error (str label " has unknown operand kind '" kind "'")))))
+
+(defn query-state [defstates: Any type: String] -> Any
+  (first (filterv (fn [state] (= (.-name state) type)) defstates)))
+
+(defn coerce-query-literal
+  [operand: GQueryOperand
+   expected-type: String
+   defstates: Any
+   label: String] -> GQueryOperand
+  (if (not (= (.-kind operand) "literal"))
+    operand
+    (let [literal-type (.-type operand)
+          value (.-value operand)
+          state (query-state defstates expected-type)]
+      (if (= literal-type "Keyword")
+        (if (some? state)
+          (do
+            (if (not (some? (get (.-transitions state) value)))
+              (graph-error
+                (str label " names unknown " expected-type " value '" value "'"))
+              nil)
+            (->GQueryOperand
+              "literal" expected-type nil nil nil nil (strip-colon value)))
+          (if (= expected-type "Keyword")
+            (->GQueryOperand
+              "literal" "Keyword" nil nil nil nil (strip-colon value))
+            operand))
+        operand))))
+
+(defn query-operand-bindings [operand: GQueryOperand] -> (Vec String)
+  (if (some? (.-binding operand)) [(or (.-binding operand) "")] []))
+
+(defn analyze-query-predicate
+  [raw: IrQueryPredicate
+   bindings: Any
+   parameters: Any
+   defstates: Any
+   label: String] -> GQueryPredicate
+  (let [left0 (resolve-query-operand (.-left raw) bindings parameters label)
+        right0 (resolve-query-operand (.-right raw) bindings parameters label)
+        left
+        (if (= (.-kind left0) "literal")
+          (coerce-query-literal left0 (.-type right0) defstates label)
+          left0)
+        right
+        (if (= (.-kind right0) "literal")
+          (coerce-query-literal right0 (.-type left0) defstates label)
+          right0)]
+    (if (and (= (.-kind left) "binding") (= (.-kind right) "field"))
+      (let [field-entity (get bindings (or (.-binding right) ""))
+            field (query-field field-entity (or (.-field right) "") label)]
+        (if (or (not (= (.-value-kind field) "ref"))
+                (not (= (.-target-entity field) (.-entity left))))
+          (graph-error (str label " compares an entity binding to an incompatible field"))
+          nil))
+      (if (and (= (.-kind right) "binding") (= (.-kind left) "field"))
+        (let [field-entity (get bindings (or (.-binding left) ""))
+              field (query-field field-entity (or (.-field left) "") label)]
+          (if (or (not (= (.-value-kind field) "ref"))
+                  (not (= (.-target-entity field) (.-entity right))))
+            (graph-error (str label " compares an entity binding to an incompatible field"))
+            nil))
+        (if (or (= (.-kind left) "binding") (= (.-kind right) "binding"))
+          (if (not (and (= (.-kind left) "binding")
+                        (= (.-kind right) "binding")
+                        (= (.-entity left) (.-entity right))))
+            (graph-error (str label " compares incompatible entity bindings"))
+            nil)
+          (if (not (query-types-compatible? (.-type left) (.-type right)))
+            (graph-error
+              (str label " compares incompatible types '" (.-type left)
+                   "' and '" (.-type right) "'"))
+            nil))))
+    (->GQueryPredicate "eq" left right)))
+
+(defn query-binding-connected?
+  [binding: String
+   earlier: (Vec String)
+   predicates: (Vec GQueryPredicate)] -> Bool
+  (some?
+    (first
+      (filterv
+        (fn [predicate]
+          (let [names
+                (into
+                  (query-operand-bindings (.-left predicate))
+                  (query-operand-bindings (.-right predicate)))]
+            (and (.includes names binding)
+                 (some?
+                   (first
+                     (filterv (fn [name] (.includes names name)) earlier))))))
+        predicates))))
+
+(defn query-root-identity-constrained?
+  [root: String
+   identity-field: String
+   predicates: (Vec GQueryPredicate)] -> Bool
+  (some?
+    (first
+      (filterv
+        (fn [predicate]
+          (let [left (.-left predicate)
+                right (.-right predicate)
+                identity?
+                (fn [operand]
+                  (and (= (.-kind operand) "field")
+                       (= (.-binding operand) root)
+                       (= (.-field operand) identity-field)))
+                bound?
+                (fn [operand]
+                  (or (= (.-kind operand) "parameter")
+                      (= (.-kind operand) "literal")))]
+            (or (and (identity? left) (bound? right))
+                (and (identity? right) (bound? left)))))
+        predicates))))
+
+(defn query-dependencies
+  [bindings: (Vec IrQueryBinding)
+   binding-entities: Any
+   predicates: (Vec GQueryPredicate)
+   columns: (Vec GQueryColumn)] -> (Vec GQueryDependency)
+  (let [entries
+        (reduce
+          (fn [result binding]
+            (let [entity (get binding-entities (.-name binding))]
+              (conj result [(.-name entity) (.-name (.-identity-field entity))])))
+          [] bindings)
+        entries
+        (reduce
+          (fn [result predicate]
+            (reduce
+              (fn [acc operand]
+                (if (= (.-kind operand) "field")
+                  (conj acc [(or (.-entity operand) "") (or (.-field operand) "")])
+                  acc))
+              result [(.-left predicate) (.-right predicate)]))
+          entries predicates)
+        entries
+        (into
+          entries
+          (mapv (fn [column] [(.-entity column) (.-field column)]) columns))]
+    (mapv
+      (fn [entry] (->GQueryDependency (nth entry 0) (nth entry 1)))
+      (reduce
+        (fn [unique entry]
+          (if (.includes
+                (mapv (fn [candidate] (str (nth candidate 0) "." (nth candidate 1))) unique)
+                (str (nth entry 0) "." (nth entry 1)))
+            unique
+            (conj unique entry)))
+        [] entries))))
+
+(defn analyze-query
+  [raw: IrQuery
+   entities: (Vec GEntity)
+   defstates: (Vec IrDefstate)] -> GQuery
+  (let [name (.-name raw)
+        label (str "query '" name "'")
+        entities-by-name
+        (query-name-map entities (fn [entity] (.-name entity)) "entity")
+        raw-bindings (.-bindings raw)
+        raw-params (.-params raw)
+        binding-names
+        (query-name-map raw-bindings (fn [binding] (.-name binding))
+                        (str label " binding"))
+        parameters
+        (query-name-map raw-params (fn [parameter] (.-name parameter))
+                        (str label " parameter"))
+        binding-entities
+        (reduce
+          (fn [result binding]
+            (let [entity (get entities-by-name (.-entity-name binding))]
+              (if (nil? entity)
+                (graph-error
+                  (str label " binding '" (.-name binding)
+                       "' names unknown entity '" (.-entity-name binding) "'"))
+                nil)
+              (assoc result (.-name binding) entity)))
+          {} raw-bindings)]
+    (if (= (count raw-bindings) 0)
+      (graph-error (str label " requires at least one entity binding"))
+      nil)
+    (if (= (count (.-selection raw)) 0)
+      (graph-error (str label " requires at least one output projection"))
+      nil)
+    (let [predicates
+          (mapv
+            (fn [predicate]
+              (analyze-query-predicate
+                predicate binding-entities parameters defstates label))
+            (.-predicates raw))
+          checked-bindings
+          (mapv
+            (fn [binding]
+              (->GQueryBinding (.-name binding) (.-entity-name binding)))
+            raw-bindings)
+          columns
+          (mapv
+            (fn [selection]
+              (let [entity (get binding-entities (.-binding selection))]
+                (if (nil? entity)
+                  (graph-error
+                    (str label " output '" (.-name selection)
+                         "' names unknown binding '" (.-binding selection) "'"))
+                  nil)
+                (let [field (query-field entity (.-field selection) label)]
+                  (->GQueryColumn
+                    (.-name selection) (.-binding selection) (.-name entity)
+                    (.-name field) (.-type field) (.-cardinality field)
+                    (.-value-kind field) (.-target-entity field)))))
+            (.-selection raw))
+          output-names
+          (query-name-map columns (fn [column] (.-name column))
+                          (str label " output"))
+          root-binding (first raw-bindings)
+          root-entity (get binding-entities (.-name root-binding))
+          first-column (first columns)
+          result-kind (.-result-kind raw)
+          page (.-page raw)]
+      (doseq [parameter raw-params]
+        (if (not
+              (some?
+                (first
+                  (filterv
+                    (fn [predicate]
+                      (or (= (.-parameter (.-left predicate)) (.-name parameter))
+                          (= (.-parameter (.-right predicate)) (.-name parameter))))
+                    predicates))))
+          (graph-error
+            (str label " parameter '" (.-name parameter) "' is unused"))
+          nil))
+      (loop [index: Int 1]
+        (if (< index (count raw-bindings))
+          (let [binding (.-name (nth raw-bindings index))
+                earlier
+                (mapv (fn [item] (.-name item)) (subvec raw-bindings 0 index))]
+            (if (not (query-binding-connected? binding earlier predicates))
+              (graph-error
+                (str label " binding '" binding "' is disconnected"))
+              nil)
+            (recur (+ index 1)))
+          nil))
+      (if (or (not (= (.-binding first-column) (.-name root-binding)))
+              (not (= (.-field first-column)
+                      (.-name (.-identity-field root-entity)))))
+        (graph-error
+          (str label " must project its root identity as the first output"))
+        nil)
+      (if (and (not (= result-kind "page"))
+               (not
+                 (query-root-identity-constrained?
+                   (.-name root-binding)
+                   (.-name (.-identity-field root-entity))
+                   predicates)))
+        (graph-error (str label " singular result must constrain its root identity"))
+        nil)
+      (if (and (= result-kind "page")
+               (some?
+                 (first
+                   (filterv
+                     (fn [column] (= (.-cardinality column) "multi"))
+                     columns))))
+        (graph-error (str label " paged results cannot project multi fields"))
+        nil)
+      (->GQuery
+        name
+        (mapv
+          (fn [parameter]
+            (->GQueryParam (.-name parameter) (.-type parameter)))
+          raw-params)
+        checked-bindings
+        predicates
+        columns
+        result-kind
+        (if (some? page) (.-default-limit page) nil)
+        (if (some? page) (.-max-limit page) nil)
+        (query-dependencies raw-bindings binding-entities predicates columns)))))
+
+(defn resolve-queries
+  [prog: IrProgram
+   entities: (Vec GEntity)
+   defstates: (Vec IrDefstate)] -> (Vec GQuery)
+  (let [queries (or (.-queries prog) [])]
+    (if (and (> (count queries) 0) (nil? (.-backend prog)))
+      (graph-error "named queries require (backend :fram)")
+      nil)
+    (query-name-map queries (fn [query] (.-name query)) "query")
+    (mapv (fn [query] (analyze-query query entities defstates)) queries)))
+
 (defn check-program [prog: Any] -> CheckedApplication
   (let [app-id (application-id prog)
         entities
@@ -715,7 +1116,8 @@
         fk-edges (resolve-fk-edges entities)
         state-machines
         (resolve-state-machines entities defstates)
-        publications (resolve-publications prog entities state-machines)]
+        publications (resolve-publications prog entities state-machines)
+        queries (resolve-queries prog entities defstates)]
     (->CheckedApplication
       1
       app-id
@@ -728,6 +1130,7 @@
       fk-edges
       state-machines
       publications
+      queries
       (.-persist prog)
       defstates
       (or (.-list-details prog) [])

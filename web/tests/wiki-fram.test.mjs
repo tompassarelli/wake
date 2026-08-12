@@ -180,6 +180,7 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
           }),
         ]),
       ],
+      queries: [],
       stateMachines: [
         {
           entity: "revision",

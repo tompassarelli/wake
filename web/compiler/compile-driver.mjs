@@ -186,11 +186,24 @@ function qualifyPluginProgram(program, use, manifest) {
   const stateNames = new Set(program.defstates.map((state) => state.name));
   const componentNames = new Set(program.components.map((component) => component.name));
   const viewNames = new Set(program.views.map((view) => view.name));
+  const queryNames = new Set((program.queries ?? []).map((query) => query.name));
 
   if (allow.has("schema")) {
     for (const exported of manifest.exports.entities) {
       if (!entityNames.has(exported)) {
         fail(`plugin '${manifest.packageId}' exports missing entity '${exported}'`);
+      }
+    }
+  }
+  if (allow.has("query")) {
+    for (const exported of manifest.exports.queries) {
+      if (!queryNames.has(exported)) {
+        fail(`plugin '${manifest.packageId}' exports missing query '${exported}'`);
+      }
+    }
+    for (const declared of queryNames) {
+      if (!manifest.exports.queries.includes(declared)) {
+        fail(`plugin '${manifest.packageId}' declares unexported query '${declared}'`);
       }
     }
   }
@@ -211,6 +224,18 @@ function qualifyPluginProgram(program, use, manifest) {
         revision_entity: entityNames.has(publication.revision_entity)
           ? qualify(alias, publication.revision_entity)
           : publication.revision_entity,
+      }))
+    : [];
+  const queries = allow.has("query")
+    ? (program.queries ?? []).map((query) => ({
+        ...query,
+        name: qualify(alias, query.name),
+        bindings: query.bindings.map((binding) => ({
+          ...binding,
+          entity_name: entityNames.has(binding.entity_name)
+            ? qualify(alias, binding.entity_name)
+            : binding.entity_name,
+        })),
       }))
     : [];
   const components = allow.has("ui")
@@ -263,7 +288,7 @@ function qualifyPluginProgram(program, use, manifest) {
     : null;
 
   const renamed = new Map();
-  for (const kind of ["entity", "defstate", "publication", "component", "view", "form"]) {
+  for (const kind of ["entity", "defstate", "publication", "query", "component", "view", "form"]) {
     renamed.set(kind, true);
   }
   const declarationProvenance = program.declaration_provenance
@@ -282,6 +307,7 @@ function qualifyPluginProgram(program, use, manifest) {
     layout: allow.has("ui") ? (program.layout ?? null) : null,
     listDetails,
     publications,
+    queries,
     router,
     sourceUnit: program.source_unit,
     theme: allow.has("ui") ? (program.theme ?? null) : null,
@@ -398,6 +424,7 @@ async function linkProgram(root, sourcePath, compilerVersion, parseProgramAt) {
     linked.entities = appendUnique(linked.entities, contribution.entities, "entity");
     linked.defstates = appendUnique(linked.defstates, contribution.defstates, "defstate");
     linked.publications = appendUnique(linked.publications, contribution.publications, "publication");
+    linked.queries = appendUnique(linked.queries ?? [], contribution.queries, "query");
     linked.components = appendUnique(linked.components, contribution.components, "component");
     linked.views = appendUnique(linked.views, contribution.views, "view");
     linked.forms = appendUnique(linked.forms, contribution.forms, "form");
@@ -501,6 +528,13 @@ function operationSurface(resolved) {
   });
 }
 
+function checkedOperationSurface(checked, resolved) {
+  return {
+    exports: operationSurface(resolved),
+    queries: semanticValue(checked.queries ?? []),
+  };
+}
+
 function compilerSourceCommit(webRoot) {
   const result = Bun.spawnSync(["git", "-C", webRoot, "rev-parse", "HEAD"], {
     stderr: "pipe",
@@ -546,7 +580,7 @@ function applicationManifest({
     checkedApplication: { fingerprint, schemaVersion: checked.schema_version },
     compiler: { name: COMPILER_NAME, sourceCommit: compilerCommit, version: compilerVersion },
     digests: {
-      operationSurface: sha256Digest(canonicalDocument(operationSurface(resolved))),
+      operationSurface: sha256Digest(canonicalDocument(checkedOperationSurface(checked, resolved))),
       stateSchema: sha256Digest(canonicalDocument(stateSchema(checked))),
       storageProjection: sha256Digest(canonicalDocument(storageProjection(checked))),
     },

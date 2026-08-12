@@ -572,6 +572,249 @@
                 (str option-name " on publication '" name
                      "' requires a keyword")))))))))
 
+;; --- Named query parsing ---
+
+(defn query-name-part? [code: Int] -> Bool
+  (or (and (>= code 48) (<= code 57))
+      (and (>= code 65) (<= code 90))
+      (and (>= code 97) (<= code 122))
+      (= code 45)
+      (= code 95)))
+
+(defn query-local-name? [name: String] -> Bool
+  (and (> (count name) 0)
+       (not (.includes name "."))
+       (not (.startsWith name "$"))
+       (loop [index: Int 0]
+         (if (>= index (count name))
+           true
+           (if (query-name-part? (.charCodeAt name index))
+             (recur (+ index 1))
+             false)))))
+
+(defn require-query-local-name [value: Any label: String] -> String
+  (let [name (require-symbol value label)]
+    (if (query-local-name? name)
+      name
+      (parse-error
+        (str label
+             " must contain only letters, digits, '-' or '_' and cannot start with '$'")))))
+
+(defn parse-query-param [value: Any query-name: String] -> IrQueryParam
+  (let [items value]
+    (if (or (not (vector? items)) (not (= (count items) 3)))
+      (parse-error
+        (str "query '" query-name
+             "' parameters must be declared as (NAME : TYPE)"))
+      nil)
+    (if (not (kw= (nth items 1 nil) ":"))
+      (parse-error
+        (str "query '" query-name "' parameter must separate name and type with :"))
+      nil)
+    (ir/->IrQueryParam
+      (require-query-local-name
+        (nth items 0 nil) (str "query '" query-name "' parameter name"))
+      (require-symbol
+        (nth items 2 nil) (str "query '" query-name "' parameter type")))))
+
+(defn parse-query-binding [value: Any query-name: String] -> IrQueryBinding
+  (let [items value]
+    (if (or (not (vector? items)) (not (= (count items) 3)))
+      (parse-error
+        (str "query '" query-name
+             "' bindings must be declared as (NAME : ENTITY)"))
+      nil)
+    (if (not (kw= (nth items 1 nil) ":"))
+      (parse-error
+        (str "query '" query-name "' binding must separate name and entity with :"))
+      nil)
+    (ir/->IrQueryBinding
+      (require-query-local-name
+        (nth items 0 nil) (str "query '" query-name "' binding name"))
+      (require-symbol
+        (nth items 2 nil) (str "query '" query-name "' binding entity")))))
+
+(defn split-query-field-ref [name: String] -> Any
+  (let [first-dot (.indexOf name ".")
+        last-dot (.lastIndexOf name ".")]
+    (if (and (> first-dot 0)
+             (= first-dot last-dot)
+             (< first-dot (- (count name) 1)))
+      [(subs name 0 first-dot) (subs name (+ first-dot 1))]
+      nil)))
+
+(defn query-literal-operand [value: Any] -> IrQueryOperand
+  (cond
+    (string? value) (ir/->IrQueryOperand "literal" "String" nil nil value)
+    (number? value)
+      (ir/->IrQueryOperand
+        "literal"
+        (if (js/Number.isSafeInteger value) "Integer" "Float")
+        nil nil value)
+    (boolean? value) (ir/->IrQueryOperand "literal" "Bool" nil nil value)
+    (kw? value)
+      (ir/->IrQueryOperand "literal" "Keyword" nil nil (kw-name value))
+    :else (parse-error "query equality operands must be names or scalar literals")))
+
+(defn parse-query-operand [value: Any query-name: String] -> IrQueryOperand
+  (if (sym? value)
+    (let [name (sym-name value)]
+      (if (.startsWith name "$")
+        (let [parameter (subs name 1)]
+          (if (query-local-name? parameter)
+            (ir/->IrQueryOperand "parameter" parameter nil nil nil)
+            (parse-error
+              (str "query '" query-name "' has invalid parameter reference '"
+                   name "'"))))
+        (let [field-ref (split-query-field-ref name)]
+          (if (some? field-ref)
+            (ir/->IrQueryOperand
+              "field" nil (nth field-ref 0) (nth field-ref 1) nil)
+            (if (query-local-name? name)
+              (ir/->IrQueryOperand "binding" nil name nil nil)
+              (parse-error
+                (str "query '" query-name "' has invalid operand '" name "'")))))))
+    (query-literal-operand value)))
+
+(defn parse-query-predicate [value: Any query-name: String] -> IrQueryPredicate
+  (if (or (not (vector? value))
+          (not (= (count value) 3))
+          (not (sym= (nth value 0 nil) "=")))
+    (parse-error
+      (str "query '" query-name
+           "' predicates must be (= LEFT RIGHT) equality forms"))
+    nil)
+  (ir/->IrQueryPredicate
+    "eq"
+    (parse-query-operand (nth value 1 nil) query-name)
+    (parse-query-operand (nth value 2 nil) query-name)))
+
+(defn parse-query-select [value: Any query-name: String] -> IrQuerySelect
+  (if (or (not (vector? value)) (not (= (count value) 2)))
+    (parse-error
+      (str "query '" query-name
+           "' projections must be declared as (OUTPUT BINDING.FIELD)"))
+    nil)
+  (let [output
+        (require-query-local-name
+          (nth value 0 nil) (str "query '" query-name "' output name"))
+        operand (parse-query-operand (nth value 1 nil) query-name)]
+    (if (not (= (.-kind operand) "field"))
+      (parse-error
+        (str "query '" query-name "' projection '" output
+             "' must select a bound field"))
+      nil)
+    (ir/->IrQuerySelect output (or (.-binding operand) "") (or (.-field operand) ""))))
+
+(defn positive-safe-int? [value: Any] -> Bool
+  (and (number? value)
+       (js/Number.isSafeInteger value)
+       (> value 0)))
+
+(defn parse-query-page [value: Any query-name: String] -> IrQueryPage
+  (let [items (require-vector value (str "query '" query-name "' :page"))]
+    (if (not (= (count items) 4))
+      (parse-error
+        (str "query '" query-name "' :page must be [default N max N]"))
+      nil)
+    (if (or (not (sym= (nth items 0 nil) "default"))
+            (not (sym= (nth items 2 nil) "max")))
+      (parse-error
+        (str "query '" query-name "' :page must be [default N max N]"))
+      nil)
+    (let [default-limit (nth items 1 nil)
+          max-limit (nth items 3 nil)]
+      (if (or (not (positive-safe-int? default-limit))
+              (not (positive-safe-int? max-limit))
+              (> default-limit max-limit)
+              (> max-limit 247))
+        (parse-error
+          (str "query '" query-name
+               "' page limits must be positive integers with default <= max <= 247"))
+        nil)
+      (ir/->IrQueryPage default-limit max-limit))))
+
+(defn parse-query [form: Any] -> IrQuery
+  (let [name (require-symbol (nth form 1 nil) "query name")]
+    (loop [index: Int 2
+           params: Any nil
+           bindings: Any nil
+           predicates: Any nil
+           selection: Any nil
+           result-kind: String? nil
+           page: IrQueryPage? nil
+           seen: (Vec String) []]
+      (if (>= index (count form))
+        (do
+          (doseq [required [":params" ":from" ":where" ":select" ":result"]]
+            (if (not (.includes seen required))
+              (parse-error (str "query '" name "' requires " required))
+              nil))
+          (if (and (= result-kind "page") (nil? page))
+            (parse-error (str "query '" name "' page result requires :page"))
+            nil)
+          (if (and (not (= result-kind "page")) (some? page))
+            (parse-error
+              (str "query '" name "' only a page result may declare :page"))
+            nil)
+          (ir/->IrQuery
+            name (or params []) (or bindings []) (or predicates [])
+            (or selection []) (or result-kind "") page))
+        (let [option
+              (require-keyword
+                (nth form index nil) (str "query '" name "' option"))
+              value
+              (require-option-value form index (str "query '" name "' " option))]
+          (if (not (.includes [":params" ":from" ":where" ":select" ":result" ":page"] option))
+            (parse-error (str "unknown option on query '" name "': " option))
+            nil)
+          (if (.includes seen option)
+            (parse-error (str "duplicate option " option " on query '" name "'"))
+            nil)
+          (cond
+            (= option ":params")
+              (recur
+                (+ index 2)
+                (mapv
+                  (fn [item] (parse-query-param item name))
+                  (require-vector value (str "query '" name "' :params")))
+                bindings predicates selection result-kind page (conj seen option))
+            (= option ":from")
+              (recur
+                (+ index 2) params
+                (mapv
+                  (fn [item] (parse-query-binding item name))
+                  (require-vector value (str "query '" name "' :from")))
+                predicates selection result-kind page (conj seen option))
+            (= option ":where")
+              (recur
+                (+ index 2) params bindings
+                (mapv
+                  (fn [item] (parse-query-predicate item name))
+                  (require-vector value (str "query '" name "' :where")))
+                selection result-kind page (conj seen option))
+            (= option ":select")
+              (recur
+                (+ index 2) params bindings predicates
+                (mapv
+                  (fn [item] (parse-query-select item name))
+                  (require-vector value (str "query '" name "' :select")))
+                result-kind page (conj seen option))
+            (= option ":result")
+              (let [kind (require-keyword value (str "query '" name "' :result"))]
+                (if (not (.includes [":one" ":optional" ":page"] kind))
+                  (parse-error
+                    (str "query '" name
+                         "' :result must be :one, :optional, or :page"))
+                  nil)
+                (recur
+                  (+ index 2) params bindings predicates selection
+                  (subs kind 1) page (conj seen option)))
+            :else
+              (recur
+                (+ index 2) params bindings predicates selection result-kind
+                (parse-query-page value name) (conj seen option))))))))
+
 ;; --- Detail tab parsing ---
 
 (defn parse-detail-tab [form: Any] -> Any
@@ -1167,6 +1410,9 @@
           (= form-name "publication")
             (let [value (parse-publication form)]
               (->ParseResult "publication" (.-name value) value provenance))
+          (= form-name "query")
+            (let [value (parse-query form)]
+              (->ParseResult "query" (.-name value) value provenance))
           (= form-name "list-detail")
             (let [value (parse-list-detail form)]
               (->ParseResult "list-detail" (.-entity-name value) value provenance))
@@ -1260,6 +1506,7 @@
           persists  (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "persist")) parsed))
           defstates (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "defstate")) parsed))
           publications (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "publication")) parsed))
+          queries   (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "query")) parsed))
           lds       (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "list-detail")) parsed))
           smart-forms (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "form")) parsed))
           theme     (first (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "theme")) parsed)))
@@ -1284,7 +1531,7 @@
       (ir/->IrProgram
         source-unit application uses declaration-provenance
         (or ns-name "wake.app")
-        backend entities persist defstates publications lds smart-forms theme components views
+        backend entities persist defstates publications queries lds smart-forms theme components views
         router layout))))
 
 (defn parse-program [src: String] -> Any

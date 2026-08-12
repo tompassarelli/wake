@@ -56,6 +56,31 @@
    draft-state: String
    published-state: String
    retired-state: String])
+(defrecord IrQueryParam [name: String type: String])
+(defrecord IrQueryBinding [name: String entity-name: String])
+(defrecord IrQueryOperand
+  [kind: String
+   name: String?
+   binding: String?
+   field: String?
+   value: Any])
+(defrecord IrQueryPredicate
+  [op: String
+   left: IrQueryOperand
+   right: IrQueryOperand])
+(defrecord IrQuerySelect
+  [name: String
+   binding: String
+   field: String])
+(defrecord IrQueryPage [default-limit: Int max-limit: Int])
+(defrecord IrQuery
+  [name: String
+   params: (Vec IrQueryParam)
+   bindings: (Vec IrQueryBinding)
+   predicates: (Vec IrQueryPredicate)
+   selection: (Vec IrQuerySelect)
+   result-kind: String
+   page: IrQueryPage?])
 (defrecord IrDetailTab
   [label: String
    content-type: String
@@ -124,6 +149,7 @@
    persist: IrPersist?
    defstates: (Vec IrDefstate)
    publications: (Vec IrPublication)
+   queries: (Vec IrQuery)
    list-details: (Vec IrListDetail)
    forms: (Vec IrSmartForm)
    theme: IrTheme?

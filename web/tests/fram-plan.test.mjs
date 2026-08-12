@@ -225,6 +225,7 @@ test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
     "semanticFingerprint",
     "pluginClosure",
     "entities",
+    "queries",
     "stateMachines",
     "publications",
   ]);
@@ -232,6 +233,7 @@ test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
     plan.entities.map((entity) => entity.name),
     ["page", "revision"],
   );
+  assert.deepEqual(plan.queries, []);
 
   const page = plan.entities[0];
   assert.equal(page.storageId, "wiki/entity/page");
