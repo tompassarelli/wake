@@ -149,3 +149,5 @@ export function createWakeBunAdapter(input: WakeBunAdapterInput): WakeBunAdapter
 export function loadApplicationReceipt(
   input: LoadApplicationReceiptInput,
 ): Promise<WakeApplicationReceipt>;
+
+export function rejectProviderInput(message: string, detail?: unknown): never;

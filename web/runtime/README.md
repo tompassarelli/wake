@@ -9,6 +9,7 @@ no compiler, plugin implementation, dynamic plugin loader, or raw FRAM escape.
 import {
   createWakeBunAdapter,
   loadApplicationReceipt,
+  rejectProviderInput,
 } from "@tompassarelli/wake-runtime";
 
 const applicationReceipt = await loadApplicationReceipt({
@@ -67,3 +68,7 @@ application-bound cursors using the injected rotating AES-GCM key set.
 bytes bound by the deployment receipt. `providers` must exactly match
 the provider bindings in the checked FRAM plan; extra, missing, accessor, or
 non-function entries fail startup.
+
+Checked providers can call `rejectProviderInput(message, detail?)` to return a
+trusted, public `command/provider-rejected` error. Other thrown provider errors
+are normalized to `command/provider-failed` without exposing their cause.

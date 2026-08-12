@@ -89,7 +89,14 @@ describe("@tompassarelli/wake-runtime package", () => {
       expect(Object.keys(publicModule).sort()).toEqual([
         "createWakeBunAdapter",
         "loadApplicationReceipt",
+        "rejectProviderInput",
       ]);
+      expect(() => publicModule.rejectProviderInput("invalid content", { field: "body" }))
+        .toThrow(expect.objectContaining({
+          code: "command/provider-rejected",
+          detail: { field: "body" },
+          message: "invalid content",
+        }));
       const packageJson = await Bun.file(`${extracted}/package/package.json`).json();
       expect(packageJson.exports).toEqual({
         ".": {
