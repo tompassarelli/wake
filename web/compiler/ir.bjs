@@ -326,6 +326,11 @@
    (value IrCommandExpr)
    (allowed-current IrCommandExpr?)
    (omit-if-null Bool)])
+(defunion IrCommandWriteSpec
+  (IrFieldCommandWrite [(write IrCommandWrite)])
+  (IrExtensionCommandWrite
+    [(port IrEntityFieldsPortRef)
+     (input String)]))
 (defunion IrCommandStep
   (IrAssertStep [(predicate IrCommandPredicate)])
   (IrRequireStep
@@ -337,11 +342,11 @@
   (IrCreateStep
     [(entity IrEntityRef)
      (id IrCommandExpr)
-     (fields (Vec IrCommandWrite))])
+     (fields (Vec IrCommandWriteSpec))])
   (IrUpdateStep
     [(entity IrEntityRef)
      (id IrCommandExpr)
-     (fields (Vec IrCommandWrite))
+     (fields (Vec IrCommandWriteSpec))
      (when IrCommandPredicate?)]))
 (defrecord IrCommandInputField [(name String) (value-type IrValueTypeSpec)])
 (defunion IrCommandInjection
