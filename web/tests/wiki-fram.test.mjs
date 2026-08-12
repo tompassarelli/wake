@@ -118,9 +118,17 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
 
     const framPath = join(outputDir, "app.fram.json");
     const appPath = join(outputDir, "app.js");
+    const clientPath = join(outputDir, "wake-client.js");
+    const deploymentPath = join(outputDir, "app.wake.deployment.json");
     const manifestPath = join(outputDir, "app.wake.manifest.json");
     assert.equal(existsSync(framPath), true, "app.fram.json was not emitted");
     assert.equal(existsSync(appPath), true, "app.js was not emitted");
+    assert.equal(existsSync(clientPath), true, "wake-client.js was not emitted");
+    assert.equal(
+      existsSync(deploymentPath),
+      true,
+      "app.wake.deployment.json was not emitted",
+    );
     assert.equal(
       existsSync(manifestPath),
       true,
@@ -129,7 +137,9 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
     assert.deepEqual(readdirSync(outputDir).sort(), [
       "app.fram.json",
       "app.js",
+      "app.wake.deployment.json",
       "app.wake.manifest.json",
+      "wake-client.js",
     ]);
 
     const framSource = readFileSync(framPath, "utf8");
@@ -152,6 +162,12 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
       backend: "fram",
       semanticFingerprint: framPlan.semanticFingerprint,
       pluginClosure: [],
+      composition: {
+        extensions: [],
+        fills: [],
+        mounts: [],
+        providers: [],
+      },
       entities: [
         entityPlan(WIKI_APP, "page", "slug", "String", [
           fieldPlan(WIKI_APP, "page", "slug", "String"),
@@ -180,7 +196,26 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
           }),
         ]),
       ],
+      commands: [],
       queries: [],
+      routes: [
+        {
+          inputParameters: [],
+          parameters: [],
+          path: "pages",
+          queries: [],
+          requiredProps: [],
+          view: "pages",
+        },
+        {
+          inputParameters: [],
+          parameters: [],
+          path: "revisions",
+          queries: [],
+          requiredProps: [],
+          view: "revisions",
+        },
+      ],
       stateMachines: [
         {
           entity: "revision",

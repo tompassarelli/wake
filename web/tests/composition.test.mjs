@@ -223,7 +223,8 @@ describe("W3 checked application composition", () => {
     expect(plan.composition.extensions[0]).toMatchObject({
       kind: "entity-fields",
       package_id: "wake-composition-plugin",
-      target: "release",
+      port: "release-plugin.release-fields",
+      target: "release-plugin.release",
     });
     expect(plan.composition.fills[0]).toMatchObject({
       component: "application-release-card",
