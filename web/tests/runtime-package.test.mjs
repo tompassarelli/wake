@@ -10,6 +10,12 @@ const repositoryRoot = `${webRoot}/..`;
 const packer = `${webRoot}/bin/wake-runtime-pack`;
 const archiveName = "tompassarelli-wake-runtime-1.1.0.tgz";
 const receiptName = "tompassarelli-wake-runtime-1.1.0.receipt.json";
+const releaseTagEnvironment = Object.freeze({
+  ...process.env,
+  GIT_COMMITTER_DATE: "2026-08-12T00:01:00Z",
+  GIT_COMMITTER_EMAIL: "wake@example.invalid",
+  GIT_COMMITTER_NAME: "Wake Release",
+});
 const expectedFiles = [
   "package/LICENSE-APACHE",
   "package/LICENSE-MIT",
@@ -88,7 +94,7 @@ function releaseSource(scratch) {
   run(["git", "commit", "-q", "-m", "Wake 1.1.0 runtime"], { cwd: seed, env: environment });
   run(["git", "tag", "-a", "v1.1.0", "-m", "Wake v1.1.0"], {
     cwd: seed,
-    env: { ...environment, GIT_COMMITTER_DATE: "2026-08-12T00:01:00Z" },
+    env: releaseTagEnvironment,
   });
   const sourceCommit = new TextDecoder().decode(run(["git", "rev-parse", "HEAD"], {
     cwd: seed,
@@ -241,8 +247,14 @@ describe("@tompassarelli/wake-runtime package", () => {
       ]).exitCode).not.toBe(0);
 
       run(["git", "tag", "-d", "v1.1.0"], { cwd: source.first });
-      run(["git", "tag", "-a", "v1.1.0", "-m", "Wake v1.1.0"], { cwd: source.first });
-      run(["git", "tag", "-a", "v1.1.1", "-m", "Wake v1.1.1"], { cwd: source.first });
+      run(["git", "tag", "-a", "v1.1.0", "-m", "Wake v1.1.0"], {
+        cwd: source.first,
+        env: releaseTagEnvironment,
+      });
+      run(["git", "tag", "-a", "v1.1.1", "-m", "Wake v1.1.1"], {
+        cwd: source.first,
+        env: releaseTagEnvironment,
+      });
       expect(fails([
         packer, "--source-root", source.first, "--version", "v1.1.1",
         "--output", `${scratch}/mismatched`,
