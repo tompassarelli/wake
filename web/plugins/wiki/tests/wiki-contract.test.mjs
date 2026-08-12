@@ -379,6 +379,9 @@ describe("wake-wiki K0C data contract", () => {
       expect(contract).toContain(`tag: \"${tag}\"`);
     }
     expect(contract).toContain("SafeUrl");
+    expect(contract).toContain('{ kind: "external", href: string }');
+    expect(contract).toContain('{ kind: "internal", reference: string }');
+    expect(contract).toContain("never a bare string");
     expect(contract).toContain("rejects unknown keys");
     expect(contract).toContain("raw source remains available");
     expect((await jsonAt("package.json")).files).toContain("SAFE-DOCUMENT.md");

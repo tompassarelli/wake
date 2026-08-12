@@ -30,10 +30,21 @@ Inline =
   | { tag: "lineBreak" }
 ```
 
-`SafeUrl` is a checked URL value, not a string alias. Its accepted schemes and
-internal-reference policy belong to the application provider binding. Raw
-HTML, SVG, images, styles, event handlers, trusted strings, executable MDX,
-ambient authority, and extra properties are absent from this union.
+`SafeUrl` is this exact closed tagged union, never a bare string:
+
+```text
+SafeUrl =
+  { kind: "external", href: string }
+  | { kind: "internal", reference: string }
+```
+
+Its accepted external schemes and internal-reference policy belong to the
+application provider binding. Wake still rejects extra fields, empty values,
+and values outside the configured document envelope. The renderer consumes
+only resolved safe navigation; it never copies a provider value into an HTML
+sink. Raw HTML, SVG, images, styles, event handlers, trusted strings,
+executable MDX, ambient authority, and extra properties are absent from this
+union.
 
 The provider input is exactly:
 
