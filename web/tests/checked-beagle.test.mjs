@@ -394,3 +394,33 @@ rejected("rejects unknown default routes", (ast) => {
 rejected("rejects unsafe page bounds with the legacy diagnostic", (ast) => {
   form(ast, "published-revisions").value.args[6].args[1].value = 300;
 }, "page limits must be positive integers with default <= max <= 247");
+
+rejected("rejects bare local Ref as a Wake IR sentinel collision", (ast) => {
+  form(ast, "Page").fields[1].ann = { kind: "prim", name: "Ref" };
+}, "uses reserved Wake IR type 'Ref' without wake/Ref");
+
+rejected("rejects bare local Derived as a Wake IR sentinel collision", (ast) => {
+  form(ast, "Page").fields[1].ann = { kind: "prim", name: "Derived" };
+}, "uses reserved Wake IR type 'Derived' without wake/Derived");
+
+rejected("rejects invalid query parameter identifiers", (ast) => {
+  const paramsRecordName = form(ast, "published-revisions").value.args[1];
+  paramsRecordName.value = "published-revisions-params";
+  const paramsRecord = structuredClone(form(ast, "published-revisions-bindings"));
+  paramsRecord.name = "published-revisions-params";
+  paramsRecord.fields = [{ ann: { kind: "prim", name: "String" }, name: "bad.name" }];
+  ast.forms.push(paramsRecord);
+}, "parameter name must contain only letters, digits, '-' or '_'");
+
+rejected("rejects invalid query binding identifiers", (ast) => {
+  form(ast, "published-revisions-bindings").fields[0].name = "bad.name";
+}, "binding name must contain only letters, digits, '-' or '_'");
+
+rejected("rejects invalid query field references", (ast) => {
+  const field = form(ast, "published-revisions").value.args[5].items[0].args[1];
+  field.args[1].value = "bad.name";
+}, "field must contain only letters, digits, '-' or '_'");
+
+rejected("rejects invalid query output identifiers", (ast) => {
+  form(ast, "published-revisions").value.args[5].items[0].args[0].value = "bad.name";
+}, "name must contain only letters, digits, '-' or '_'");

@@ -472,6 +472,9 @@ function wakeFieldType(
   if (valueType.name.includes("/")) {
     fail(`${label} has unsupported imported type '${valueType.name}'`);
   }
+  if (valueType.name === "Ref" || valueType.name === "Derived") {
+    fail(`${label} uses reserved Wake IR type '${valueType.name}' without wake/${valueType.name}`);
+  }
   return { cardinality, targetEntity: null, type: valueType.name };
 }
 
@@ -723,6 +726,13 @@ function repeatedName(values, label) {
   }
 }
 
+function queryLocalName(value, label) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9_-]+$/u.test(value)) {
+    fail(`${label} must contain only letters, digits, '-' or '_' and cannot start with '$'`);
+  }
+  return value;
+}
+
 function descriptorName(form, value, label) {
   if (value !== form.name) {
     fail(`${label} descriptor name '${value}' does not match binding '${form.name}'`);
@@ -739,8 +749,8 @@ function queryOperand(node, alias, label) {
       _tag: "IrQueryOperand",
       kind: "field",
       name: null,
-      binding: keywordLiteral(args[0], `${label} binding`),
-      field: keywordLiteral(args[1], `${label} field`),
+      binding: queryLocalName(keywordLiteral(args[0], `${label} binding`), `${label} binding`),
+      field: queryLocalName(keywordLiteral(args[1], `${label} field`), `${label} field`),
       value: null,
     };
   }
@@ -750,7 +760,10 @@ function queryOperand(node, alias, label) {
     return {
       _tag: "IrQueryOperand",
       kind: "parameter",
-      name: keywordLiteral(args[0], `${label} parameter`),
+      name: queryLocalName(
+        keywordLiteral(args[0], `${label} parameter`),
+        `${label} parameter`,
+      ),
       binding: null,
       field: null,
       value: null,
@@ -763,7 +776,10 @@ function queryOperand(node, alias, label) {
       _tag: "IrQueryOperand",
       kind: "binding",
       name: null,
-      binding: keywordLiteral(args[0], `${label} binding`),
+      binding: queryLocalName(
+        keywordLiteral(args[0], `${label} binding`),
+        `${label} binding`,
+      ),
       field: null,
       value: null,
     };
@@ -811,7 +827,7 @@ function querySelection(node, alias, label) {
   if (operand.kind !== "field") fail(`${label} must select a bound field`);
   return {
     _tag: "IrQuerySelect",
-    name: keywordLiteral(args[0], `${label} name`),
+    name: queryLocalName(keywordLiteral(args[0], `${label} name`), `${label} name`),
     binding: operand.binding,
     field: operand.field,
   };
@@ -1220,18 +1236,28 @@ export function programFromCheckedAst(
       `query '${form.name}' capabilities`,
     ).map((capability) => stringLiteral(capability, `query '${form.name}' capability`));
     repeatedName(capabilities, `query '${form.name}' capability`);
-    const params = (paramsRecord?.fields ?? []).map((field) => ({
-      _tag: "IrQueryParam",
-      name: field.name,
-      type: wakeFieldType(
-        field.ann,
-        wakeAlias,
-        entityByRecord,
-        `query '${form.name}' param '${field.name}'`,
-        { allowDiagnosticMarkers: true },
-      ).type,
-    }));
+    const params = (paramsRecord?.fields ?? []).map((field) => {
+      const parameterName = queryLocalName(
+        field.name,
+        `query '${form.name}' parameter name`,
+      );
+      return {
+        _tag: "IrQueryParam",
+        name: parameterName,
+        type: wakeFieldType(
+          field.ann,
+          wakeAlias,
+          entityByRecord,
+          `query '${form.name}' param '${field.name}'`,
+          { allowDiagnosticMarkers: true },
+        ).type,
+      };
+    });
     const bindings = bindingsRecord.fields.map((field) => {
+      const bindingName = queryLocalName(
+        field.name,
+        `query '${form.name}' binding name`,
+      );
       if (field.ann?.kind !== "prim") {
         fail(`query '${form.name}' binding '${field.name}' must name an entity record`);
       }
@@ -1241,7 +1267,7 @@ export function programFromCheckedAst(
       }
       return {
         _tag: "IrQueryBinding",
-        name: field.name,
+        name: bindingName,
         entity_name: entityName,
       };
     });
