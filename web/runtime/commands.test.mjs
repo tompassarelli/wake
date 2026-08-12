@@ -52,7 +52,10 @@ const command = Object.freeze({
       provider: "content-digest",
       input: {
         kind: "record",
-        fields: [{ name: "content", value: input("content") }],
+        fields: [
+          { name: "content", value: input("content") },
+          { name: "links", value: input("links") },
+        ],
       },
       type: stringType,
     },
@@ -308,7 +311,10 @@ test("compound command lowers mixed create, guarded updates, requirements, and r
   )));
   assert.equal(fixture.calls.now, 1);
   assert.equal(fixture.calls.ids.length, 1);
-  assert.deepEqual(fixture.calls.providers, [{ content: "new content" }]);
+  assert.deepEqual(fixture.calls.providers, [{
+    content: "new content",
+    links: ["entry-2", "entry-3"],
+  }]);
 });
 
 test("null branch lowers exact zero-or-one clear and omits conditional update", async () => {
@@ -419,4 +425,41 @@ test("result-changing fields outside normalized caller input do not change its d
   assert.equal(a.inputDigest, b.inputDigest);
   assert.equal(a.receiptId, b.receiptId);
   assert.notEqual(a.result.version, b.result.version);
+});
+
+test("providers cannot mutate digest-bound input, authority, or validated injected values", async () => {
+  let calls = 0;
+  const fixture = harness({
+    providers: {
+      async "content-digest"(value, context) {
+        calls += 1;
+        assert.equal(Object.isFrozen(value), true);
+        assert.equal(Object.isFrozen(value.links), true);
+        assert.equal(Object.isFrozen(context.actor), true);
+        assert.equal(Object.isFrozen(context.actor.capabilities), true);
+        assert.throws(() => { value.content = "tampered"; }, TypeError);
+        assert.throws(() => { value.links.push("entry-evil"); }, TypeError);
+        assert.throws(() => { context.actor.id = "actor-evil"; }, TypeError);
+        return "digest-original";
+      },
+    },
+  });
+  const result = await fixture.runtime.invoke("replace-release", "request-provider-freeze", {
+    content: "original",
+    entry: "entry-1",
+    expected: null,
+    links: ["entry-2"],
+  }, authority);
+
+  assert.equal(calls, 1);
+  assert.equal(result.result.entry, "entry-1");
+  const transaction = fixture.calls.transactions[0];
+  assert.ok(transaction.requireUnique.some(requirement => (
+    JSON.stringify(requirement.subject) === JSON.stringify(subject("entry", "entry-2"))
+  )));
+  const receiptCreate = transaction.creates.at(-1);
+  assert.ok(receiptCreate.fields.some(field => (
+    JSON.stringify(field.predicate) === JSON.stringify(predicate("receipt", "actor"))
+      && field.value[1] === "actor-1"
+  )));
 });

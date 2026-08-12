@@ -73,6 +73,16 @@ function defineData(target, key, value) {
   });
 }
 
+function deepFreeze(value) {
+  if (value === null || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const item of Array.isArray(value) ? value : Object.values(value)) deepFreeze(item);
+  return Object.freeze(value);
+}
+
+function frozenSnapshot(value) {
+  return deepFreeze(cloneJson(value));
+}
+
 function validateType(type, label) {
   if (!plainObject(type)) fail("command/invalid-plan", `${label} must be a type descriptor`);
   const kind = nonempty(type.kind, `${label}.kind`);
@@ -820,7 +830,10 @@ function checkedActor(value) {
       || value.capabilities.some(capability => typeof capability !== "string" || capability.length === 0)) {
     fail("command/invalid-authority", "invoke requires a host-derived actor and capabilities");
   }
-  return value;
+  return Object.freeze({
+    capabilities: Object.freeze([...value.capabilities]),
+    id: value.id,
+  });
 }
 
 export function createCommandRuntime(plan, {
@@ -862,7 +875,7 @@ export function createCommandRuntime(plan, {
       );
     }
 
-    const normalized = normalizedInput(command, input);
+    const normalized = deepFreeze(normalizedInput(command, input));
     const inputDigest = sha256Digest(canonicalDocument({
       actor: actor.id,
       applicationId: compiled.applicationId,
@@ -886,12 +899,12 @@ export function createCommandRuntime(plan, {
     );
     if (prior !== null) return prior;
 
-    const receiptTime = normalizeValue(
+    const receiptTime = deepFreeze(normalizeValue(
       await now(),
       { kind: "instant" },
       "host receipt time",
       "command/provider-output",
-    );
+    ));
     const environment = {
       actor,
       injected: {},
@@ -916,20 +929,32 @@ export function createCommandRuntime(plan, {
         if (typeof provider !== "function") {
           fail("command/missing-provider", `provider '${injection.provider}' is not bound`);
         }
-        value = await provider(evaluate(injection.input, environment), Object.freeze({
-          actor,
-          command: command.name,
-        }));
+        try {
+          value = await provider(
+            frozenSnapshot(evaluate(injection.input, environment)),
+            Object.freeze({ actor, command: command.name }),
+          );
+        } catch (error) {
+          if (error instanceof CommandError && error.code === "command/provider-rejected") {
+            throw error;
+          }
+          fail(
+            "command/provider-failed",
+            `provider '${injection.provider}' failed`,
+            { provider: injection.provider },
+            { cause: error },
+          );
+        }
       }
       defineData(
         environment.injected,
         injection.name,
-        normalizeValue(
+        deepFreeze(normalizeValue(
           value,
           injection.type,
           `injection '${injection.name}'`,
           "command/provider-output",
-        ),
+        )),
       );
     }
 
