@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "policyId": "handbook-release",
+  "version": 1,
+  "rules": {
+    "requireTitle": true,
+    "requireSummary": true,
+    "requireDifferentAuthorAndPublisher": true
+  }
+}

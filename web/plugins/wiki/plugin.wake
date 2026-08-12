@@ -1,0 +1,5 @@
+(ns wake.plugins.wiki)
+
+;; K0's public data contract is declared by wake-plugin.json. Contribution
+;; source forms land with the single W0 linker grammar; this package does not
+;; invent or execute a parallel expansion language.

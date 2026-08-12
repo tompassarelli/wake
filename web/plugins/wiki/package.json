@@ -1,0 +1,16 @@
+{
+  "name": "wake-wiki",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "First-party declarative wiki application plugin for Wake",
+  "license": "MIT OR Apache-2.0",
+  "files": [
+    "README.md",
+    "plugin.wake",
+    "wake-plugin.json"
+  ],
+  "scripts": {
+    "test": "bun test tests"
+  }
+}
