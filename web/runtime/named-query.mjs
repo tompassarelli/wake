@@ -46,6 +46,13 @@ function exactKeys(value, allowed, label, code) {
   }
 }
 
+function exactRecord(value, keys, label) {
+  exactKeys(value, keys, label, "gateway/invalid-plan");
+  if (Object.keys(value).length !== keys.length || keys.some(key => !own(value, key))) {
+    fail("gateway/invalid-plan", `${label} must contain exactly ${keys.join(", ")}`);
+  }
+}
+
 function canonicalInteger(value, label, { nonnegative = false } = {}) {
   let text;
   if (typeof value === "bigint") text = value.toString();
@@ -443,7 +450,7 @@ function parameterMap(parameters, label) {
   if (!Array.isArray(parameters)) fail("gateway/invalid-plan", `${label}.parameters must be an array`);
   const map = new Map();
   const list = parameters.map((parameter, index) => {
-    if (!plainObject(parameter)) fail("gateway/invalid-plan", `${label}.parameters[${index}] must be an object`);
+    exactRecord(parameter, ["name", "type"], `${label}.parameters[${index}]`);
     const name = requiredName(parameter.name, `${label}.parameters[${index}].name`);
     const type = requiredName(parameter.type, `${label}.parameters[${index}].type`);
     if (type === "Ref") fail("gateway/invalid-plan", `${label} parameter ${name} cannot be an unqualified Ref`);
@@ -461,7 +468,7 @@ function bindingMap(bindings, surface, label) {
   }
   const map = new Map();
   const list = bindings.map((binding, index) => {
-    if (!plainObject(binding)) fail("gateway/invalid-plan", `${label}.bindings[${index}] must be an object`);
+    exactRecord(binding, ["name", "entity"], `${label}.bindings[${index}]`);
     const name = requiredName(binding.name, `${label}.bindings[${index}].name`);
     const entityName = requiredName(binding.entity, `${label}.bindings[${index}].entity`);
     if (map.has(name)) fail("gateway/invalid-plan", `${label} binding ${name} is duplicated`);
@@ -495,7 +502,11 @@ function compatibleOperands(left, right) {
 }
 
 function compileQuery(entry, surface, queryIndex) {
-  if (!plainObject(entry)) fail("gateway/invalid-plan", `queries[${queryIndex}] must be an object`);
+  exactRecord(
+    entry,
+    ["name", "parameters", "bindings", "where", "select", "result", "dependencies"],
+    `queries[${queryIndex}]`,
+  );
   const name = requiredName(entry.name, `queries[${queryIndex}].name`);
   const label = `query ${name}`;
   const parameters = parameterMap(entry.parameters, label);
@@ -529,21 +540,39 @@ function compileQuery(entry, surface, queryIndex) {
     if (!plainObject(raw)) fail("gateway/invalid-plan", `${operandLabel} must be an operand`);
     switch (raw.kind) {
       case "parameter": {
+        exactRecord(raw, ["kind", "name", "type"], operandLabel);
         const parameter = parameters.map.get(requiredName(raw.name, `${operandLabel}.name`));
         if (!parameter) fail("gateway/invalid-plan", `${operandLabel} names unknown parameter ${raw.name}`);
+        if (raw.type !== parameter.type) {
+          fail("gateway/invalid-plan", `${operandLabel}.type does not match parameter ${parameter.name}`);
+        }
         return { kind: "parameter", parameter, type: parameter.type };
       }
       case "binding": {
+        exactRecord(raw, ["kind", "binding", "entity"], operandLabel);
         const binding = bindings.map.get(requiredName(raw.binding, `${operandLabel}.binding`));
         if (!binding) fail("gateway/invalid-plan", `${operandLabel} names unknown binding ${raw.binding}`);
+        if (raw.entity !== binding.entity.name) {
+          fail("gateway/invalid-plan", `${operandLabel}.entity does not match binding ${binding.name}`);
+        }
         return { kind: "binding", binding, entity: binding.entity, type: "Ref" };
       }
       case "field": {
+        const fieldKeys = raw.type === "Ref"
+          ? ["kind", "binding", "entity", "field", "type", "targetEntity"]
+          : ["kind", "binding", "entity", "field", "type"];
+        exactRecord(raw, fieldKeys, operandLabel);
         const reference = fieldOperand(raw.binding, raw.field, operandLabel);
+        if (raw.entity !== reference.binding.entity.name
+            || raw.type !== reference.field.type
+            || (reference.field.valueKind === "ref" && raw.targetEntity !== reference.field.targetName)) {
+          fail("gateway/invalid-plan", `${operandLabel} metadata does not match its checked field plan`);
+        }
         predicateFields.add(reference);
         return { kind: "field", ...reference, type: reference.field.type };
       }
       case "literal": {
+        exactRecord(raw, ["kind", "type", "value"], operandLabel);
         const type = requiredName(raw.type, `${operandLabel}.type`);
         return {
           kind: "literal",
@@ -558,7 +587,8 @@ function compileQuery(entry, surface, queryIndex) {
 
   if (!Array.isArray(entry.where)) fail("gateway/invalid-plan", `${label}.where must be an array`);
   const predicates = entry.where.map((source, index) => {
-    if (!plainObject(source) || source.op !== "eq" || !own(source, "left") || !own(source, "right")) {
+    exactRecord(source, ["op", "left", "right"], `${label}.where[${index}]`);
+    if (source.op !== "eq") {
       fail("gateway/invalid-plan", `${label}.where[${index}] must be an equality predicate`);
     }
     const left = operand(source.left, `${label}.where[${index}].left`);
@@ -575,6 +605,10 @@ function compileQuery(entry, surface, queryIndex) {
   const outputNames = new Set();
   const columns = entry.select.map((column, index) => {
     if (!plainObject(column)) fail("gateway/invalid-plan", `${label}.select[${index}] must be an object`);
+    const columnKeys = column.valueKind === "ref"
+      ? ["name", "binding", "entity", "field", "type", "cardinality", "valueKind", "targetEntity"]
+      : ["name", "binding", "entity", "field", "type", "cardinality", "valueKind"];
+    exactRecord(column, columnKeys, `${label}.select[${index}]`);
     const outputName = requiredName(column.name, `${label}.select[${index}].name`);
     if (outputNames.has(outputName)) fail("gateway/invalid-plan", `${label} output ${outputName} is duplicated`);
     outputNames.add(outputName);
@@ -597,6 +631,7 @@ function compileQuery(entry, surface, queryIndex) {
   let defaultLimit = null;
   let maxLimit = null;
   if (kind === "page") {
+    exactRecord(entry.result, ["kind", "defaultLimit", "maxLimit"], `${label}.result`);
     defaultLimit = entry.result.defaultLimit;
     maxLimit = entry.result.maxLimit;
     if (!Number.isSafeInteger(defaultLimit) || !Number.isSafeInteger(maxLimit)
@@ -606,15 +641,15 @@ function compileQuery(entry, surface, queryIndex) {
     if (columns.some(column => column.field.cardinality === "multi")) {
       fail("gateway/invalid-plan", `${label} cannot page a multi-cardinality projection`);
     }
-  } else if (own(entry.result, "defaultLimit") || own(entry.result, "maxLimit")) {
-    fail("gateway/invalid-plan", `${label} singular result cannot declare page limits`);
+  } else {
+    exactRecord(entry.result, ["kind"], `${label}.result`);
   }
 
   if (!Array.isArray(entry.dependencies)) {
     fail("gateway/invalid-plan", `${label}.dependencies must be an array`);
   }
   for (const [index, dependency] of entry.dependencies.entries()) {
-    if (!plainObject(dependency)) fail("gateway/invalid-plan", `${label}.dependencies[${index}] must be an object`);
+    exactRecord(dependency, ["entity", "field"], `${label}.dependencies[${index}]`);
     const entity = surface.resolve(requiredName(dependency.entity, `${label}.dependencies[${index}].entity`));
     surface.resolveField(entity, requiredName(dependency.field, `${label}.dependencies[${index}].field`));
   }

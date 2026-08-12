@@ -80,8 +80,14 @@ const pageQuery = {
   bindings: [{ name: "release", entity: "release" }],
   where: [{
     op: "eq",
-    left: { kind: "field", binding: "release", field: "channel" },
-    right: { kind: "parameter", name: "channel" },
+    left: {
+      kind: "field",
+      binding: "release",
+      entity: "release",
+      field: "channel",
+      type: "Keyword",
+    },
+    right: { kind: "parameter", name: "channel", type: "Keyword" },
   }],
   select: [
     {
@@ -121,13 +127,26 @@ const oneQuery = {
   where: [
     {
       op: "eq",
-      left: { kind: "field", binding: "release", field: "id" },
-      right: { kind: "parameter", name: "id" },
+      left: {
+        kind: "field",
+        binding: "release",
+        entity: "release",
+        field: "id",
+        type: "String",
+      },
+      right: { kind: "parameter", name: "id", type: "String" },
     },
     {
       op: "eq",
-      left: { kind: "field", binding: "release", field: "owner" },
-      right: { kind: "binding", binding: "owner" },
+      left: {
+        kind: "field",
+        binding: "release",
+        entity: "release",
+        field: "owner",
+        type: "Ref",
+        targetEntity: "person",
+      },
+      right: { kind: "binding", binding: "owner", entity: "person" },
     },
   ],
   select: [
@@ -337,6 +356,39 @@ describe("named query plan lowering", () => {
       cardinality: "multi",
       valueKind: "literal",
     }] }], entities), "gateway/invalid-plan");
+  });
+
+  test("rejects open records and forged operand metadata before FRAM is reachable", () => {
+    const adversarial = [
+      { ...pageQuery, extension: true },
+      { ...pageQuery, parameters: [{ ...pageQuery.parameters[0], extension: true }] },
+      { ...pageQuery, bindings: [{ ...pageQuery.bindings[0], extension: true }] },
+      { ...pageQuery, where: [{ ...pageQuery.where[0], extension: true }] },
+      {
+        ...pageQuery,
+        where: [{
+          ...pageQuery.where[0],
+          left: { ...pageQuery.where[0].left, entity: "person" },
+        }],
+      },
+      {
+        ...pageQuery,
+        where: [{
+          ...pageQuery.where[0],
+          right: { ...pageQuery.where[0].right, type: "String" },
+        }],
+      },
+      { ...pageQuery, select: [{ ...pageQuery.select[0], extension: true }] },
+      { ...pageQuery, result: { ...pageQuery.result, extension: true } },
+      {
+        ...pageQuery,
+        dependencies: [{ ...pageQuery.dependencies[0], extension: true }],
+      },
+    ];
+
+    for (const entry of adversarial) {
+      expectThrowsCode(() => compileNamedQueries([entry], entities), "gateway/invalid-plan");
+    }
   });
 });
 
