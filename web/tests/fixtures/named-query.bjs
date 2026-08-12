@@ -1,0 +1,78 @@
+#lang beagle/js
+(ns wake.fixtures.named-query
+  (:require [wake.core :as wake]))
+
+(wake/application application "wake-named-query-fixture")
+(wake/backend backend :fram)
+
+(wake/defstate release-state ReleaseState
+  [draft published]
+  :draft
+  {:draft [:published]
+   :published []})
+
+(wake/defentity release Release
+  [id: String
+   state: ReleaseState
+   tags: (Vec String)]
+  :id
+  {:state :command
+   :tags :create}
+  [])
+
+(wake/defentity approval Approval
+  [id: String
+   release: (wake/Ref Release)
+   state: String]
+  :id
+  {:release :create
+   :state :create}
+  [])
+
+(wake/defquery browse-releases
+  []
+  [release: Release]
+  "wake-tests/cap/browse-releases"
+  [(wake/eq
+    (wake/field :release :state)
+    (wake/tag :published))]
+  [(wake/select :id (wake/field :release :id))
+   (wake/select :state (wake/field :release :state))]
+  (wake/page-result 20 64))
+
+(wake/defquery release-by-id
+  [release-id: String]
+  [release: Release]
+  "wake-tests/cap/read-release"
+  [(wake/eq
+    (wake/field :release :id)
+    (wake/parameter :release-id))]
+  [(wake/select :id (wake/field :release :id))
+   (wake/select :state (wake/field :release :state))
+   (wake/select :tags (wake/field :release :tags))]
+  (wake/optional-result))
+
+(wake/defquery approvals-for-release
+  [release-id: String]
+  [release: Release
+   approval: Approval]
+  ["wake-tests/cap/read-approvals" "wake-tests/cap/admin"]
+  [(wake/eq
+    (wake/field :release :id)
+    (wake/parameter :release-id))
+   (wake/eq
+    (wake/field :approval :release)
+    (wake/query-binding :release))
+   (wake/eq
+    (wake/field :approval :state)
+    (wake/string-value "approved"))]
+  [(wake/select :release-id (wake/field :release :id))
+   (wake/select :approval-id (wake/field :approval :id))]
+  (wake/page-result 10 40))
+
+(wake/list-detail release-list
+  :release
+  "Releases"
+  [:id :state]
+  []
+  [])

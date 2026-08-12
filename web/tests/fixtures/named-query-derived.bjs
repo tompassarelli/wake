@@ -1,0 +1,25 @@
+#lang beagle/js
+(ns wake.tests.named-query-derived
+  (:require [wake.core :as wake]))
+
+(wake/application application "wake-named-query-derived")
+(wake/backend backend :fram)
+
+(wake/defentity release Release
+  [id: String
+   title: String
+   label: String]
+  :id
+  {}
+  [(wake/derived-field
+    :label
+    (wake/concat-derived [(wake/derived-ref :title)]))])
+
+(wake/defquery invalid-derived-projection
+  []
+  [release: Release]
+  "wake-tests/cap/read"
+  []
+  [(wake/select :id (wake/field :release :id))
+   (wake/select :label (wake/field :release :label))]
+  (wake/page-result 10 20))

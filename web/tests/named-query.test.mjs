@@ -3,11 +3,11 @@ import { canonicalDocument } from "../compiler/canonical.mjs";
 import { packPlugin } from "../compiler/plugin-package.mjs";
 
 const webRoot = `${import.meta.dir}/..`;
-const fixture = `${webRoot}/tests/fixtures/named-query.wake`;
-const invalidRefFixture = `${webRoot}/tests/fixtures/named-query-invalid-ref.wake`;
-const derivedFixture = `${webRoot}/tests/fixtures/named-query-derived.wake`;
-const refParamFixture = `${webRoot}/tests/fixtures/named-query-ref-param.wake`;
-const unknownParamFixture = `${webRoot}/tests/fixtures/named-query-unknown-param.wake`;
+const fixture = `${webRoot}/tests/fixtures/named-query.bjs`;
+const invalidRefFixture = `${webRoot}/tests/fixtures/named-query-invalid-ref.bjs`;
+const derivedFixture = `${webRoot}/tests/fixtures/named-query-derived.bjs`;
+const refParamFixture = `${webRoot}/tests/fixtures/named-query-ref-param.bjs`;
+const unknownParamFixture = `${webRoot}/tests/fixtures/named-query-unknown-param.bjs`;
 const pluginStateFixture = `${webRoot}/tests/fixtures/plugin-state-query`;
 
 function compileFram(source = fixture) {
@@ -175,7 +175,7 @@ describe("W1 checked named query compiler", () => {
     const ref = compileFram(refParamFixture);
     expect(ref.status).not.toBe(0);
     expect(ref.stderr).toContain(
-      "parameter 'owner' cannot use Ref without a target entity",
+      "type wake/Ref expects 1 argument, got 0",
     );
 
     const unknown = compileFram(unknownParamFixture);
