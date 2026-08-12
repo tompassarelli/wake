@@ -58,6 +58,7 @@ until the checked application artifact contains its declaration.
 | revision state | `wake-wiki/field/revision/state` |
 | revision author | `wake-wiki/field/revision/author` |
 | revision creation time | `wake-wiki/field/revision/created-at` |
+| revision publication time | `wake-wiki/field/revision/published-at` |
 | revision payload digest | `wake-wiki/field/revision/digest` |
 | revision links | `wake-wiki/field/revision/links-to` |
 | revision title | `wake-wiki/field/revision/title` |
@@ -83,13 +84,14 @@ owner-field                      base-field
 replaces-field                   lifecycle-type
 state-field                      actor-entity
 author-field                     created-at-field
-digest-field                     links-field
-title-field                      summary-field
-content-source-field             receipt-result-resource-field
-receipt-result-revision-field    content-provider
-draft-state                      published-state
-superseded-state                 content-limits
-query-limits                     safe-document-limits
+published-at-field               digest-field
+links-field                      title-field
+summary-field                    content-source-field
+receipt-result-resource-field    receipt-result-revision-field
+content-provider                 draft-state
+published-state                  superseded-state
+content-limits                   query-limits
+safe-document-limits
 ```
 
 `actor-entity` targets an application-owned authenticated actor entity with one
@@ -141,8 +143,13 @@ Queries:
 | `history-superseded` | every superseded revision owned by the resource |
 | `backlinks` | current published sources linking to one published target |
 
-Browse, superseded history, and backlinks use bounded opaque-cursor pages. Published reads
-never expose draft or superseded content. A link to an unpublished resource is
+`published-at` is absent from every draft and is set once, under an absent-value
+guard, in the same transaction that first publishes a revision. Superseded
+history requires that provenance field, so an abandoned or replaced draft can
+never join merely because it shares the terminal lifecycle state.
+
+Browse, superseded history, and backlinks use bounded opaque-cursor pages.
+Published reads never expose draft or superseded content. A link to an unpublished resource is
 an unavailable marker containing only its stable resource ID. Review is the
 version-1 comparison surface; there is no separate comparison query.
 

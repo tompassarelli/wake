@@ -28,6 +28,7 @@
            actor-entity member
            author-field prepared-by
            created-at-field prepared-at
+           published-at-field released-at
            digest-field checksum
            links-field references
            title-field heading

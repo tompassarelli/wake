@@ -18,6 +18,7 @@
   ((config state-field) : (config lifecycle-type) :write :command)
   ((config author-field) : Ref :to (config actor-entity) :write :create)
   ((config created-at-field) : Instant :write :create)
+  ((config published-at-field) : Instant :write :command)
   ((config digest-field) : String :write :create)
   ((config links-field) : Ref :to (config resource) :many :write :create)
   ((config title-field) : String :write :create)
@@ -122,6 +123,7 @@
            (summary (field edition (config summary-field)))
            (author (field edition (config author-field)))
            (created-at (field edition (config created-at-field)))
+           (published-at (field edition (config published-at-field)))
            (digest (field edition (config digest-field)))
            (extension-fields revision-fields edition)]
   :result :optional)
@@ -141,6 +143,7 @@
            (summary (field edition (config summary-field)))
            (author (field edition (config author-field)))
            (created-at (field edition (config created-at-field)))
+           (published-at (field edition (config published-at-field)))
            (digest (field edition (config digest-field)))
            (extension-fields revision-fields edition)]
   :result :page
