@@ -154,9 +154,10 @@ function qualifyCommandType(type, qualifyExtensionPort, qualifyValueType) {
 
 function qualifyProviderPortType(type, valueTypeNames, alias) {
   if (type?.kind === "ref") {
-    return valueTypeNames.has(type.name)
-      ? { kind: "named", name: qualify(alias, type.name) }
-      : type;
+    if (!valueTypeNames.has(type.name)) {
+      fail(`provider port type names unknown value type '${type.name}'`);
+    }
+    return { kind: "named", name: qualify(alias, type.name) };
   }
   if (type?.kind === "nullable") {
     return { ...type, value: qualifyProviderPortType(type.value, valueTypeNames, alias) };
@@ -200,7 +201,12 @@ function qualifyPluginCommand(command, {
     fail(`plugin '${manifest.packageId}' declares unexported command '${localName}'`);
   }
   const qualifyEntityName = name => entityNames.has(name) ? qualify(alias, name) : name;
-  const qualifyValueTypeName = name => valueTypeNames.has(name) ? qualify(alias, name) : name;
+  const qualifyValueTypeName = name => {
+    if (!valueTypeNames.has(name)) {
+      fail(`plugin '${manifest.packageId}' command '${localName}' names unknown value type '${name}'`);
+    }
+    return qualify(alias, name);
+  };
   const extensionPort = (name, label, expectedTarget = null) => {
     const port = manifest.extensionPorts.find(candidate => candidate.name === name);
     if (port === undefined) {
@@ -741,7 +747,10 @@ function applyApplicationComposition(linked, direct) {
       "provider",
       `provider '${provider.name}'`,
     );
-    const portName = qualify(target.target.alias, target.target.name);
+    const portName = qualify(
+      target.target.alias,
+      target.resolved.configurationDeclarations.alias("provider-port", target.target.name),
+    );
     const contract = (linked.provider_ports ?? []).find(candidate => candidate.name === portName);
     if (contract === undefined) {
       fail(`provider '${provider.name}' targets missing checked port '${portName}'`);
@@ -1073,24 +1082,28 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
       }
     }
     for (const exported of manifest.exports.valueTypes ?? []) {
-      if (!valueTypeNames.has(exported)) {
+      const localName = declarations.alias("value-type", exported);
+      if (!valueTypeNames.has(localName)) {
         fail(`plugin '${manifest.packageId}' exports missing value type '${exported}'`);
       }
     }
     for (const declared of valueTypeNames) {
-      if (!(manifest.exports.valueTypes ?? []).includes(declared)) {
+      const declarationId = declarations.declarationId("value-type", declared);
+      if (!(manifest.exports.valueTypes ?? []).includes(declarationId)) {
         fail(`plugin '${manifest.packageId}' declares unexported value type '${declared}'`);
       }
     }
   }
   if (allow.has("capability")) {
     for (const exported of manifest.exports.providerPorts) {
-      if (!providerPortNames.has(exported)) {
+      const localName = declarations.alias("provider-port", exported);
+      if (!providerPortNames.has(localName)) {
         fail(`plugin '${manifest.packageId}' exports missing provider port '${exported}'`);
       }
     }
     for (const declared of providerPortNames) {
-      if (!manifest.exports.providerPorts.includes(declared)) {
+      const declarationId = declarations.declarationId("provider-port", declared);
+      if (!manifest.exports.providerPorts.includes(declarationId)) {
         fail(`plugin '${manifest.packageId}' declares unexported provider port '${declared}'`);
       }
     }
@@ -1289,7 +1302,18 @@ function qualifyPluginProgram(program, use, manifest, declarations) {
     : [];
 
   const renamed = new Map();
-  for (const kind of ["entity", "defstate", "publication", "query", "command", "component", "view", "form"]) {
+  for (const kind of [
+    "entity",
+    "defstate",
+    "publication",
+    "value-type",
+    "provider-port",
+    "query",
+    "command",
+    "component",
+    "view",
+    "form",
+  ]) {
     renamed.set(kind, true);
   }
   const declarationProvenance = program.declaration_provenance
