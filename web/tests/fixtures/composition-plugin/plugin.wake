@@ -1,5 +1,9 @@
 (ns wake.fixtures.composition-plugin)
 
+(provider-port release-summary
+  :input (Record [])
+  :output String)
+
 (entity release
   (id : String :identity)
   (state : String))
