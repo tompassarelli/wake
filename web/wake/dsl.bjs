@@ -1,0 +1,280 @@
+#lang beagle/js
+(ns wake.dsl)
+
+;; Wake declarations remain ordinary typed Beagle data. The macros below only
+;; introduce Beagle definitions whose checked AST is elaborated by Wake.
+
+(js/export
+  (defunion (Ref T)
+    (WakeRef [id: String])))
+
+(js/export
+  (defrecord ApplicationSpec [id: String]))
+
+(js/export
+  (defrecord BackendSpec [kind: Keyword]))
+
+(js/export
+  (defrecord EntitySpec
+    [name: String
+     record-name: String
+     identity: Keyword
+     writes: (Map Keyword Keyword)
+     storage-id: String?]))
+
+(js/export
+  (defrecord StateSpec
+    [name: String
+     enum-name: String
+     initial: Keyword
+     transitions: (Map Keyword (Vec Keyword))]))
+
+(js/export
+  (defunion QueryOperand
+    (QueryField [binding: Keyword field: Keyword])
+    (QueryParameter [name: Keyword])
+    (QueryBinding [name: Keyword])
+    (QueryKeyword [value: Keyword])
+    (QueryString [value: String])
+    (QueryInteger [value: Int])
+    (QueryBoolean [value: Bool])))
+
+(js/export
+  (defrecord QueryPredicate [left: QueryOperand right: QueryOperand]))
+
+(js/export
+  (defrecord QuerySelection [name: Keyword field: QueryOperand]))
+
+(js/export
+  (defrecord QuerySpec
+    [name: String
+     params-record: String
+     bindings-record: String
+     capabilities: (Vec String)
+     predicates: (Vec QueryPredicate)
+     selection: (Vec QuerySelection)
+     result-kind: Keyword
+     default-limit: Int
+     max-limit: Int]))
+
+(js/export
+  (defunion UiAttr
+    (StaticAttr [value: String])
+    (BindAttr [prop: Keyword])))
+
+(js/export
+  (defunion UiNode
+    (Element
+      [tag: Keyword
+       attrs: (Map Keyword UiAttr)
+       children: (Vec UiNode)])))
+
+(js/export
+  (defrecord ComponentSpec
+    [name: String
+     props-record: String
+     body: (Vec UiNode)]))
+
+(js/export
+  (defrecord ViewSpec
+    [name: String
+     entity: Keyword
+     component: Keyword
+     title: String]))
+
+(js/export
+  (defrecord RouteSpec [path: Keyword view: Keyword]))
+
+(js/export
+  (defrecord RouterSpec [default-route: Keyword routes: (Vec RouteSpec)]))
+
+(js/export
+  (defn field [binding: Keyword field-name: Keyword] -> QueryOperand
+    (->QueryField binding field-name)))
+
+(js/export
+  (defn parameter [name: Keyword] -> QueryOperand
+    (->QueryParameter name)))
+
+(js/export
+  (defn query-binding [name: Keyword] -> QueryOperand
+    (->QueryBinding name)))
+
+(js/export
+  (defn tag [value: Keyword] -> QueryOperand
+    (->QueryKeyword value)))
+
+(js/export
+  (defn string-value [value: String] -> QueryOperand
+    (->QueryString value)))
+
+(js/export
+  (defn integer-value [value: Int] -> QueryOperand
+    (->QueryInteger value)))
+
+(js/export
+  (defn boolean-value [value: Bool] -> QueryOperand
+    (->QueryBoolean value)))
+
+(js/export
+  (defn eq [left: QueryOperand right: QueryOperand] -> QueryPredicate
+    (->QueryPredicate left right)))
+
+(js/export
+  (defn select [name: Keyword field-value: QueryOperand] -> QuerySelection
+    (->QuerySelection name field-value)))
+
+(js/export
+  (defn static-attr [value: String] -> UiAttr
+    (->StaticAttr value)))
+
+(js/export
+  (defn bind-attr [prop: Keyword] -> UiAttr
+    (->BindAttr prop)))
+
+(js/export
+  (defn element
+    [tag: Keyword
+     attrs: (Map Keyword UiAttr)
+     children: (Vec UiNode)] -> UiNode
+    (->Element tag attrs children)))
+
+(js/export
+  (defn route [path: Keyword view: Keyword] -> RouteSpec
+    (->RouteSpec path view)))
+
+(defmacro application [binding id]
+  (append
+    (list 'def)
+    (ann binding 'wake.dsl/ApplicationSpec)
+    (list (list 'wake.dsl/->ApplicationSpec id))))
+
+(defmacro backend [binding kind]
+  (append
+    (list 'def)
+    (ann binding 'wake.dsl/BackendSpec)
+    (list (list 'wake.dsl/->BackendSpec kind))))
+
+(defmacro defentity
+  [binding
+   record-name
+   fields
+   identity
+   writes]
+  (list
+    'do
+    (list 'defrecord record-name fields)
+    (append
+      (list 'def)
+      (ann binding 'wake.dsl/EntitySpec)
+      (list
+        (list
+          'wake.dsl/->EntitySpec
+          (str binding)
+          (str record-name)
+          identity
+          writes
+          (quote nil))))))
+
+(defmacro defstate
+  [binding
+   enum-name
+   states
+   initial
+   transitions]
+  (list
+    'do
+    (apply list 'defenum enum-name states)
+    (append
+      (list 'def)
+      (ann binding 'wake.dsl/StateSpec)
+      (list
+        (list
+          'wake.dsl/->StateSpec
+          (str binding)
+          (str enum-name)
+          initial
+          transitions)))))
+
+(defmacro defquery
+  [binding
+   params
+   bindings
+   capabilities
+   predicates
+   selection
+   result-kind
+   default-limit
+   max-limit]
+  (let [params-record (format-symbol "~a-params" binding)
+        bindings-record (format-symbol "~a-bindings" binding)
+        declaration
+        (append
+          (list 'def)
+          (ann binding 'wake.dsl/QuerySpec)
+          (list
+            (list
+              'wake.dsl/->QuerySpec
+              (str binding)
+              (if (= (count params) 0) "" (str params-record))
+              (str bindings-record)
+              capabilities
+              predicates
+              selection
+              result-kind
+              default-limit
+              max-limit)))]
+    (if (= (count params) 0)
+      (list
+        'do
+        (list 'defrecord bindings-record bindings)
+        declaration)
+      (list
+        'do
+        (list 'defrecord params-record params)
+        (list 'defrecord bindings-record bindings)
+        declaration))))
+
+(defmacro component
+  [binding
+   props
+   body]
+  (let [props-record (format-symbol "~a-props" binding)]
+    (list
+      'do
+      (list 'defrecord props-record props)
+      (append
+        (list 'def)
+        (ann binding 'wake.dsl/ComponentSpec)
+        (list
+          (list
+            'wake.dsl/->ComponentSpec
+            (str binding)
+            (str props-record)
+            body))))))
+
+(defmacro view
+  [binding
+   entity
+   component-name
+   title]
+  (append
+    (list 'def)
+    (ann binding 'wake.dsl/ViewSpec)
+    (list
+      (list
+        'wake.dsl/->ViewSpec
+        (str binding)
+        entity
+        component-name
+        title))))
+
+(defmacro routes
+  [binding
+   default-route
+   routes-value]
+  (append
+    (list 'def)
+    (ann binding 'wake.dsl/RouterSpec)
+    (list
+      (list 'wake.dsl/->RouterSpec default-route routes-value))))

@@ -15,6 +15,7 @@ compiler="$wake_root/compiler"
 
 BEAGLE_ROOT="${BEAGLE_ROOT:-$HOME/code/beagle/main}"
 BEAGLE_BUILD="${BEAGLE_BUILD:-$BEAGLE_ROOT/bin/beagle-build}"
+BEAGLE_AST="${BEAGLE_AST:-$BEAGLE_ROOT/bin/beagle-ast}"
 BEAGLE_RUNTIME_DIR="${BEAGLE_RUNTIME_DIR:-$BEAGLE_ROOT/beagle-lib/lib/beagle}"
 
 if ! command -v bun >/dev/null; then
@@ -117,13 +118,28 @@ usage() {
 
 run_driver() {
   local mode="$1" source="$2" output="$3"
-  local absolute_source
+  local absolute_source ast_path
   absolute_source="$(realpath "$source")"
-  bun --no-install "$compiler/compile-driver.mjs" \
-    --dist "$dist" \
-    --mode "$mode" \
-    --source "$absolute_source" \
-    --output "$output"
+  if head -n 1 "$absolute_source" | grep -Eq '^#lang[[:space:]]+beagle(/js)?[[:space:]]*$'; then
+    if [[ ! -x "$BEAGLE_AST" ]]; then
+      echo "wake-compile: Beagle checked-AST projector not found at $BEAGLE_AST" >&2
+      exit 1
+    fi
+    ast_path="$staging_dir/application.ast.json"
+    "$BEAGLE_AST" "$absolute_source" > "$ast_path"
+    bun --no-install "$compiler/compile-driver.mjs" \
+      --dist "$dist" \
+      --mode "$mode" \
+      --source "$absolute_source" \
+      --output "$output" \
+      --ast "$ast_path"
+  else
+    bun --no-install "$compiler/compile-driver.mjs" \
+      --dist "$dist" \
+      --mode "$mode" \
+      --source "$absolute_source" \
+      --output "$output"
+  fi
 }
 
 if [[ $# -ge 1 && "$1" == "--all" ]]; then

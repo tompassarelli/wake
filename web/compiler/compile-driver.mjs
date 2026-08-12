@@ -14,6 +14,7 @@ import {
 } from "./plugin-configuration.mjs";
 import { checkCommandGraph } from "./command-contract.mjs";
 import { generateDeploymentReceipt } from "./deployment-receipt.mjs";
+import { programFromCheckedAst } from "./beagle-source.mjs";
 
 const DRIVER_SCHEMA_VERSION = 1;
 const FRAM_PLAN_SCHEMA_VERSION = 2;
@@ -59,7 +60,7 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const option = argv[index];
     const value = argv[index + 1];
-    if (!["--dist", "--mode", "--source", "--output"].includes(option) || value === undefined) {
+    if (!["--ast", "--dist", "--mode", "--source", "--output"].includes(option) || value === undefined) {
       fail("driver requires --dist, --mode, --source, and --output");
     }
     if (values.has(option)) fail(`driver repeats ${option}`);
@@ -74,6 +75,7 @@ function parseArguments(argv) {
   if (!source.startsWith("/")) fail("source path must be absolute");
   return {
     dist: nonempty(values.get("--dist"), "compiler distribution"),
+    ast: values.has("--ast") ? nonempty(values.get("--ast"), "checked AST path") : null,
     mode,
     output: nonempty(values.get("--output"), "output path"),
     source,
@@ -1693,8 +1695,17 @@ async function main() {
   const { gen_fram: generateFram } = await import(new URL("emit-fram.js", distUrl).href);
   const { generateWakeClient } = await import("./emit-client.mjs");
 
-  const sourceText = await Bun.file(options.source).text();
-  const root = parseProgramAt(sourceText, basename(options.source), "application", compilerVersion);
+  const root = options.ast === null
+    ? parseProgramAt(
+        await Bun.file(options.source).text(),
+        basename(options.source),
+        "application",
+        compilerVersion,
+      )
+    : programFromCheckedAst(
+        JSON.parse(await Bun.file(options.ast).text()),
+        { compilerVersion, sourcePath: options.source },
+      );
   const { linked, resolved } = await linkProgram(
     root,
     options.source,
