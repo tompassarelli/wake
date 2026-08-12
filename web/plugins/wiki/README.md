@@ -20,9 +20,9 @@ components. A neutral substrate fixture is packed, digest-pinned, linked,
 checked, and emitted as a FRAM plan in the package tests. `review` returns the
 current draft half; a host composes it with `read-published` at the same served
 snapshot because named-query ABI 1 has no optional joined binding. `history`
-returns the direct `based-on` edge rooted at the current published pointer; a
-host repeats that checked edge lookup at the same snapshot to assemble a
-complete lineage. It never scans arbitrary revisions belonging to the resource.
+returns only the direct `based-on` edge rooted at the current published pointer.
+It never scans arbitrary revisions belonging to the resource; a complete
+lineage remains gated on a checked recursive-query declaration.
 
 The remaining frozen exports—five commands, twelve capabilities, the
 content-parser provider port, extension ports, and six route slots—stay in the
