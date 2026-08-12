@@ -2,10 +2,18 @@
 (application :id "wake-wiki-substrate-fixture")
 (backend :fram)
 
+(entity member
+  :storage-id "wake-wiki-substrate-fixture/entity/member"
+  (member-id : String :identity
+    :storage-id "wake-wiki-substrate-fixture/field/member/id"))
+
+(provider plain-text
+  :implements wiki.content-parser)
+
 (use "wake-wiki"
   :as wiki
   :version "0.1.0"
-  :allow [schema query ui]
+  :allow [schema query capability ui route]
   :config [resource entry
            resource-id entry-id
            revision edition
@@ -45,3 +53,10 @@
            safe-document-limits [maxBytes 16384
                                  maxDepth 8
                                  maxNodes 512]])
+
+(mount wiki.browse :path "/library")
+(mount wiki.new :path "/library/new")
+(mount wiki.read :path "/library/:entry-id")
+(mount wiki.edit :path "/library/:entry-id/edit")
+(mount wiki.review :path "/library/:entry-id/review")
+(mount wiki.history :path "/library/:entry-id/history")

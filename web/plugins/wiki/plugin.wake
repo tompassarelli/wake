@@ -148,10 +148,11 @@
     (p :class "wake-wiki-page-summary" :text summary)))
 
 (component new-draft-page
-  :props [title guidance]
+  :props []
   (main :class "wake-wiki-new-draft-page"
-    (h1 :class "wake-wiki-page-title" :text title)
-    (p :class "wake-wiki-page-guidance" :text guidance)))
+    (h1 :class "wake-wiki-page-title" :text "New draft")
+    (p :class "wake-wiki-page-guidance"
+      :text "Create a resource and begin its first draft.")))
 
 (component read-page
   :props [title summary content-source]
@@ -167,11 +168,18 @@
     (p :class "wake-wiki-safe-text" :text content-source)))
 
 (component review-page
-  :props [title summary state]
+  :props [draft-title draft-summary published-title published-summary]
   (main :class "wake-wiki-review-page"
-    (h1 :class "wake-wiki-page-title" :text title)
-    (p :class "wake-wiki-page-summary" :text summary)
-    (p :class "wake-wiki-revision-state" :text state)))
+    (h1 :class "wake-wiki-page-title" :text draft-title)
+    (p :class "wake-wiki-page-summary" :text draft-summary)
+    (section :class "wake-wiki-review-page__published"
+      (h2 :class "wake-wiki-section-title" :text "Published revision")
+      (when published-title
+        (h3 :class "wake-wiki-review-page__published-title"
+          :text published-title))
+      (when published-summary
+        (p :class "wake-wiki-review-page__published-summary"
+          :text published-summary)))))
 
 (component history-page
   :props [title state created-at]
@@ -221,3 +229,54 @@
 (component conflict-notice
   :props [message]
   (p :class "wake-wiki-conflict-notice" :text message))
+
+(view browse-view
+  :entity resource
+  :each browse-page
+  :title "Browse published resources")
+
+(view new-view
+  :entity resource
+  :each new-draft-page
+  :title "New draft")
+
+(view read-view
+  :entity resource
+  :each read-page
+  :title "Published resource")
+
+(view edit-view
+  :entity revision
+  :each edit-draft-page
+  :title "Edit draft")
+
+(view review-view
+  :entity revision
+  :each review-page
+  :title "Review draft")
+
+(view history-view
+  :entity revision
+  :each history-page
+  :title "Published history")
+
+(routes :default browse
+  [browse browse-view
+    :queries [browse-published]
+    :params []]
+  [new new-view
+    :queries []
+    :params []]
+  [read read-view
+    :queries [read-published]
+    :params [resource-id]]
+  [edit edit-view
+    :queries [read-draft]
+    :params [resource-id]]
+  [review review-view
+    :queries [[review :as draft]
+              [read-published :as published]]
+    :params [resource-id]]
+  [history history-view
+    :queries [history]
+    :params [resource-id]])

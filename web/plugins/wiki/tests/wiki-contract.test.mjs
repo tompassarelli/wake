@@ -354,20 +354,22 @@ describe("wake-wiki K0C data contract", () => {
     expect(plan.pluginClosure).toHaveLength(1);
     expect(plan.pluginClosure[0]).toMatchObject({
       alias: "wiki",
-      allowedContributions: ["schema", "query", "ui"],
+      allowedContributions: ["schema", "query", "capability", "ui", "route"],
       packageId: "wake-wiki",
       version: "0.1.0",
     });
     expect(plan.entities.map((entity) => entity.name)).toEqual([
+      "member",
       "wiki.resource",
       "wiki.revision",
     ]);
     expect(plan.entities.map((entity) => entity.storageId)).toEqual([
+      "wake-wiki-substrate-fixture/entity/member",
       "wake-wiki/entity/resource",
       "wake-wiki/entity/revision",
     ]);
-    const resource = plan.entities[0];
-    const revision = plan.entities[1];
+    const resource = plan.entities.find((entity) => entity.name === "wiki.resource");
+    const revision = plan.entities.find((entity) => entity.name === "wiki.revision");
     expect(resource.identity).toMatchObject({
       field: "id",
       storageId: "wake-wiki/field/resource/id",
@@ -477,6 +479,73 @@ describe("wake-wiki K0C data contract", () => {
         }),
       }),
     ]));
+
+    expect(plan.routes).toEqual([
+      {
+        inputParameters: [],
+        parameters: [],
+        path: "/library",
+        queries: [{ name: "wiki.browse-published", prefix: null }],
+        requiredProps: ["title", "summary"],
+        view: "wiki.browse-view",
+      },
+      {
+        inputParameters: [],
+        parameters: [],
+        path: "/library/new",
+        queries: [],
+        requiredProps: [],
+        view: "wiki.new-view",
+      },
+      {
+        inputParameters: ["resource-id"],
+        parameters: ["entry-id"],
+        path: "/library/:entry-id",
+        queries: [{ name: "wiki.read-published", prefix: null }],
+        requiredProps: ["title", "summary", "content-source"],
+        view: "wiki.read-view",
+      },
+      {
+        inputParameters: ["resource-id"],
+        parameters: ["entry-id"],
+        path: "/library/:entry-id/edit",
+        queries: [{ name: "wiki.read-draft", prefix: null }],
+        requiredProps: ["title", "content-source"],
+        view: "wiki.edit-view",
+      },
+      {
+        inputParameters: ["resource-id"],
+        parameters: ["entry-id"],
+        path: "/library/:entry-id/review",
+        queries: [
+          { name: "wiki.review", prefix: "draft" },
+          { name: "wiki.read-published", prefix: "published" },
+        ],
+        requiredProps: [
+          "draft-title",
+          "draft-summary",
+          "published-title",
+          "published-summary",
+        ],
+        view: "wiki.review-view",
+      },
+      {
+        inputParameters: ["resource-id"],
+        parameters: ["entry-id"],
+        path: "/library/:entry-id/history",
+        queries: [{ name: "wiki.history", prefix: null }],
+        requiredProps: ["title", "state", "created-at"],
+        view: "wiki.history-view",
+      },
+    ]);
+    expect(plan.composition.providers).toEqual([
+      expect.objectContaining({
+        name: "plain-text",
+        package_id: "wake-wiki",
+        port_name: "content-parser",
+      }),
+    ]);
+    expect(plan.composition.mounts).toHaveLength(6);
   }, 30_000);
 });
 
