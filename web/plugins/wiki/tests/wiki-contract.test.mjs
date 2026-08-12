@@ -414,6 +414,12 @@ describe("wake-wiki K0C data contract", () => {
       "[(config published-state) -> (config superseded-state)]",
     );
     expect(entry).toContain("[(config superseded-state) ->]");
+    expect(entry).toContain(
+      ":bounds [maxBytes (config safe-document-limits.maxBytes)",
+    );
+    expect(entry).toContain(
+      "(contentSource : (String :bytes (config content-limits.contentSourceBytes)))",
+    );
   });
 
   test("materializes every checked command with closed write invariants", async () => {
@@ -465,7 +471,18 @@ describe("wake-wiki K0C data contract", () => {
     expect(published).toContain(
       "(= (field published (config state-field)) (config published-state))",
     );
+    expect(published).toContain("(provided safe-document");
+    expect(published).toContain(":by (config content-provider)");
     expect(published).toContain(
+      "contentSource (field published (config content-source-field))",
+    );
+    expect(published).toContain(
+      "safeDocumentLimits (record [",
+    );
+    expect(published).toContain(
+      "maxDepth (literal (config safe-document-limits.maxDepth))",
+    );
+    expect(published).not.toContain(
       "(content-source (field published (config content-source-field)))",
     );
     expect(published).toContain(
@@ -790,7 +807,7 @@ describe("wake-wiki K0C data contract", () => {
         parameters: ["entry-id"],
         path: "/library/:entry-id",
         queries: [{ name: "wiki.read-published", prefix: null }],
-        requiredProps: ["title", "summary", "content-source"],
+        requiredProps: ["title", "summary", "safe-document"],
         view: "wiki.read-view",
       },
       {

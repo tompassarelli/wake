@@ -1,7 +1,9 @@
 (ns wake.plugins.wiki)
 
 (value-type SafeDocument
-  :bounds [maxBytes 1048576 maxDepth 256 maxNodes 65536]
+  :bounds [maxBytes (config safe-document-limits.maxBytes)
+           maxDepth (config safe-document-limits.maxDepth)
+           maxNodes (config safe-document-limits.maxNodes)]
   :definitions [
     (SafeDocument (Record [
       (tag : (Literal "document"))
@@ -45,7 +47,7 @@
 
 (provider-port content-parser
   :input (Record [
-    (contentSource : String)
+    (contentSource : (String :bytes (config content-limits.contentSourceBytes)))
     (safeDocumentLimits : (Record [
       (maxBytes : (Integer :min 1 :max 1048576))
       (maxDepth : (Integer :min 5 :max 256))
@@ -450,7 +452,14 @@
            (revision-id (field published (config revision-id)))
            (title (field published (config title-field)))
            (summary (field published (config summary-field)))
-           (content-source (field published (config content-source-field)))
+           (provided safe-document
+             :by (config content-provider)
+             :input (record [
+               contentSource (field published (config content-source-field))
+               safeDocumentLimits (record [
+                 maxBytes (literal (config safe-document-limits.maxBytes))
+                 maxDepth (literal (config safe-document-limits.maxDepth))
+                 maxNodes (literal (config safe-document-limits.maxNodes))])]))
            (links-to (field published (config links-field)))
            (author (field published (config author-field)))
            (created-at (field published (config created-at-field)))
@@ -602,11 +611,11 @@
       :text "Create a resource and begin its first draft.")))
 
 (component read-page
-  :props [title summary content-source]
+  :props [title summary safe-document]
   (main :class "wake-wiki-read-page"
     (h1 :class "wake-wiki-page-title" :text title)
     (p :class "wake-wiki-page-summary" :text summary)
-    (p :class "wake-wiki-safe-text" :text content-source)))
+    (div :class "wake-wiki-safe-document")))
 
 (component edit-draft-page
   :props [title content-source]
@@ -657,9 +666,8 @@
     (p :class "wake-wiki-revision-summary__digest" :text digest)))
 
 (component safe-document
-  :props [content-source]
-  (div :class "wake-wiki-safe-document"
-    (p :class "wake-wiki-safe-text" :text content-source)))
+  :props [value]
+  (div :class "wake-wiki-safe-document"))
 
 (component link-list
   :props [links-to]

@@ -110,7 +110,9 @@ cannot exceed FRAM's absolute
 1,048,576-byte, 256-depth, and 65,536-Term ceilings. A consuming application is
 expected to bind materially tighter product and HTTP budgets; these absolute
 plugin ceilings do not make a large provider result safe for a particular
-response envelope.
+response envelope. Compilation instantiates the exported `SafeDocument`
+descriptor with those application-bound limits, so command validation, public
+query hydration, and the generated browser codec all enforce the same envelope.
 
 ## Public operations
 
@@ -118,14 +120,16 @@ Commands:
 
 | Name | Required semantic input |
 |---|---|
-| `create-resource-draft` | request ID and revision payload |
-| `start-revision-draft` | request ID, resource, expected published revision, payload |
-| `replace-draft` | request ID, resource, expected draft, nullable expected published revision, payload |
-| `abandon-draft` | request ID, resource, expected draft, nullable expected published revision |
-| `publish` | request ID, resource, candidate, expected draft, nullable expected published revision, expected candidate digest, expected normalized links |
+| `create-resource-draft` | revision payload |
+| `start-revision-draft` | resource, nullable expected published revision, payload |
+| `replace-draft` | resource, expected draft, nullable expected published revision, payload |
+| `abandon-draft` | resource, expected draft, nullable expected published revision |
+| `publish` | resource, candidate, expected draft, nullable expected published revision, expected candidate digest, expected normalized links |
 
 A revision payload contains title, summary, content source, bounded stable
 resource links, and the closed record produced by the revision-field extension.
+The runtime invocation envelope separately requires a portable idempotency
+request ID; it is not a field in the normalized semantic command input.
 The host injects actor, generated IDs, canonical time, payload digest, lifecycle
 values, and pointers. Every result is recovered through the atomic Wake command
 receipt and contains receipt ID, resource ID, revision ID, creation time, and
@@ -194,7 +198,11 @@ break nodes. Raw HTML, SVG, images, styles, event handlers, and trusted strings
 are absent.
 
 [`SAFE-DOCUMENT.md`](SAFE-DOCUMENT.md) freezes the exact v1 tag and field
-spelling consumed by providers, generated clients, and baseline renderers.
+spelling consumed by providers and generated clients. The checked component
+DSL has no SafeDocument rendering intrinsic in ABI 1, so the baseline page
+exposes a neutral container while an application shell uses the generated
+`renderSafeDocument` browser binding. It never falls back to rendering raw
+source or stringifying the provider object.
 
 The only application data extension ports are:
 
