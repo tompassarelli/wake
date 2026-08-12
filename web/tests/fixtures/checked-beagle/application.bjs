@@ -15,7 +15,8 @@
   [slug: String
    title: String]
   :slug
-  {:title :create})
+  {:title :create}
+  [])
 
 (wake/defentity revision Revision
   [id: String
@@ -25,7 +26,8 @@
   :id
   {:page :create
    :status :command
-   :links-to :create})
+   :links-to :create}
+  [])
 
 (wake/defquery published-revisions
   []

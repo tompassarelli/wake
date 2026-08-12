@@ -5,7 +5,8 @@
 (wake/defentity release Release
   [id: String]
   :id
-  {})
+  {}
+  [])
 
 (wake/defquery invalid-result
   []

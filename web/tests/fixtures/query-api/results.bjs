@@ -4,12 +4,24 @@
 
 (wake/defentity release Release
   [id: String
-   name: String
+   title: String
    aliases: (Vec String)
-   label: (wake/Derived String)]
+   label: String]
   :id
-  {:name :create
-   :aliases :create})
+  {:title :create
+   :aliases :create}
+  [(wake/derived-field
+    :label
+    (wake/concat-derived [(wake/derived-ref :title)]))])
+
+(wake/defentity release-note ReleaseNote
+  [id: String
+   release: (wake/Ref Release)
+   summary: String]
+  :id
+  {:release :create
+   :summary :create}
+  [])
 
 (wake/defquery release-page
   []
@@ -38,25 +50,18 @@
     (wake/field :release :id)
     (wake/parameter :release-id))]
   [(wake/select :id (wake/field :release :id))
-   (wake/select :name (wake/field :release :name))]
+   (wake/select :title (wake/field :release :title))]
   (wake/one-result))
 
-(wake/defquery untargeted-ref-marker
-  [owner: wake/UntargetedRef]
-  [release: Release]
-  ["wake-tests/cap/read-release"]
-  [(wake/eq
-    (wake/field :release :id)
-    (wake/string-value "release-1"))]
-  [(wake/select :id (wake/field :release :id))]
-  (wake/page-result 10 20))
-
-(wake/defquery opaque-marker
-  [opaque: wake/Opaque]
-  [release: Release]
-  ["wake-tests/cap/read-release"]
-  [(wake/eq
-    (wake/field :release :id)
-    (wake/string-value "release-1"))]
-  [(wake/select :id (wake/field :release :id))]
-  (wake/page-result 10 20))
+(wake/list-detail release-list
+  :release
+  "Releases"
+  [:id :title]
+  [:title]
+  [(wake/detail-tab "Overview" (wake/detail-fields [:id :title :label]))
+   (wake/detail-tab
+    "Notes"
+    (wake/detail-related
+      :release-note
+      (wake/related-by :release)
+      [:id :summary]))])

@@ -9,14 +9,13 @@
     (WakeRef [id: String])))
 
 (js/export
-  (defunion (Derived T)
-    (WakeDerived [value: T])))
+  (defunion DerivedExpr
+    (FieldExpr [name: Keyword])
+    (StringExpr [value: String])
+    (ConcatExpr [parts: (Vec DerivedExpr)])))
 
 (js/export
-  (defrecord UntargetedRef [id: String]))
-
-(js/export
-  (defrecord Opaque [value: String]))
+  (defrecord DerivedFieldSpec [name: Keyword expression: DerivedExpr]))
 
 (js/export
   (defrecord ApplicationSpec [id: String]))
@@ -30,7 +29,8 @@
      record-name: String
      identity: Keyword
      writes: (Map Keyword Keyword)
-     storage-id: String?]))
+     storage-id: String?
+     derived-fields: (Vec DerivedFieldSpec)]))
 
 (js/export
   (defrecord StateSpec
@@ -75,6 +75,30 @@
      result: QueryResult]))
 
 (js/export
+  (defunion RelatedRelation
+    (InferRelated [unit: Nil])
+    (RelatedBy [field: Keyword])))
+
+(js/export
+  (defunion DetailContent
+    (DetailFields [fields: (Vec Keyword)])
+    (DetailRelated
+      [entity: Keyword
+       relation: RelatedRelation
+       display: (Vec Keyword)])))
+
+(js/export
+  (defrecord DetailTab [label: String content: DetailContent]))
+
+(js/export
+  (defrecord ListDetailSpec
+    [entity: Keyword
+     title: String
+     columns: (Vec Keyword)
+     search: (Vec Keyword)
+     detail-tabs: (Vec DetailTab)]))
+
+(js/export
   (defunion UiAttr
     (StaticAttr [value: String])
     (BindAttr [prop: Keyword])))
@@ -108,6 +132,24 @@
 (js/export
   (defn field [binding: Keyword field-name: Keyword] -> QueryOperand
     (->QueryField binding field-name)))
+
+(js/export
+  (defn derived-ref [name: Keyword] -> DerivedExpr
+    (->FieldExpr name)))
+
+(js/export
+  (defn derived-string [value: String] -> DerivedExpr
+    (->StringExpr value)))
+
+(js/export
+  (defn concat-derived [parts: (Vec DerivedExpr)] -> DerivedExpr
+    (->ConcatExpr parts)))
+
+(js/export
+  (defn derived-field
+    [name: Keyword
+     expression: DerivedExpr] -> DerivedFieldSpec
+    (->DerivedFieldSpec name expression)))
 
 (js/export
   (defn parameter [name: Keyword] -> QueryOperand
@@ -154,6 +196,29 @@
     (->OneResult nil)))
 
 (js/export
+  (defn detail-fields [fields: (Vec Keyword)] -> DetailContent
+    (->DetailFields fields)))
+
+(js/export
+  (defn infer-related [] -> RelatedRelation
+    (->InferRelated nil)))
+
+(js/export
+  (defn related-by [field: Keyword] -> RelatedRelation
+    (->RelatedBy field)))
+
+(js/export
+  (defn detail-related
+    [entity: Keyword
+     relation: RelatedRelation
+     display: (Vec Keyword)] -> DetailContent
+    (->DetailRelated entity relation display)))
+
+(js/export
+  (defn detail-tab [label: String content: DetailContent] -> DetailTab
+    (->DetailTab label content)))
+
+(js/export
   (defn static-attr [value: String] -> UiAttr
     (->StaticAttr value)))
 
@@ -185,7 +250,8 @@
    record-name
    fields
    identity
-   writes]
+   writes
+   derived-fields]
   `(do
      (defrecord ~record-name ~fields)
      (def ~binding: EntitySpec
@@ -194,7 +260,8 @@
          ~(str record-name)
          ~identity
          ~writes
-         nil))))
+         nil
+         ~derived-fields))))
 
 (defmacro defstate
   [binding
@@ -273,3 +340,13 @@
    routes-value]
   `(def ~binding: RouterSpec
      (->RouterSpec ~default-route ~routes-value)))
+
+(defmacro list-detail
+  [binding
+   entity
+   title
+   columns
+   search
+   detail-tabs]
+  `(def ~binding: ListDetailSpec
+     (->ListDetailSpec ~entity ~title ~columns ~search ~detail-tabs)))
