@@ -14,7 +14,7 @@ import {
 } from "./plugin-configuration.mjs";
 import { checkCommandGraph } from "./command-contract.mjs";
 import { generateDeploymentReceipt } from "./deployment-receipt.mjs";
-import { programFromCheckedAst } from "./beagle-source.mjs";
+import { programFromCheckedAst } from "./checked-beagle.mjs";
 
 const DRIVER_SCHEMA_VERSION = 1;
 const FRAM_PLAN_SCHEMA_VERSION = 2;

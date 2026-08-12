@@ -1,6 +1,10 @@
 function fail(message) {
-  throw new TypeError(`wake Beagle source: ${message}`);
+  throw new TypeError(`wake checked Beagle: ${message}`);
 }
+
+const CHECKED_PROGRAM_KIND = "beagle.checked-program";
+const CHECKED_PROGRAM_SCHEMA_VERSION = 1;
+const WAKE_PROVIDER_NAMESPACE = "wake.dsl";
 
 function basename(path) {
   const end = path.lastIndexOf("/");
@@ -14,15 +18,22 @@ function callName(node, label) {
   return node.fn.name;
 }
 
-function localName(name) {
-  const slash = name.lastIndexOf("/");
-  return slash === -1 ? name : name.slice(slash + 1);
+function wakeName(name, alias, label) {
+  const slash = name.indexOf("/");
+  if (slash === -1 || name.slice(0, slash) !== alias) {
+    fail(`${label} must use a checked wake/* binding, got '${name}'`);
+  }
+  return name.slice(slash + 1);
 }
 
-function callArguments(node, expected, label) {
-  const actual = localName(callName(node, label));
+function callArguments(node, alias, expected, label) {
+  const actual = wakeName(callName(node, label), alias, label);
   if (actual !== expected) {
     fail(`${label} must call wake/${expected}, not '${actual}'`);
+  }
+  const inferred = node.inferredType;
+  if (inferred?.kind !== "prim" || inferred.name === "Any") {
+    fail(`${label} lacks an exact checked inferred type`);
   }
   return node.args;
 }
@@ -77,18 +88,24 @@ function annotationName(form) {
     : null;
 }
 
-function declarationKind(form) {
+function declarationKind(form, alias) {
   const annotation = annotationName(form);
-  if (annotation === null || !annotation.startsWith("wake.dsl/")) return null;
-  return annotation.slice("wake.dsl/".length);
+  if (annotation === null || !annotation.startsWith(`${alias}/`)) return null;
+  return annotation.slice(alias.length + 1);
 }
 
-function declarations(ast, kind) {
-  return ast.forms.filter((form) => declarationKind(form) === kind);
+function declarations(ast, alias, kind) {
+  const found = ast.forms.filter((form) => declarationKind(form, alias) === kind);
+  for (const form of found) {
+    if (!isType(form.value?.inferredType, alias, kind)) {
+      fail(`declaration '${form.name}' must infer exact ${kind}, got '${form.value?.inferredType?.name ?? "missing"}'`);
+    }
+  }
+  return found;
 }
 
-function oneDeclaration(ast, kind) {
-  const found = declarations(ast, kind);
+function oneDeclaration(ast, alias, kind) {
+  const found = declarations(ast, alias, kind);
   if (found.length !== 1) {
     fail(`expected exactly one ${kind} declaration, found ${found.length}`);
   }
@@ -96,9 +113,12 @@ function oneDeclaration(ast, kind) {
 }
 
 function recordIndex(ast) {
-  return new Map(ast.forms
-    .filter((form) => form.node === "record")
-    .map((form) => [form.name, form]));
+  const records = new Map();
+  for (const form of ast.forms.filter((candidate) => candidate.node === "record")) {
+    if (records.has(form.name)) fail(`checked projection repeats record '${form.name}'`);
+    records.set(form.name, form);
+  }
+  return records;
 }
 
 function recordNamed(records, name, label) {
@@ -107,20 +127,20 @@ function recordNamed(records, name, label) {
   return record;
 }
 
-function isType(type, name) {
-  return type?.name === name || localName(type?.name ?? "") === name;
+function isType(type, alias, name) {
+  return type?.name === name || type?.name === `${alias}/${name}`;
 }
 
-function wakeFieldType(type, entityByRecord, label) {
+function wakeFieldType(type, alias, entityByRecord, label) {
   let cardinality = "single";
   let valueType = type;
-  if (type?.kind === "app" && isType(type, "Vec")) {
+  if (type?.kind === "app" && isType(type, alias, "Vec")) {
     if (type.args.length !== 1) fail(`${label} Vec type must have one argument`);
     cardinality = "multi";
     [valueType] = type.args;
   }
 
-  if (valueType?.kind === "app" && isType(valueType, "Ref")) {
+  if (valueType?.kind === "app" && isType(valueType, alias, "Ref")) {
     if (valueType.args.length !== 1 || valueType.args[0]?.kind !== "prim") {
       fail(`${label} wake/Ref must name one entity record type`);
     }
@@ -151,8 +171,8 @@ function sourceSpan(sourceId) {
   };
 }
 
-function queryOperand(node, label) {
-  const name = localName(callName(node, label));
+function queryOperand(node, alias, label) {
+  const name = wakeName(callName(node, label), alias, label);
   const args = node.args;
   if (name === "field") {
     if (args.length !== 2) fail(`${label} wake/field has wrong arity`);
@@ -209,21 +229,21 @@ function queryOperand(node, label) {
   fail(`${label} uses unsupported Wake query constructor '${name}'`);
 }
 
-function queryPredicate(node, label) {
-  const args = callArguments(node, "eq", label);
+function queryPredicate(node, alias, label) {
+  const args = callArguments(node, alias, "eq", label);
   if (args.length !== 2) fail(`${label} wake/eq has wrong arity`);
   return {
     _tag: "IrQueryPredicate",
     op: "eq",
-    left: queryOperand(args[0], `${label} left`),
-    right: queryOperand(args[1], `${label} right`),
+    left: queryOperand(args[0], alias, `${label} left`),
+    right: queryOperand(args[1], alias, `${label} right`),
   };
 }
 
-function querySelection(node, label) {
-  const args = callArguments(node, "select", label);
+function querySelection(node, alias, label) {
+  const args = callArguments(node, alias, "select", label);
   if (args.length !== 2) fail(`${label} wake/select has wrong arity`);
-  const operand = queryOperand(args[1], `${label} field`);
+  const operand = queryOperand(args[1], alias, `${label} field`);
   if (operand.kind !== "field") fail(`${label} must select a bound field`);
   return {
     _tag: "IrQuerySelect",
@@ -233,39 +253,39 @@ function querySelection(node, label) {
   };
 }
 
-function uiAttribute(node, label) {
-  const name = localName(callName(node, label));
+function uiAttribute(node, alias, label) {
+  const name = wakeName(callName(node, label), alias, label);
   if (name === "static-attr") {
-    const args = callArguments(node, "static-attr", label);
+    const args = callArguments(node, alias, "static-attr", label);
     if (args.length !== 1) fail(`${label} wake/static-attr has wrong arity`);
     return { type: "static", value: stringLiteral(args[0], `${label} value`) };
   }
   if (name === "bind-attr") {
-    const args = callArguments(node, "bind-attr", label);
+    const args = callArguments(node, alias, "bind-attr", label);
     if (args.length !== 1) fail(`${label} wake/bind-attr has wrong arity`);
     return { type: "bind", prop: keywordLiteral(args[0], `${label} prop`) };
   }
   fail(`${label} uses unsupported Wake UI attribute '${name}'`);
 }
 
-function uiElement(node, label) {
-  const args = callArguments(node, "element", label);
+function uiElement(node, alias, label) {
+  const args = callArguments(node, alias, "element", label);
   if (args.length !== 3) fail(`${label} wake/element has wrong arity`);
   const attrs = Object.fromEntries(mapPairs(args[1], `${label} attributes`).map(({ key, val }) => {
     const attrName = keywordLiteral(key, `${label} attribute name`);
-    return [attrName, uiAttribute(val, `${label} :${attrName}`)];
+    return [attrName, uiAttribute(val, alias, `${label} :${attrName}`)];
   }));
   return {
     _tag: "IrElement",
     tag: keywordLiteral(args[0], `${label} tag`),
     attrs,
     children: vectorItems(args[2], `${label} children`).map((child, index) =>
-      uiElement(child, `${label} child ${index + 1}`)),
+      uiElement(child, alias, `${label} child ${index + 1}`)),
   };
 }
 
-function route(node, label) {
-  const args = callArguments(node, "route", label);
+function route(node, alias, label) {
+  const args = callArguments(node, alias, "route", label);
   if (args.length !== 2) fail(`${label} wake/route has wrong arity`);
   return {
     _tag: "IrRoute",
@@ -279,15 +299,33 @@ function route(node, label) {
 }
 
 export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
+  if (ast?.kind !== CHECKED_PROGRAM_KIND
+      || ast.schemaVersion !== CHECKED_PROGRAM_SCHEMA_VERSION
+      || ast.phase !== "checked") {
+    fail("input is not a supported checked-program v1 projection");
+  }
   if (ast?.target !== "js") fail(`expected a beagle/js program, got '${ast?.target}'`);
+  if (ast.mode !== "strict") fail(`expected strict Beagle input, got '${ast.mode}'`);
   if (typeof ast.namespace !== "string" || !Array.isArray(ast.forms)) {
     fail("projection is missing namespace or forms");
   }
+  const wakeImports = (ast.requires ?? []).filter((entry) =>
+    entry?.ns === WAKE_PROVIDER_NAMESPACE);
+  if (wakeImports.length !== 1
+      || typeof wakeImports[0].alias !== "string"
+      || wakeImports[0].alias.length === 0
+      || wakeImports[0].refer !== false) {
+    fail("input must import exactly [wake.dsl :as ALIAS] without :refer");
+  }
+  const wakeAlias = wakeImports[0].alias;
+  if (ast.sourceId !== sourcePath) {
+    fail(`projection source '${ast.sourceId}' does not match input '${sourcePath}'`);
+  }
 
   const records = recordIndex(ast);
-  const entityForms = declarations(ast, "EntitySpec");
+  const entityForms = declarations(ast, wakeAlias, "EntitySpec");
   const entitySpecs = entityForms.map((form) => {
-    const args = callArguments(form.value, "->EntitySpec", `entity '${form.name}'`);
+    const args = callArguments(form.value, wakeAlias, "->EntitySpec", `entity '${form.name}'`);
     if (args.length !== 5) fail(`entity '${form.name}' has an invalid checked descriptor`);
     return {
       binding: form.name,
@@ -298,6 +336,14 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
       storageId: literal(args[4], "nil", `entity '${form.name}' storage ID`),
     };
   });
+  const entityNames = new Set();
+  const entityRecords = new Set();
+  for (const { name, recordName } of entitySpecs) {
+    if (entityNames.has(name)) fail(`entity '${name}' is declared twice`);
+    if (entityRecords.has(recordName)) fail(`entity record '${recordName}' is used twice`);
+    entityNames.add(name);
+    entityRecords.add(recordName);
+  }
   const entityByRecord = new Map(entitySpecs.map(({ name, recordName }) => [recordName, name]));
 
   const entities = entitySpecs.map((spec) => {
@@ -305,6 +351,7 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
     const attrs = record.fields.map((field) => {
       const decoded = wakeFieldType(
         field.ann,
+        wakeAlias,
         entityByRecord,
         `field '${spec.name}.${field.name}'`,
       );
@@ -329,17 +376,27 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
     };
   });
 
-  const stateForms = declarations(ast, "StateSpec");
+  const stateForms = declarations(ast, wakeAlias, "StateSpec");
   const defstates = stateForms.map((form) => {
-    const args = callArguments(form.value, "->StateSpec", `state '${form.name}'`);
+    const args = callArguments(form.value, wakeAlias, "->StateSpec", `state '${form.name}'`);
     if (args.length !== 4) fail(`state '${form.name}' has an invalid checked descriptor`);
     const enumName = stringLiteral(args[1], `state '${form.name}' enum`);
-    const enumForm = ast.forms.find((candidate) =>
+    const enumForms = ast.forms.filter((candidate) =>
       candidate.node === "defenum" && candidate.name === enumName);
-    if (enumForm === undefined) fail(`state '${form.name}' names missing enum '${enumName}'`);
+    if (enumForms.length !== 1) {
+      fail(`state '${form.name}' must name exactly one enum '${enumName}'`);
+    }
+    const [enumForm] = enumForms;
     const transitions = transitionMap(args[3], `state '${form.name}' transitions`);
-    if (Object.keys(transitions).some((state) => !enumForm.values.includes(state))) {
-      fail(`state '${form.name}' transitions name a value outside enum '${enumName}'`);
+    const transitionStates = Object.keys(transitions).sort();
+    const enumStates = [...enumForm.values].sort();
+    if (JSON.stringify(transitionStates) !== JSON.stringify(enumStates)) {
+      fail(`state '${form.name}' transitions must cover enum '${enumName}' exactly`);
+    }
+    for (const targets of Object.values(transitions)) {
+      if (targets.some((target) => !enumForm.values.includes(target))) {
+        fail(`state '${form.name}' transition target is outside enum '${enumName}'`);
+      }
     }
     return {
       _tag: "IrDefstate",
@@ -349,9 +406,9 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
     };
   });
 
-  const queryForms = declarations(ast, "QuerySpec");
+  const queryForms = declarations(ast, wakeAlias, "QuerySpec");
   const queries = queryForms.map((form) => {
-    const args = callArguments(form.value, "->QuerySpec", `query '${form.name}'`);
+    const args = callArguments(form.value, wakeAlias, "->QuerySpec", `query '${form.name}'`);
     if (args.length !== 9) fail(`query '${form.name}' has an invalid checked descriptor`);
     const paramsRecordName = stringLiteral(args[1], `query '${form.name}' params record`);
     const paramsRecord = paramsRecordName === "" ? null : recordNamed(
@@ -365,6 +422,18 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
       `query '${form.name}'`,
     );
     const resultKind = keywordLiteral(args[6], `query '${form.name}' result`);
+    if (resultKind !== "page") {
+      fail(`query '${form.name}' checked slice currently supports only :page`);
+    }
+    const defaultLimit = integerLiteral(args[7], `query '${form.name}' default limit`);
+    const maxLimit = integerLiteral(args[8], `query '${form.name}' max limit`);
+    if (!Number.isSafeInteger(defaultLimit)
+        || !Number.isSafeInteger(maxLimit)
+        || defaultLimit <= 0
+        || defaultLimit > maxLimit
+        || maxLimit > 247) {
+      fail(`query '${form.name}' page limits must satisfy 0 < default <= max <= 247`);
+    }
     return {
       _tag: "IrQuery",
       name: stringLiteral(args[0], `query '${form.name}' name`),
@@ -374,7 +443,12 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
       params: (paramsRecord?.fields ?? []).map((field) => ({
         _tag: "IrQueryParam",
         name: field.name,
-        type: wakeFieldType(field.ann, entityByRecord, `query '${form.name}' param '${field.name}'`).type,
+        type: wakeFieldType(
+          field.ann,
+          wakeAlias,
+          entityByRecord,
+          `query '${form.name}' param '${field.name}'`,
+        ).type,
       })),
       bindings: bindingsRecord.fields.map((field) => {
         if (field.ann?.kind !== "prim") {
@@ -391,23 +465,31 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
         };
       }),
       predicates: vectorItems(args[4], `query '${form.name}' predicates`).map(
-        (predicate, index) => queryPredicate(predicate, `query '${form.name}' predicate ${index + 1}`),
+        (predicate, index) => queryPredicate(
+          predicate,
+          wakeAlias,
+          `query '${form.name}' predicate ${index + 1}`,
+        ),
       ),
       selection: vectorItems(args[5], `query '${form.name}' selection`).map(
-        (selection, index) => querySelection(selection, `query '${form.name}' selection ${index + 1}`),
+        (selection, index) => querySelection(
+          selection,
+          wakeAlias,
+          `query '${form.name}' selection ${index + 1}`,
+        ),
       ),
       result_kind: resultKind,
-      page: resultKind === "page" ? {
+      page: {
         _tag: "IrQueryPage",
-        default_limit: integerLiteral(args[7], `query '${form.name}' default limit`),
-        max_limit: integerLiteral(args[8], `query '${form.name}' max limit`),
-      } : null,
+        default_limit: defaultLimit,
+        max_limit: maxLimit,
+      },
     };
   });
 
-  const componentForms = declarations(ast, "ComponentSpec");
+  const componentForms = declarations(ast, wakeAlias, "ComponentSpec");
   const components = componentForms.map((form) => {
-    const args = callArguments(form.value, "->ComponentSpec", `component '${form.name}'`);
+    const args = callArguments(form.value, wakeAlias, "->ComponentSpec", `component '${form.name}'`);
     if (args.length !== 3) fail(`component '${form.name}' has an invalid checked descriptor`);
     const propsRecord = recordNamed(
       records,
@@ -419,14 +501,18 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
       name: stringLiteral(args[0], `component '${form.name}' name`),
       props: propsRecord.fields.map((field) => field.name),
       body: vectorItems(args[2], `component '${form.name}' body`).map(
-        (element, index) => uiElement(element, `component '${form.name}' element ${index + 1}`),
+        (element, index) => uiElement(
+          element,
+          wakeAlias,
+          `component '${form.name}' element ${index + 1}`,
+        ),
       ),
     };
   });
 
-  const viewForms = declarations(ast, "ViewSpec");
+  const viewForms = declarations(ast, wakeAlias, "ViewSpec");
   const views = viewForms.map((form) => {
-    const args = callArguments(form.value, "->ViewSpec", `view '${form.name}'`);
+    const args = callArguments(form.value, wakeAlias, "->ViewSpec", `view '${form.name}'`);
     if (args.length !== 4) fail(`view '${form.name}' has an invalid checked descriptor`);
     return {
       _tag: "IrView",
@@ -442,26 +528,38 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
     };
   });
 
-  const routerForm = declarations(ast, "RouterSpec");
+  const routerForm = declarations(ast, wakeAlias, "RouterSpec");
   if (routerForm.length > 1) fail("only one wake/routes declaration is allowed");
   const router = routerForm.length === 0 ? null : (() => {
     const form = routerForm[0];
-    const args = callArguments(form.value, "->RouterSpec", "routes");
+    const args = callArguments(form.value, wakeAlias, "->RouterSpec", "routes");
     if (args.length !== 2) fail("routes has an invalid checked descriptor");
     return {
       _tag: "IrRouter",
       default_route: keywordLiteral(args[0], "routes default"),
       routes: vectorItems(args[1], "routes entries").map((entry, index) =>
-        route(entry, `route ${index + 1}`)),
+        route(entry, wakeAlias, `route ${index + 1}`)),
     };
   })();
 
-  const applicationForm = oneDeclaration(ast, "ApplicationSpec");
-  const applicationArgs = callArguments(applicationForm.value, "->ApplicationSpec", "application");
+  const applicationForm = oneDeclaration(ast, wakeAlias, "ApplicationSpec");
+  const applicationArgs = callArguments(
+    applicationForm.value,
+    wakeAlias,
+    "->ApplicationSpec",
+    "application",
+  );
   if (applicationArgs.length !== 1) fail("application has an invalid checked descriptor");
-  const backendForm = oneDeclaration(ast, "BackendSpec");
-  const backendArgs = callArguments(backendForm.value, "->BackendSpec", "backend");
+  const backendForm = oneDeclaration(ast, wakeAlias, "BackendSpec");
+  const backendArgs = callArguments(
+    backendForm.value,
+    wakeAlias,
+    "->BackendSpec",
+    "backend",
+  );
   if (backendArgs.length !== 1) fail("backend has an invalid checked descriptor");
+  const backendKind = keywordLiteral(backendArgs[0], "backend kind");
+  if (backendKind !== "fram") fail(`backend must be :fram, got ':${backendKind}'`);
 
   const sourceName = basename(sourcePath);
   const sourceId = `application:${sourceName}`;
@@ -511,7 +609,7 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
     ns: ast.namespace,
     backend: {
       _tag: "IrBackend",
-      kind: keywordLiteral(backendArgs[0], "backend kind"),
+      kind: backendKind,
     },
     entities,
     persist: null,

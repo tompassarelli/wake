@@ -1,5 +1,5 @@
-(ns wake.fixtures.beagle-source)
-(application :id "wake-beagle-source-fixture")
+(ns wake.fixtures.checked-beagle)
+(application :id "wake-checked-beagle-fixture")
 (backend :fram)
 
 (defstate RevisionStatus

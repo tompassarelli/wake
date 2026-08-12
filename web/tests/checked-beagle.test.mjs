@@ -5,11 +5,12 @@ import { join } from "node:path";
 
 const webRoot = `${import.meta.dir}/..`;
 const compile = `${webRoot}/bin/wake-compile`;
-const fixtures = `${webRoot}/tests/fixtures/beagle-source`;
+const fixtures = `${webRoot}/tests/fixtures/checked-beagle`;
 
-function compileAll(source, output) {
+function compileAll(source, output, env = process.env) {
   const result = Bun.spawnSync([compile, "--all", source, output], {
     cwd: webRoot,
+    env,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -28,12 +29,15 @@ function normalizeFingerprint(text) {
   return text.replaceAll(/sha256:[0-9a-f]{64}/gu, "sha256:<fingerprint>");
 }
 
-test("checked Beagle source reaches Wake graph and codegen unchanged", () => {
-  const temporary = mkdtempSync(join(tmpdir(), "wake-beagle-source-"));
+test("checked Beagle input reaches Wake graph and codegen unchanged", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-checked-beagle-"));
   const beagleOutput = join(temporary, "beagle");
   const legacyOutput = join(temporary, "legacy");
   try {
-    compileAll(join(fixtures, "application.wake.bjs"), beagleOutput);
+    compileAll(join(fixtures, "application.bjs"), beagleOutput, {
+      ...process.env,
+      BEAGLE_ROOT: process.env.BEAGLE_PROJECTION_ROOT ?? process.env.BEAGLE_ROOT,
+    });
     compileAll(join(fixtures, "legacy.wake"), legacyOutput);
 
     const beaglePlan = JSON.parse(readFileSync(join(beagleOutput, "app.fram.json"), "utf8"));

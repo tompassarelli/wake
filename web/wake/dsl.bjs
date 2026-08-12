@@ -144,16 +144,12 @@
     (->RouteSpec path view)))
 
 (defmacro application [binding id]
-  (append
-    (list 'def)
-    (ann binding 'wake.dsl/ApplicationSpec)
-    (list (list 'wake.dsl/->ApplicationSpec id))))
+  `(def ~binding: ApplicationSpec
+     (->ApplicationSpec ~id)))
 
 (defmacro backend [binding kind]
-  (append
-    (list 'def)
-    (ann binding 'wake.dsl/BackendSpec)
-    (list (list 'wake.dsl/->BackendSpec kind))))
+  `(def ~binding: BackendSpec
+     (->BackendSpec ~kind)))
 
 (defmacro defentity
   [binding
@@ -161,20 +157,15 @@
    fields
    identity
    writes]
-  (list
-    'do
-    (list 'defrecord record-name fields)
-    (append
-      (list 'def)
-      (ann binding 'wake.dsl/EntitySpec)
-      (list
-        (list
-          'wake.dsl/->EntitySpec
-          (str binding)
-          (str record-name)
-          identity
-          writes
-          (quote nil))))))
+  `(do
+     (defrecord ~record-name ~fields)
+     (def ~binding: EntitySpec
+       (->EntitySpec
+         ~(str binding)
+         ~(str record-name)
+         ~identity
+         ~writes
+         nil))))
 
 (defmacro defstate
   [binding
@@ -182,19 +173,14 @@
    states
    initial
    transitions]
-  (list
-    'do
-    (apply list 'defenum enum-name states)
-    (append
-      (list 'def)
-      (ann binding 'wake.dsl/StateSpec)
-      (list
-        (list
-          'wake.dsl/->StateSpec
-          (str binding)
-          (str enum-name)
-          initial
-          transitions)))))
+  `(do
+     (defenum ~enum-name ~@states)
+     (def ~binding: StateSpec
+       (->StateSpec
+         ~(str binding)
+         ~(str enum-name)
+         ~initial
+         ~transitions))))
 
 (defmacro defquery
   [binding
@@ -209,72 +195,54 @@
   (let [params-record (format-symbol "~a-params" binding)
         bindings-record (format-symbol "~a-bindings" binding)
         declaration
-        (append
-          (list 'def)
-          (ann binding 'wake.dsl/QuerySpec)
-          (list
-            (list
-              'wake.dsl/->QuerySpec
-              (str binding)
-              (if (= (count params) 0) "" (str params-record))
-              (str bindings-record)
-              capabilities
-              predicates
-              selection
-              result-kind
-              default-limit
-              max-limit)))]
+        `(def ~binding: QuerySpec
+           (->QuerySpec
+             ~(str binding)
+             ~(if (= (count params) 0) "" (str params-record))
+             ~(str bindings-record)
+             ~capabilities
+             ~predicates
+             ~selection
+             ~result-kind
+             ~default-limit
+             ~max-limit))]
     (if (= (count params) 0)
-      (list
-        'do
-        (list 'defrecord bindings-record bindings)
-        declaration)
-      (list
-        'do
-        (list 'defrecord params-record params)
-        (list 'defrecord bindings-record bindings)
-        declaration))))
+      `(do
+         (defrecord ~bindings-record ~bindings)
+         ~declaration)
+      `(do
+         (defrecord ~params-record ~params)
+         (defrecord ~bindings-record ~bindings)
+         ~declaration))))
 
 (defmacro component
   [binding
    props
    body]
   (let [props-record (format-symbol "~a-props" binding)]
-    (list
-      'do
-      (list 'defrecord props-record props)
-      (append
-        (list 'def)
-        (ann binding 'wake.dsl/ComponentSpec)
-        (list
-          (list
-            'wake.dsl/->ComponentSpec
-            (str binding)
-            (str props-record)
-            body))))))
+    `(do
+       (defrecord ~props-record ~props)
+       (def ~binding: ComponentSpec
+         (->ComponentSpec
+           ~(str binding)
+           ~(str props-record)
+           ~body)))))
 
 (defmacro view
   [binding
    entity
    component-name
    title]
-  (append
-    (list 'def)
-    (ann binding 'wake.dsl/ViewSpec)
-    (list
-      (list
-        'wake.dsl/->ViewSpec
-        (str binding)
-        entity
-        component-name
-        title))))
+  `(def ~binding: ViewSpec
+     (->ViewSpec
+       ~(str binding)
+       ~entity
+       ~component-name
+       ~title)))
 
 (defmacro routes
   [binding
    default-route
    routes-value]
-  (append
-    (list 'def)
-    (ann binding 'wake.dsl/RouterSpec)
-    (list
-      (list 'wake.dsl/->RouterSpec default-route routes-value))))
+  `(def ~binding: RouterSpec
+     (->RouterSpec ~default-route ~routes-value)))
