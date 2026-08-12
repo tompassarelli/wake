@@ -53,6 +53,90 @@ function fields(form) {
   return form.fields.map((field) => [field.name, field.ann]);
 }
 
+function normalizedType(type) {
+  if (type.kind === "prim") {
+    const lowered = type.name === "Keyword" ? "String" : type.name;
+    return { ...type, name: lowered.replace(/^Ir/u, "") };
+  }
+  if (type.kind === "app") {
+    return { ...type, args: type.args.map(normalizedType) };
+  }
+  if (type.kind === "union") {
+    return { ...type, members: type.members.map(normalizedType) };
+  }
+  throw new Error(`unsupported type annotation ${JSON.stringify(type)}`);
+}
+
+function normalizedForm(form) {
+  if (form.node === "record") {
+    return {
+      node: form.node,
+      name: form.name.replace(/^Ir/u, ""),
+      fields: form.fields.map((field) => ({
+        ...field,
+        ann: normalizedType(field.ann),
+      })),
+    };
+  }
+  if (form.node === "defunion") {
+    return {
+      node: form.node,
+      name: form.name.replace(/^Ir/u, ""),
+      "type-params": form["type-params"],
+      members: form.members.map((member) => member.replace(/^Ir/u, "")),
+      "member-fields": Object.fromEntries(
+        Object.entries(form["member-fields"]).map(([member, memberFields]) => [
+          member.replace(/^Ir/u, ""),
+          memberFields.map((field) => ({
+            ...field,
+            ann: normalizedType(field.ann),
+          })),
+        ]),
+      ),
+    };
+  }
+  throw new Error(`unsupported model form ${form.node}`);
+}
+
+function reachableTypes(program, rootName) {
+  const definitions = new Map(program.forms
+    .filter((form) => typeof form.name === "string")
+    .map((form) => [form.name, form]));
+  const reached = new Set();
+  const encountered = new Set();
+
+  function visitType(type) {
+    if (type.kind === "prim") {
+      encountered.add(type.name);
+      visitDefinition(type.name);
+      return;
+    }
+    if (type.kind === "app") {
+      encountered.add(type.name);
+      for (const argument of type.args) visitType(argument);
+      return;
+    }
+    if (type.kind === "union") {
+      for (const member of type.members) visitType(member);
+      return;
+    }
+    throw new Error(`unsupported reachable type ${JSON.stringify(type)}`);
+  }
+
+  function visitDefinition(name) {
+    if (reached.has(name) || !definitions.has(name)) return;
+    reached.add(name);
+    const form = definitions.get(name);
+    for (const field of form.fields ?? []) visitType(field.ann);
+    for (const memberFields of Object.values(form["member-fields"] ?? {})) {
+      for (const field of memberFields) visitType(field.ann);
+    }
+  }
+
+  visitDefinition(rootName);
+  return { encountered, reached };
+}
+
 test("public declarations represent every wiki value and composition invariant", () => {
   runBeagle(["check", "--agent", core]);
   const program = ast(core);
@@ -245,20 +329,35 @@ test("internal declaration program is closed and mirrors the public model", () =
     ["component-slots", vec("IrComponentSlotSpec")],
     ["route-slots", vec("IrRouteSlotSpec")],
   ]);
-  expect(JSON.stringify(declarationProgram)).not.toContain('"Any"');
+  const graph = reachableTypes(program, "IrDeclarationProgram");
+  expect(graph.reached.size).toBe(141);
+  expect(graph.encountered.has("Any")).toBeFalse();
 
   const mirrors = [
-    "ConfigProjection",
     "EntityReferenceTarget",
+    "FieldValueType",
+    "FieldWriteMode",
+    "ConfigProjection",
+    "CommandExpr",
+    "CommandInputField",
+    "ValueExpr",
     "ListNormalization",
+    "ValueTypeSpec",
     "ValueEnvelopeSpec",
+    "ValueTypeDeclarationSpec",
+    "QueryValueExpr",
+    "QueryPredicateSpec",
     "EntityFieldsPortPolicy",
+    "EntityFieldsPortSpec",
+    "BoundInt",
+    "PluginSpec",
     "DefaultRouteTarget",
+    "ApplicationRootSpec",
   ];
   const publicProgram = ast(core);
   for (const name of mirrors) {
-    expect(publicForm(publicProgram, name).node).toBe(
-      internalForm(program, `Ir${name}`).node,
+    expect(normalizedForm(internalForm(program, `Ir${name}`)), name).toEqual(
+      normalizedForm(publicForm(publicProgram, name)),
     );
   }
 });
