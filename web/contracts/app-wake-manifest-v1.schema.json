@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wake.invalid/contracts/app-wake-manifest-v1.schema.json",
+  "title": "Wake Application Artifact Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "applicationId",
+    "artifacts",
+    "checkedApplication",
+    "compiler",
+    "digests",
+    "hostCapabilities",
+    "plugins",
+    "protocols",
+    "schemaVersion"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "applicationId": { "type": "string", "minLength": 1 },
+    "compiler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sourceCommit", "version"],
+      "properties": {
+        "name": { "const": "wake" },
+        "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "checkedApplication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingerprint", "schemaVersion"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "fingerprint": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "protocols": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["framPlanSchemaVersion", "httpOperationProtocolVersion", "pluginAbiVersion"],
+      "properties": {
+        "pluginAbiVersion": { "const": 1 },
+        "framPlanSchemaVersion": { "const": 2 },
+        "httpOperationProtocolVersion": { "const": 2 }
+      }
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "alias",
+          "allowedContributions",
+          "artifactDigest",
+          "configuration",
+          "configurationDigest",
+          "durableSchemaVersion",
+          "migrationOrdinal",
+          "packageId",
+          "source",
+          "version"
+        ],
+        "properties": {
+          "alias": { "type": "string", "minLength": 1 },
+          "allowedContributions": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": ["schema", "query", "command", "capability", "ui", "route"]
+            }
+          },
+          "artifactDigest": { "$ref": "#/$defs/digest" },
+          "configuration": { "type": "object" },
+          "configurationDigest": { "$ref": "#/$defs/digest" },
+          "durableSchemaVersion": { "type": "integer", "minimum": 1 },
+          "migrationOrdinal": { "type": "integer", "minimum": 0 },
+          "packageId": { "type": "string", "minLength": 1 },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["commit", "kind"],
+            "properties": {
+              "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+              "kind": { "const": "git" }
+            }
+          },
+          "version": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "hostCapabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "digests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationSurface", "stateSchema", "storageProjection"],
+      "properties": {
+        "operationSurface": { "$ref": "#/$defs/digest" },
+        "stateSchema": { "$ref": "#/$defs/digest" },
+        "storageProjection": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["browserJavaScript", "framPlan"],
+      "properties": {
+        "browserJavaScript": { "$ref": "#/$defs/artifact" },
+        "framPlan": { "$ref": "#/$defs/artifact" }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "sha256": { "$ref": "#/$defs/digest" }
+      }
+    }
+  }
+}

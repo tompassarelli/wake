@@ -11,6 +11,7 @@
 
 (defrecord GField
   [name: String
+   storage-id: String
    type: String
    identity: Bool
    cardinality: String
@@ -23,6 +24,7 @@
 
 (defrecord GEntity
   [name: String
+   storage-id: String
    fields: (Vec GField)
    stored-fields: (Vec GField)
    derived-fields: (Vec GField)
@@ -53,8 +55,13 @@
    published-state: String
    retired-state: String])
 
-(defrecord CheckedGraph
-  [ns: String
+(defrecord CheckedApplication
+  [schema-version: Int
+   application-id: String
+   source-units: (Vec IrSourceUnit)
+   plugin-closure: (Vec Any)
+   semantic-fingerprint: String?
+   ns: String
    backend: IrBackend?
    entities: (Vec GEntity)
    fk-edges: (Vec FkEdge)
@@ -118,8 +125,6 @@
     (validate-generated-name "publication" (.-name publication)))
   (doseq [form (or (.-forms prog) [])]
     (validate-generated-name "form" (.-name form)))
-  (doseq [panel (or (.-panels prog) [])]
-    (validate-generated-name "panel" (.-name panel)))
   (let [router (.-router prog)]
     (if (some? router)
       (do
@@ -129,8 +134,55 @@
           (validate-generated-name "route view" (.-view-name route))))
       nil)))
 
-(defn analyze-field [attr: IrAttr] -> GField
+(defn nonempty-string? [value: Any] -> Bool
+  (and (string? value) (> (count value) 0)))
+
+(defn declaration-local?
+  [prog: Any
+   kind: String
+   name: String] -> Bool
+  (let [plugin-closure (or (.-plugin-closure prog) [])
+        root-source (.-source-unit prog)
+        declarations (or (.-declaration-provenance prog) [])
+        declaration
+        (first
+          (filterv
+            (fn [entry]
+              (and (= (.-kind entry) kind)
+                   (= (.-name entry) name)))
+            declarations))]
+    (if (= (count plugin-closure) 0)
+      true
+      (and
+        (some? root-source)
+        (some? declaration)
+        (= (.-source-id root-source)
+           (.-source-id (.-source (.-provenance declaration))))))))
+
+(defn required-storage-id
+  [value: Any
+   label: String
+   fallback: String
+   local: Bool] -> String
+  (if (nonempty-string? value)
+    value
+    (if local
+      fallback
+      (graph-error
+        (str "plugin " label " requires a nonempty fixed storage ID")))))
+
+(defn analyze-field
+  [attr: Any
+   entity-name: String
+   entity-local: Bool
+   application-id: String] -> GField
   (let [name (.-name attr)
+        storage-id
+        (required-storage-id
+          (.-storage-id attr)
+          (str "field '" entity-name "." name "'")
+          (str "app:" application-id "/entity:" entity-name "/field:" name)
+          entity-local)
         type (.-type attr)
         opts (.-opts attr)
         identity (= true (get opts "identity"))
@@ -159,6 +211,7 @@
       nil)
     (->GField
       name
+      storage-id
       type
       identity
       cardinality
@@ -171,9 +224,23 @@
 
 ;; --- Entity analysis ---
 
-(defn analyze-entity [entity: IrEntity] -> GEntity
+(defn analyze-entity
+  [prog: Any
+   entity: Any
+   application-id: String] -> GEntity
   (let [name (.-name entity)
-        fields (mapv analyze-field (.-attrs entity))
+        local (declaration-local? prog "entity" name)
+        storage-id
+        (required-storage-id
+          (.-storage-id entity)
+          (str "entity '" name "'")
+          (str "app:" application-id "/entity:" name)
+          local)
+        fields
+        (mapv
+          (fn [attr]
+            (analyze-field attr name local application-id))
+          (.-attrs entity))
         stored-fields (filterv (fn [f] (not (.-derived f))) fields)
         derived-fields (filterv (fn [f] (.-derived f)) fields)
         ref-fields (filterv (fn [f] (= (.-type f) "Ref")) fields)
@@ -181,8 +248,36 @@
         identity-field (if (= (count identity-fields) 1)
                          (first identity-fields)
                          nil)]
-    (->GEntity name fields stored-fields derived-fields ref-fields
+    (->GEntity name storage-id fields stored-fields derived-fields ref-fields
                identity-field (str name "s"))))
+
+(defn validate-storage-id-uniqueness [entities: (Vec GEntity)] -> Any
+  (reduce
+    (fn [seen entry]
+      (let [storage-id (nth entry 0)
+            label (nth entry 1)
+            prior (get seen storage-id)]
+        (if (some? prior)
+          (graph-error
+            (str "storage ID '" storage-id "' is shared by " prior
+                 " and " label))
+          (assoc seen storage-id label))))
+    {}
+    (reduce
+      (fn [entries entity]
+        (reduce
+          (fn [acc field]
+            (conj
+              acc
+              [(.-storage-id field)
+               (str "field '" (.-name entity) "." (.-name field) "'")]))
+          (conj
+            entries
+            [(.-storage-id entity) (str "entity '" (.-name entity) "'")])
+          (.-fields entity)))
+      []
+      entities))
+  nil)
 
 ;; --- FK edge resolution ---
 
@@ -586,11 +681,33 @@
       policies)))
 
 
-;; --- Main: build checked graph ---
+;; --- Main: build checked application ---
 
-(defn check-program [prog: IrProgram] -> CheckedGraph
-  (let [entities (mapv analyze-entity (.-entities prog))
+(defn application-id [prog: Any] -> String
+  (let [application (.-application prog)
+        application-id (if (nil? application) nil (.-id application))]
+    (if (nonempty-string? application-id)
+      (or application-id "")
+      (do
+        (graph-error "linked program requires (application :id \"ID\")")
+        ""))))
+
+(defn checked-source-units [prog: Any] -> (Vec IrSourceUnit)
+  (let [linked (.-source-units prog)
+        root (.-source-unit prog)]
+    (if (some? linked)
+      linked
+      (if (some? root) [root] []))))
+
+(defn check-program [prog: Any] -> CheckedApplication
+  (let [app-id (application-id prog)
+        entities
+        (mapv
+          (fn [entity]
+            (analyze-entity prog entity app-id))
+          (.-entities prog))
         defstates (or (.-defstates prog) [])
+        validated-storage-ids (validate-storage-id-uniqueness entities)
         validated-names (validate-generated-names prog entities defstates)
         validated (validate-backend prog entities)
         validated-create-forms (validate-fram-create-forms prog entities)
@@ -599,7 +716,12 @@
         state-machines
         (resolve-state-machines entities defstates)
         publications (resolve-publications prog entities state-machines)]
-    (->CheckedGraph
+    (->CheckedApplication
+      1
+      app-id
+      (checked-source-units prog)
+      (or (.-plugin-closure prog) [])
+      (.-semantic-fingerprint prog)
       (or (.-ns prog) "wake.app")
       (.-backend prog)
       entities

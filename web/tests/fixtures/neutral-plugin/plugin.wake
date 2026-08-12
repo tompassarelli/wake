@@ -1,0 +1,16 @@
+(ns wake.fixtures.neutral-release)
+
+(entity release
+  (id : String :identity)
+  (state : String))
+
+(component release-card
+  :props [id state]
+  (div :class "release-card"
+    (span :text id)
+    (span :text state)))
+
+(view release-detail
+  :entity release
+  :each release-card
+  :title "Releases")

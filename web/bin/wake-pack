@@ -1,0 +1,18 @@
+#!/usr/bin/env bun
+
+import { packPlugin } from "../compiler/plugin-package.mjs";
+
+const [packageRoot, outputPath] = Bun.argv.slice(2);
+if (!packageRoot || !outputPath || Bun.argv.length !== 4) {
+  console.error("usage: wake-pack PACKAGE_DIR OUTPUT.wakepkg.json");
+  process.exit(2);
+}
+
+try {
+  const packed = await packPlugin(packageRoot);
+  await Bun.write(outputPath, packed.bytes);
+  console.error(`${outputPath} ${packed.digest}`);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+}

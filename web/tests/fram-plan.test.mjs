@@ -41,6 +41,7 @@ const field = (
   } = {},
 ) => ({
   name,
+  storage_id: `wiki/field/${name}`,
   type,
   identity,
   cardinality,
@@ -55,12 +56,26 @@ const field = (
 const pageSlug = field("slug", "String", { identity: true });
 const revisionId = field("revision-id", "String", { identity: true });
 
+const semanticFingerprint = `sha256:${"a".repeat(64)}`;
+const pluginClosure = [{
+  artifactDigest: `sha256:${"b".repeat(64)}`,
+  configurationDigest: `sha256:${"c".repeat(64)}`,
+  durableSchemaVersion: 1,
+  migrationOrdinal: 0,
+  packageId: "wake-wiki-core",
+  version: "1.0.0",
+}];
+
 const checkedWiki = {
+  application_id: "wiki.app",
+  semantic_fingerprint: semanticFingerprint,
+  plugin_closure: pluginClosure,
   ns: "wiki.app",
   backend: { kind: "fram" },
   entities: [
     {
       name: "page",
+      storage_id: "wiki/entity/page",
       identity_field: pageSlug,
       stored_fields: [
         pageSlug,
@@ -75,6 +90,7 @@ const checkedWiki = {
     },
     {
       name: "revision",
+      storage_id: "wiki/entity/revision",
       identity_field: revisionId,
       stored_fields: [
         revisionId,
@@ -146,10 +162,6 @@ beforeAll(async () => {
   });
 
   assert.equal(built.status, 0, built.stderr || built.stdout);
-  writeFileSync(
-    join(buildDir, "graph.js"),
-    "export function check_program(value) { return value; }\n",
-  );
   mkdirSync(join(buildDir, "beagle"));
   copyFileSync(
     join(beagleRoot, "beagle-lib", "lib", "beagle", "core.js"),
@@ -174,7 +186,10 @@ test("FRAM plan emission is byte-deterministic", () => {
 
 test("FRAM subject and predicate Terms cannot alias across apps", () => {
   const wiki = JSON.parse(genFram(checkedWiki));
-  const other = JSON.parse(genFram({ ...checkedWiki, ns: "other.app" }));
+  const other = JSON.parse(genFram({
+    ...checkedWiki,
+    application_id: "other.app",
+  }));
 
   for (let entityIndex = 0; entityIndex < wiki.entities.length; entityIndex += 1) {
     const wikiEntity = wiki.entities[entityIndex];
@@ -198,13 +213,17 @@ test("FRAM subject and predicate Terms cannot alias across apps", () => {
 test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
   const plan = JSON.parse(genFram(checkedWiki));
 
-  assert.equal(plan.schemaVersion, 1);
-  assert.equal(plan.app, "wiki.app");
+  assert.equal(plan.schemaVersion, 2);
+  assert.equal(plan.applicationId, "wiki.app");
   assert.equal(plan.backend, "fram");
+  assert.equal(plan.semanticFingerprint, semanticFingerprint);
+  assert.deepEqual(plan.pluginClosure, pluginClosure);
   assert.deepEqual(Object.keys(plan), [
     "schemaVersion",
-    "app",
+    "applicationId",
     "backend",
+    "semanticFingerprint",
+    "pluginClosure",
     "entities",
     "stateMachines",
     "publications",
@@ -215,8 +234,10 @@ test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
   );
 
   const page = plan.entities[0];
+  assert.equal(page.storageId, "wiki/entity/page");
   assert.deepEqual(page.identity, {
     field: "slug",
+    storageId: "wiki/field/slug",
     type: "String",
     cardinality: "single",
     valueKind: "literal",
@@ -227,8 +248,8 @@ test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
       [
         "triple",
         ["keyword", "entity"],
-        ["keyword", "page"],
-        { field: "slug" },
+        ["keyword", "wiki/entity/page"],
+        { field: "wiki/field/slug" },
       ],
     ],
   });
@@ -243,12 +264,13 @@ test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
     [
       "triple",
       ["keyword", "field"],
-      ["keyword", "page"],
-      ["keyword", "title"],
+      ["keyword", "wiki/entity/page"],
+      ["keyword", "wiki/field/title"],
     ],
   ]);
   assert.deepEqual(page.fields[2], {
     name: "canonical-revision",
+    storageId: "wiki/field/canonical-revision",
     type: "Ref",
     cardinality: "single",
     valueKind: "ref",
@@ -260,14 +282,15 @@ test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
       [
         "triple",
         ["keyword", "field"],
-        ["keyword", "page"],
-        ["keyword", "canonical-revision"],
+        ["keyword", "wiki/entity/page"],
+        ["keyword", "wiki/field/canonical-revision"],
       ],
     ],
     targetEntity: "revision",
   });
 
   const revision = plan.entities[1];
+  assert.equal(revision.storageId, "wiki/entity/revision");
   assert.deepEqual(
     revision.fields.map((entry) => entry.name),
     ["revision-id", "page", "body", "links-to", "status"],

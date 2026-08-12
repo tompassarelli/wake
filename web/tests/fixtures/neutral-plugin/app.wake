@@ -1,0 +1,9 @@
+(ns wake.fixtures.neutral-application)
+(application :id "wake-neutral-release-fixture")
+(backend :fram)
+
+(use "wake-neutral-release"
+  :as release-plugin
+  :version "0.1.0"
+  :allow [schema ui]
+  :config [channel "stable"])

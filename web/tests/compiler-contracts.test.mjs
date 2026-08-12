@@ -113,6 +113,7 @@ test("read-only single views compile and attach publication actions on add and l
   const outputDir = mkdtempSync(join(tmpdir(), "wake-single-publication-"));
   const sourcePath = join(outputDir, "single-publication.wake");
   writeFileSync(sourcePath, `(ns wake.single-publication)
+(application :id "wake-test-single-publication")
 (backend :fram)
 (defstate PublishStatus
   [:draft -> :published :retired]

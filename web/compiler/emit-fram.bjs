@@ -1,10 +1,9 @@
 #lang beagle/js
 (ns wake.emit-fram)
-(require wake.graph :as graph)
 
 ;; A subject template has one substitution hole: the checked identity field.
-;; Its recursive scope is load-bearing: the app name keeps same-named schemas
-;; from sharing subjects or predicates in one FRAM database.
+;; Its recursive scope is load-bearing: the stable application and storage IDs
+;; keep lexical aliases out of FRAM identity.
 
 (defn keyword-term [spelling: String] -> Any
   ["keyword" spelling])
@@ -15,68 +14,79 @@
    t3: Any] -> Any
   ["triple" t1 t2 t3])
 
-(defn app-scope-term [app-name: String value: Any] -> Any
+(defn app-scope-term [application-id: String value: Any] -> Any
   (triple-term
     (keyword-term "wake/app")
-    (keyword-term app-name)
+    (keyword-term application-id)
     value))
 
 (defn subject-template
-  [app-name: String
-   entity-name: String
-   identity-name: String] -> Any
+  [application-id: String
+   entity-storage-id: String
+   identity-storage-id: String] -> Any
   (app-scope-term
-    app-name
+    application-id
     (triple-term
       (keyword-term "entity")
-      (keyword-term entity-name)
-      {:field identity-name})))
+      (keyword-term entity-storage-id)
+      {:field identity-storage-id})))
 
 (defn predicate-term
-  [app-name: String
-   entity-name: String
-   field-name: String] -> Any
+  [application-id: String
+   entity-storage-id: String
+   field-storage-id: String] -> Any
   (app-scope-term
-    app-name
+    application-id
     (triple-term
       (keyword-term "field")
-      (keyword-term entity-name)
-      (keyword-term field-name))))
+      (keyword-term entity-storage-id)
+      (keyword-term field-storage-id))))
 
 (defn field-plan
-  [app-name: String
-   entity-name: String
+  [application-id: String
+   entity-storage-id: String
    field: Any] -> Any
   (let [plan {:name (.-name field)
+              :storageId (.-storage-id field)
               :type (.-type field)
               :cardinality (.-cardinality field)
               :valueKind (.-value-kind field)
               :write (.-write-policy field)
               :predicateTerm
-              (predicate-term app-name entity-name (.-name field))}]
+              (predicate-term
+                application-id
+                entity-storage-id
+                (.-storage-id field))}]
     (if (identical? (.-value-kind field) "ref")
       (assoc plan :targetEntity (.-target-entity field))
       plan)))
 
 (defn identity-plan
-  [app-name: String
-   entity-name: String
+  [application-id: String
+   entity-storage-id: String
    field: Any] -> Any
   {:field (.-name field)
+   :storageId (.-storage-id field)
    :type (.-type field)
    :cardinality (.-cardinality field)
    :valueKind (.-value-kind field)
    :subjectTemplate
-   (subject-template app-name entity-name (.-name field))})
+   (subject-template
+     application-id
+     entity-storage-id
+     (.-storage-id field))})
 
-(defn entity-plan [app-name: String entity: Any] -> Any
-  (let [entity-name (.-name entity)]
+(defn entity-plan [application-id: String entity: Any] -> Any
+  (let [entity-name (.-name entity)
+        entity-storage-id (.-storage-id entity)]
     {:name entity-name
+     :storageId entity-storage-id
      :identity
-     (identity-plan app-name entity-name (.-identity-field entity))
+     (identity-plan
+       application-id entity-storage-id (.-identity-field entity))
      :fields (mapv
                (fn [field: Any] -> Any
-                 (field-plan app-name entity-name field))
+                 (field-plan application-id entity-storage-id field))
                (.-stored-fields entity))}))
 
 (defn state-name [state: String] -> String
@@ -111,17 +121,19 @@
             :retired (.-retired-state publication)}})
 
 (defn fram-plan [checked: Any] -> Any
-  (let [app-name (.-ns checked)]
-    {:schemaVersion 1
-     :app app-name
+  (let [application-id (.-application-id checked)]
+    {:schemaVersion 2
+     :applicationId application-id
      :backend "fram"
+     :semanticFingerprint (.-semantic-fingerprint checked)
+     :pluginClosure (or (.-plugin-closure checked) [])
      :entities (mapv
                  (fn [entity: Any] -> Any
-                   (entity-plan app-name entity))
+                   (entity-plan application-id entity))
                  (.-entities checked))
      :stateMachines (mapv state-machine-plan (.-state-machines checked))
      :publications (mapv publication-plan (.-publications checked))}))
 
 (js/export
-  (defn gen-fram [prog: Any] -> String
-    (str (JSON/stringify (fram-plan (graph/check-program prog)) nil 2) "\n")))
+  (defn gen-fram [checked: Any] -> String
+    (str (JSON/stringify (fram-plan checked) nil 2) "\n")))

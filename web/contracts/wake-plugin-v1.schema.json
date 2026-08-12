@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wake.invalid/contracts/wake-plugin-v1.schema.json",
+  "title": "Wake Plugin Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "compatibleWake",
+    "configuration",
+    "contributions",
+    "dependencies",
+    "durableSchemaVersion",
+    "entry",
+    "exports",
+    "extensionPorts",
+    "migrations",
+    "packageId",
+    "pluginAbiVersion",
+    "requiredHostCapabilities",
+    "schemaVersion",
+    "sources",
+    "storageIds",
+    "version"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "packageId": { "$ref": "#/$defs/name" },
+    "version": { "$ref": "#/$defs/version" },
+    "pluginAbiVersion": { "const": 1 },
+    "compatibleWake": { "$ref": "#/$defs/version" },
+    "entry": { "$ref": "#/$defs/path" },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/path" }
+    },
+    "dependencies": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["packageId", "version"],
+        "properties": {
+          "packageId": { "$ref": "#/$defs/name" },
+          "version": { "$ref": "#/$defs/version" }
+        }
+      }
+    },
+    "contributions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["schema", "query", "command", "capability", "ui", "route"]
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/configuration" }
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capabilities",
+        "commands",
+        "components",
+        "entities",
+        "providerPorts",
+        "queries",
+        "routes"
+      ],
+      "properties": {
+        "capabilities": { "$ref": "#/$defs/names" },
+        "commands": { "$ref": "#/$defs/names" },
+        "components": { "$ref": "#/$defs/names" },
+        "entities": { "$ref": "#/$defs/names" },
+        "providerPorts": { "$ref": "#/$defs/names" },
+        "queries": { "$ref": "#/$defs/names" },
+        "routes": { "$ref": "#/$defs/names" },
+        "states": { "$ref": "#/$defs/names" },
+        "valueTypes": { "$ref": "#/$defs/names" }
+      }
+    },
+    "extensionPorts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["accepts", "cardinality", "kind", "name", "target"],
+        "properties": {
+          "accepts": { "$ref": "#/$defs/names" },
+          "cardinality": { "enum": ["one", "many"] },
+          "kind": { "enum": ["entity-fields", "component-slot", "route-slot"] },
+          "name": { "$ref": "#/$defs/name" },
+          "target": { "$ref": "#/$defs/name" }
+        }
+      }
+    },
+    "requiredHostCapabilities": { "$ref": "#/$defs/names" },
+    "storageIds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entities", "fields"],
+      "properties": {
+        "entities": { "$ref": "#/$defs/storage-map" },
+        "fields": { "$ref": "#/$defs/storage-map" }
+      }
+    },
+    "durableSchemaVersion": { "type": "integer", "minimum": 1 },
+    "migrations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "fromVersion", "ordinal", "toVersion"],
+        "properties": {
+          "command": { "$ref": "#/$defs/name" },
+          "fromVersion": { "type": "integer", "minimum": 0 },
+          "ordinal": { "type": "integer", "minimum": 1 },
+          "toVersion": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "name": { "type": "string", "minLength": 1 },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[^/]+(?:/[^/]+)*$"
+    },
+    "names": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/name" }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "type"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "type": { "type": "object" }
+      }
+    },
+    "storage-map": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/name" }
+    }
+  }
+}

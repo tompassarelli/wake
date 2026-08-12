@@ -1,4 +1,5 @@
 (ns wake.tracker)
+(application :id "wake-demo-tracker")
 (persist :localStorage "wake-tracker")
 
 (entity task

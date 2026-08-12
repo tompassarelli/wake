@@ -1,4 +1,5 @@
 (ns wake.command-ux)
+(application :id "wake-test-command-ux")
 (backend :fram)
 
 (entity item

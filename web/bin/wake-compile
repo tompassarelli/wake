@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# wake-compile: compile .bjs sources and wire them as ES modules.
-# Compiler modules are staged privately for this invocation, then discarded.
+# wake-compile: build the Beagle compiler modules, then run the Bun delivery
+# driver. Plugins are resolved only from the source-adjacent wake.lock.
 #
 # Usage:
 #   bin/wake-compile                           # verify all compiler modules build
 #   bin/wake-compile FILE [OUT]                # emit direct-DOM JavaScript
 #   bin/wake-compile --fram FILE [OUT]         # emit a FRAM plan as JSON
-#   bin/wake-compile --all FILE [OUT_DIR]      # emit app.js and app.fram.json
+#   bin/wake-compile --all FILE [OUT_DIR]      # emit the deployment artifact set
 
 set -euo pipefail
 
@@ -41,145 +41,108 @@ compile() {
   BEAGLE_JS_RUNTIME_PREFIX='./beagle/' \
     "$BEAGLE_BUILD" "$source" "$output" >/dev/null
 }
+
+append_function_exports() {
+  local source="$1" output="$2" names
+  names="$(grep -oP '(?<=^function )\w+' "$source" | paste -sd, || true)"
+  {
+    cat "$source"
+    if [[ -n "$names" ]]; then
+      echo
+      echo "export { $names };"
+    fi
+  } > "$output"
+}
+
 echo "using Beagle builder at $BEAGLE_BUILD" >&2
 
 staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/wake-compile.XXXXXX")"
 trap 'rm -rf "${staging_dir:?}"' EXIT
 dist="$staging_dir/dist"
 
-mkdir -p "$dist"
-cp "$wake_root/package.json" "$staging_dir/package.json"
 mkdir -p "$dist/beagle"
+cp "$wake_root/package.json" "$staging_dir/package.json"
 cp "$BEAGLE_RUNTIME_DIR/core.js" "$dist/beagle/core.js"
 cp "$BEAGLE_RUNTIME_DIR/hamt.js" "$dist/beagle/hamt.js"
 
-# Step 1: compile each .bjs → .js
 modules=(sexpr ir graph reader ui js-ast emit-fram codegen)
 for mod in "${modules[@]}"; do
   echo "compiling $mod.bjs..." >&2
   compile "$compiler/$mod.bjs" "$dist/$mod.js.tmp"
 done
 
-# Step 2: add exports to modules that have none
-
-# sexpr.js — export parse_all
 {
   cat "$dist/sexpr.js.tmp"
-  echo ""
+  echo
   echo "export { parse_all };"
 } > "$dist/sexpr.js"
 
-# ir.js — export all constructors
-{
-  cat "$dist/ir.js.tmp"
-  echo ""
-  grep -oP '(?<=^function )\w+' "$dist/ir.js.tmp" | \
-    paste -sd, | \
-    sed 's/^/export { /; s/$/ };/'
-} > "$dist/ir.js"
+append_function_exports "$dist/ir.js.tmp" "$dist/ir.js"
 
-# graph.js — fix imports, add export
-{
-  sed "s|from './wake/ir.js';|from './ir.js';|" \
-    "$dist/graph.js.tmp"
-  echo ""
-  echo "export { check_program, strip_colon, capitalize, titlecase, GField, GEntity, FkEdge, StateMachine, PublicationPolicy, CheckedGraph };"
-} > "$dist/graph.js"
+sed "s|from './wake/ir.js';|from './ir.js';|" \
+  "$dist/graph.js.tmp" > "$dist/graph.js.imports"
+append_function_exports "$dist/graph.js.imports" "$dist/graph.js"
 
-# ui.js — export expand_list_detail
-{
-  cat "$dist/ui.js.tmp"
-  echo ""
-  echo "export { expand_list_detail, UiFieldInfo, UiRelated, UiForm, UiGraph, UiComponent, UiBind, UiQuery, UiEach, UiWhen, UiAction, UiElement, UiText, UiStore, UiState };"
-} > "$dist/ui.js"
+append_function_exports "$dist/ui.js.tmp" "$dist/ui.js"
+append_function_exports "$dist/js-ast.js.tmp" "$dist/js-ast.js"
 
-# js-ast.js — export all functions
-{
-  cat "$dist/js-ast.js.tmp"
-  echo ""
-  grep -oP '(?<=^function )\w+' "$dist/js-ast.js.tmp" | \
-    paste -sd, | \
-    sed 's/^/export { /; s/$/ };/'
-} > "$dist/js-ast.js"
-
-# reader.js — fix imports, add export
 {
   sed "s|from './wake/sexpr.js';|from './sexpr.js';|; s|from './wake/ir.js';|from './ir.js';|" \
     "$dist/reader.js.tmp"
-  echo ""
-  echo "export { parse_program };"
+  echo
+  echo "export { parse_program, parse_program_at };"
 } > "$dist/reader.js"
 
-# emit-fram.js — fix imports; js/export in source owns the public export
+# emit-fram owns its public js/export declaration in source.
 sed "s|from './wake/graph.js';|from './graph.js';|" \
   "$dist/emit-fram.js.tmp" > "$dist/emit-fram.js"
 
-# codegen.js — fix imports, add export
 {
   sed "s|from './wake/ir.js';|from './ir.js';|; s|from './wake/graph.js';|from './graph.js';|; s|from './wake/ui.js';|from './ui.js';|" \
     "$dist/codegen.js.tmp"
-  echo ""
+  echo
   echo "export { gen_program_bang };"
 } > "$dist/codegen.js"
 
 echo "compiler modules built" >&2
-
-# Step 3: emit target(s)
-emit_js() {
-  local src="$1" out="$2"
-  WAKE_COMPILE_SOURCE="$src" WAKE_COMPILE_DIST="$dist" \
-    bun --no-install --eval '
-const dist = process.env.WAKE_COMPILE_DIST;
-const distUrl = Bun.pathToFileURL(`${dist}/`);
-const { parse_program } = await import(new URL("reader.js", distUrl).href);
-const { gen_program_bang } = await import(new URL("codegen.js", distUrl).href);
-const source = await Bun.file(process.env.WAKE_COMPILE_SOURCE).text();
-const prog = parse_program(source);
-await Bun.write(Bun.stdout, gen_program_bang(prog));
-' > "$out"
-}
-
-emit_fram() {
-  local src="$1" out="$2"
-  WAKE_COMPILE_SOURCE="$src" WAKE_COMPILE_DIST="$dist" \
-    bun --no-install --eval '
-const dist = process.env.WAKE_COMPILE_DIST;
-const distUrl = Bun.pathToFileURL(`${dist}/`);
-const { parse_program } = await import(new URL("reader.js", distUrl).href);
-const { gen_fram } = await import(new URL("emit-fram.js", distUrl).href);
-const source = await Bun.file(process.env.WAKE_COMPILE_SOURCE).text();
-const prog = parse_program(source);
-await Bun.write(Bun.stdout, gen_fram(prog));
-' > "$out"
-}
 
 usage() {
   sed -n '/^# Usage:/,/^$/p' "$0" >&2
   exit 2
 }
 
+run_driver() {
+  local mode="$1" source="$2" output="$3"
+  local absolute_source
+  absolute_source="$(realpath "$source")"
+  bun --no-install "$compiler/compile-driver.mjs" \
+    --dist "$dist" \
+    --mode "$mode" \
+    --source "$absolute_source" \
+    --output "$output"
+}
+
 if [[ $# -ge 1 && "$1" == "--all" ]]; then
   [[ $# -ge 2 && $# -le 3 ]] || usage
-  shift
-  wake_file="$1"
-  out_dir="${2:-.}"
+  wake_file="$2"
+  out_dir="${3:-.}"
   mkdir -p "$out_dir"
-  emit_js "$wake_file" "$out_dir/app.js"
-  emit_fram "$wake_file" "$out_dir/app.fram.json"
+  out_dir="$(realpath "$out_dir")"
+  run_driver all "$wake_file" "$out_dir"
   "$wake_root/bin/wake-lint-output" "$out_dir/app.js" >&2
-  echo "$wake_file -> $out_dir/ (app.js + app.fram.json)" >&2
+  echo "$wake_file -> $out_dir/ (app.js + app.fram.json + app.wake.manifest.json)" >&2
 elif [[ $# -ge 1 && "$1" == "--fram" ]]; then
   [[ $# -ge 2 && $# -le 3 ]] || usage
-  shift; emit_fram "$1" "${2:-/dev/stdout}"
-  if [[ -n "${2:-}" ]]; then
-    echo "$1 -> $2 (FRAM plan)" >&2
+  run_driver fram "$2" "${3:--}"
+  if [[ -n "${3:-}" ]]; then
+    echo "$2 -> $3 (FRAM plan)" >&2
   fi
 elif [[ $# -ge 1 && "$1" == --* ]]; then
   echo "wake-compile: unknown option '$1'" >&2
   usage
 elif [[ $# -ge 1 ]]; then
   [[ $# -le 2 ]] || usage
-  emit_js "$1" "${2:-/dev/stdout}"
+  run_driver js "$1" "${2:--}"
   if [[ -n "${2:-}" ]]; then
     echo "$1 -> $2" >&2
   fi

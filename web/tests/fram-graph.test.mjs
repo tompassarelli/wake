@@ -16,6 +16,12 @@ const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
 const beagleRoot = process.env.BEAGLE_ROOT ?? join(homedir(), "code", "beagle", "main");
 const COMPILER_TEST_TIMEOUT_MS = 20_000;
+const sourceUnit = {
+  source_id: "test:root",
+  path: "fram-graph.test.wake",
+  package_id: "",
+  package_version: "",
+};
 
 function spawnSync(command, args, { cwd, env = process.env } = {}) {
   const result = Bun.spawnSync([command, ...args], {
@@ -47,9 +53,14 @@ function program({
   views = [],
   router = null,
   forms = [],
-  panels = [],
 }) {
   return {
+    source_unit: sourceUnit,
+    source_units: [sourceUnit],
+    plugin_closure: [],
+    application: { id: "type-test" },
+    uses: [],
+    declaration_provenance: [],
     ns: "type.test",
     backend,
     entities,
@@ -63,7 +74,6 @@ function program({
     views,
     router,
     layout: null,
-    panels,
   };
 }
 
@@ -325,7 +335,8 @@ test("defstate transitions may target only declared states", () => {
 test("reader requires the canonical defstate transition arrow", () => {
   const sourcePath = join(buildDir, "invalid-defstate-arrow.wake");
   const outputPath = join(buildDir, "invalid-defstate-arrow.fram.json");
-  writeFileSync(sourcePath, `(ns invalid.state)
+  writeFileSync(sourcePath, `(application :id "type-test")
+(ns invalid.state)
 (backend :fram)
 (defstate Lifecycle
   [:draft => :canonical]

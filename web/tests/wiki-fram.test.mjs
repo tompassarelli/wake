@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
-const WIKI_APP = "wake.wiki";
+const WIKI_APP = "wake-demo-wiki";
 const COMPILER_TEST_TIMEOUT_MS = 20_000;
 
 function spawnSync(command, args, { cwd, env = process.env } = {}) {
@@ -39,12 +39,20 @@ function appScope(app, value) {
   ];
 }
 
+function entityStorageId(app, entity) {
+  return `app:${app}/entity:${entity}`;
+}
+
+function fieldStorageId(app, entity, field) {
+  return `${entityStorageId(app, entity)}/field:${field}`;
+}
+
 function subjectTemplate(app, entity, identityField) {
   return appScope(app, [
     "triple",
     ["keyword", "entity"],
-    ["keyword", entity],
-    { field: identityField },
+    ["keyword", entityStorageId(app, entity)],
+    { field: fieldStorageId(app, entity, identityField) },
   ]);
 }
 
@@ -52,8 +60,8 @@ function predicateTerm(app, entity, field) {
   return appScope(app, [
     "triple",
     ["keyword", "field"],
-    ["keyword", entity],
-    ["keyword", field],
+    ["keyword", entityStorageId(app, entity)],
+    ["keyword", fieldStorageId(app, entity, field)],
   ]);
 }
 
@@ -66,6 +74,7 @@ function fieldPlan(
 ) {
   const plan = {
     name,
+    storageId: fieldStorageId(app, entity, name),
     type,
     cardinality,
     valueKind: targetEntity === undefined ? "literal" : "ref",
@@ -79,8 +88,10 @@ function fieldPlan(
 function entityPlan(app, name, identityField, identityType, fields) {
   return {
     name,
+    storageId: entityStorageId(app, name),
     identity: {
       field: identityField,
+      storageId: fieldStorageId(app, name, identityField),
       type: identityType,
       cardinality: "single",
       valueKind: "literal",
@@ -107,17 +118,40 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
 
     const framPath = join(outputDir, "app.fram.json");
     const appPath = join(outputDir, "app.js");
+    const manifestPath = join(outputDir, "app.wake.manifest.json");
     assert.equal(existsSync(framPath), true, "app.fram.json was not emitted");
     assert.equal(existsSync(appPath), true, "app.js was not emitted");
-    assert.deepEqual(readdirSync(outputDir).sort(), ["app.fram.json", "app.js"]);
+    assert.equal(
+      existsSync(manifestPath),
+      true,
+      "app.wake.manifest.json was not emitted",
+    );
+    assert.deepEqual(readdirSync(outputDir).sort(), [
+      "app.fram.json",
+      "app.js",
+      "app.wake.manifest.json",
+    ]);
 
     const framSource = readFileSync(framPath, "utf8");
     assert.ok(framSource.endsWith("\n"));
     assert.ok(!framSource.endsWith("\n\n"));
-    assert.deepEqual(JSON.parse(framSource), {
-      schemaVersion: 1,
-      app: WIKI_APP,
+    const framPlan = JSON.parse(framSource);
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    assert.match(
+      framPlan.semanticFingerprint,
+      /^sha256:[0-9a-f]{64}$/u,
+    );
+    assert.equal(
+      framPlan.semanticFingerprint,
+      manifest.checkedApplication.fingerprint,
+    );
+    assert.equal(manifest.applicationId, WIKI_APP);
+    assert.deepEqual(framPlan, {
+      schemaVersion: 2,
+      applicationId: WIKI_APP,
       backend: "fram",
+      semanticFingerprint: framPlan.semanticFingerprint,
+      pluginClosure: [],
       entities: [
         entityPlan(WIKI_APP, "page", "slug", "String", [
           fieldPlan(WIKI_APP, "page", "slug", "String"),
@@ -178,6 +212,10 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
     });
 
     const appSource = readFileSync(appPath, "utf8");
+    assert.equal(
+      appSource.split("\n")[0],
+      `// wake: checked-application ${framPlan.semanticFingerprint}`,
+    );
     for (const token of [
       "/api/wake/query",
       "/api/wake/command",

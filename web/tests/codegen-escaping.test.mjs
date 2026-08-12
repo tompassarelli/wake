@@ -62,6 +62,7 @@ test("generated JavaScript quotes every source string without code injection", a
 
   const wakeSource = [
     `(ns ${namespace})`,
+    '(application :id "wake-test-codegen-escaping")',
     "(theme",
     `  :colors (primary ${JSON.stringify(themeValue)}))`,
     "(entity item",
@@ -97,8 +98,12 @@ test("generated JavaScript quotes every source string without code injection", a
     assert.equal(checked.success, true, checked.logs.join("\n"));
 
     const generated = readFileSync(outputPath, "utf8");
+    assert.match(
+      generated.split("\n")[0],
+      /^\/\/ wake: checked-application sha256:[0-9a-f]{64}$/u,
+    );
     assert.equal(
-      generated.split("\n")[1],
+      generated.split("\n")[2],
       `// Source: ${embeddedLiteral(namespace)}`,
     );
     assert.equal(generated.includes("\u2028"), false);

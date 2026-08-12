@@ -1,4 +1,5 @@
 (ns wake.compiler-contracts)
+(application :id "wake-test-compiler-contracts")
 (backend :fram)
 
 (defstate PublishStatus

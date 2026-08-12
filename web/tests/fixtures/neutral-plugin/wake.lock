@@ -1,0 +1,1 @@
+{"pluginAbiVersion":1,"plugins":[{"artifact":"artifacts/neutral-plugin.wakepkg.json","digest":"sha256:b3e4b5972ebe167c0b859e34851af605765135879e3fce96e5abe6b1f036c4ac","packageId":"wake-neutral-release","source":{"commit":"3189fbb4289b62e1a39141ac35bbed27cad3ea27","kind":"git"},"version":"0.1.0"}],"schemaVersion":1}

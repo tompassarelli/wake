@@ -1,4 +1,5 @@
 (ns wake.todo)
+(application :id "wake-demo-todo")
 (persist :localStorage "wake-todo")
 
 (entity task

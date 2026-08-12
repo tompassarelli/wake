@@ -4,11 +4,42 @@
 ;; IR data structures for the Wake compiler.
 ;; Produced by the reader, consumed by codegen.
 
+(defrecord SourceSpan
+  [source-id: String
+   start-offset: Int
+   end-offset: Int
+   start-line: Int
+   start-column: Int
+   end-line: Int
+   end-column: Int])
+(defrecord IrSourceUnit
+  [source-id: String
+   path: String
+   package-id: String
+   package-version: String])
+(defrecord IrProvenance [source: IrSourceUnit span: SourceSpan])
+(defrecord IrDeclarationProvenance
+  [kind: String
+   name: String
+   provenance: IrProvenance])
+(defrecord IrApplication [id: String span: SourceSpan])
+(defrecord IrUseConfig [key: String value: Any])
+(defrecord IrUse
+  [package-id: String
+   alias: String
+   version: String
+   allow: (Vec String)
+   config: (Vec IrUseConfig)
+   span: SourceSpan])
 (defrecord IrAttr
   [name: String
+   storage-id: String?
    type: String
    opts: Any])
-(defrecord IrEntity [name: String attrs: (Vec IrAttr)])
+(defrecord IrEntity
+  [name: String
+   storage-id: String?
+   attrs: (Vec IrAttr)])
 (defrecord IrBackend [kind: String])
 (defrecord IrPersist [storage: String key: String])
 (defrecord IrDefstate
@@ -43,7 +74,7 @@
    submit-label: String
    on-success: String])
 (defrecord IrTheme [colors: (Map String String)])
-;; An event handler effect: verb (assert/set/retract/select/refetch) + args.
+;; An event handler effect: checked verb plus arguments.
 ;; Rides inside an element's attrs map under an "on-<event>" key.
 (defrecord IrAction [verb: String args: Any])
 ;; Fields repeated inline (not just member names): the cross-module defunion
@@ -82,12 +113,12 @@
   [style: String
    title: String?
    groups: (Vec IrNavGroup)])
-;; A custom-pane escape hatch: the shell mounts its own JS (Cytoscape/stream) into a named
-;; container carved from the wake view, sharing updates+selection via window.wake. mount-fn is a
-;; dotted path resolved off window at runtime (e.g. "north.mountGraph").
-(defrecord IrPanel [name: String mount-fn: String])
 (defrecord IrProgram
-  [ns: String
+  [source-unit: IrSourceUnit
+   application: IrApplication?
+   uses: (Vec IrUse)
+   declaration-provenance: (Vec IrDeclarationProvenance)
+   ns: String
    backend: IrBackend?
    entities: (Vec IrEntity)
    persist: IrPersist?
@@ -99,5 +130,4 @@
    components: (Vec IrComponent)
    views: (Vec IrView)
    router: IrRouter?
-   layout: IrLayout?
-   panels: (Vec IrPanel)])
+   layout: IrLayout?])

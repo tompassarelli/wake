@@ -1,4 +1,5 @@
 (ns wake.app)
+(application :id "wake-demo-crm-v2")
 (persist :localStorage "wake-crm-v2")
 
 (theme
