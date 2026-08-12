@@ -4,7 +4,7 @@ import {
   sha256Digest,
 } from "./canonical.mjs";
 import { constants as fileConstants } from "node:fs";
-import { open } from "node:fs/promises";
+import fileSystemPromises from "node:fs/promises";
 import {
   configurationDeclarationDescriptors,
   validateConfigurationSchema,
@@ -327,33 +327,7 @@ export function validateWakeLock(value) {
   return value;
 }
 
-function joined(root, path) {
-  return `${root.replace(/\/+$/u, "")}/${path}`;
-}
-
-function isSymlink(path) {
-  const result = Bun.spawnSync(["test", "-L", path], {
-    stderr: "ignore",
-    stdout: "ignore",
-  });
-  return result.exitCode === 0;
-}
-
-async function readFileBytes(path, maximumBytes, label) {
-  let handle;
-  try {
-    handle = await open(
-      path,
-      fileConstants.O_RDONLY | fileConstants.O_NOFOLLOW | fileConstants.O_NONBLOCK,
-    );
-  } catch (error) {
-    if (error?.code === "ENOENT") fail(`${label} does not exist`);
-    if (error?.code === "ELOOP") fail(`${label} must not be a symlink`);
-    throw new TypeError(`wake plugin: ${label} could not be opened as a regular file`, {
-      cause: error,
-    });
-  }
-
+async function readOpenFileBytes(handle, maximumBytes, label) {
   try {
     const before = await handle.stat({ bigint: true });
     if (!before.isFile()) fail(`${label} must be a regular file`);
@@ -361,7 +335,7 @@ async function readFileBytes(path, maximumBytes, label) {
       fail(`${label} exceeds ${maximumBytes} bytes`);
     }
 
-    const buffer = Buffer.allocUnsafe(Number(before.size) + 1);
+    const buffer = Buffer.alloc(Number(before.size) + 1);
     let length = 0;
     while (length < buffer.byteLength) {
       const { bytesRead } = await handle.read(
@@ -378,7 +352,9 @@ async function readFileBytes(path, maximumBytes, label) {
     if (before.dev !== after.dev
         || before.ino !== after.ino
         || before.size !== after.size
-        || before.mtimeNs !== after.mtimeNs) {
+        || before.mtimeNs !== after.mtimeNs
+        || before.ctimeNs !== after.ctimeNs
+        || BigInt(length) !== after.size) {
       fail(`${label} changed while being read`);
     }
     if (length > maximumBytes) fail(`${label} exceeds ${maximumBytes} bytes`);
@@ -388,52 +364,174 @@ async function readFileBytes(path, maximumBytes, label) {
   }
 }
 
-async function readFileSnapshot(file, maximumBytes, label) {
-  const bytes = await readFileBytes(file, maximumBytes, label);
+async function openStandaloneFile(path, label) {
+  try {
+    return await fileSystemPromises.open(
+      path,
+      fileConstants.O_RDONLY | fileConstants.O_NOFOLLOW | fileConstants.O_NONBLOCK,
+    );
+  } catch (error) {
+    if (error?.code === "ENOENT") fail(`${label} does not exist`);
+    if (error?.code === "ELOOP") fail(`${label} must not be a symlink`);
+    throw new TypeError(`wake plugin: ${label} could not be opened as a regular file`, {
+      cause: error,
+    });
+  }
+}
+
+async function readStandaloneFileBytes(path, maximumBytes, label) {
+  return readOpenFileBytes(await openStandaloneFile(path, label), maximumBytes, label);
+}
+
+async function openPackageRoot(packageRoot) {
+  if (process.platform !== "linux") {
+    fail("descriptor-anchored package reads require Linux /proc/self/fd");
+  }
+
+  let root;
+  try {
+    root = await fileSystemPromises.open(
+      packageRoot,
+      fileConstants.O_RDONLY
+        | fileConstants.O_DIRECTORY
+        | fileConstants.O_NOFOLLOW
+        | fileConstants.O_NONBLOCK,
+    );
+  } catch (error) {
+    if (error?.code === "ENOENT") fail("package root does not exist");
+    if (error?.code === "ELOOP" || error?.code === "ENOTDIR") {
+      fail("package root must be a directory, not a symlink");
+    }
+    throw new TypeError("wake plugin: package root could not be opened", {
+      cause: error,
+    });
+  }
+
+  let descriptorRoot;
+  try {
+    descriptorRoot = await fileSystemPromises.open(
+      `/proc/self/fd/${root.fd}`,
+      fileConstants.O_RDONLY | fileConstants.O_DIRECTORY | fileConstants.O_NONBLOCK,
+    );
+    const [rootStats, descriptorStats] = await Promise.all([
+      root.stat({ bigint: true }),
+      descriptorRoot.stat({ bigint: true }),
+    ]);
+    if (rootStats.dev !== descriptorStats.dev || rootStats.ino !== descriptorStats.ino) {
+      fail("descriptor-anchored package reads require a valid Linux /proc/self/fd");
+    }
+    return root;
+  } catch (error) {
+    await root.close();
+    if (error instanceof TypeError && error.message.startsWith("wake plugin:")) throw error;
+    throw new TypeError(
+      "wake plugin: descriptor-anchored package reads require Linux /proc/self/fd",
+      { cause: error },
+    );
+  } finally {
+    if (descriptorRoot) await descriptorRoot.close();
+  }
+}
+
+function descriptorChildPath(directory, component) {
+  return `/proc/self/fd/${directory.fd}/${component}`;
+}
+
+async function openRelativeDirectory(parent, component, label) {
+  try {
+    return await fileSystemPromises.open(
+      descriptorChildPath(parent, component),
+      fileConstants.O_RDONLY
+        | fileConstants.O_DIRECTORY
+        | fileConstants.O_NOFOLLOW
+        | fileConstants.O_NONBLOCK,
+    );
+  } catch (error) {
+    if (error?.code === "ENOENT") fail(`${label} does not exist`);
+    if (error?.code === "ELOOP" || error?.code === "ENOTDIR") {
+      fail(`${label} crosses a symlink or non-directory path`);
+    }
+    throw new TypeError(`wake plugin: ${label} could not be traversed`, {
+      cause: error,
+    });
+  }
+}
+
+async function openRelativeFile(parent, component, label) {
+  try {
+    return await fileSystemPromises.open(
+      descriptorChildPath(parent, component),
+      fileConstants.O_RDONLY | fileConstants.O_NOFOLLOW | fileConstants.O_NONBLOCK,
+    );
+  } catch (error) {
+    if (error?.code === "ENOENT") fail(`${label} does not exist`);
+    if (error?.code === "ELOOP") fail(`${label} must not be a symlink`);
+    throw new TypeError(`wake plugin: ${label} could not be opened as a regular file`, {
+      cause: error,
+    });
+  }
+}
+
+async function readRelativeFileBytes(root, path, maximumBytes, label) {
+  const components = relativePath(path, label).split("/");
+  const directories = [];
+  let parent = root;
+  try {
+    for (const component of components.slice(0, -1)) {
+      const directory = await openRelativeDirectory(parent, component, label);
+      directories.push(directory);
+      parent = directory;
+    }
+    const file = await openRelativeFile(parent, components.at(-1), label);
+    return await readOpenFileBytes(file, maximumBytes, label);
+  } finally {
+    for (const directory of directories.reverse()) await directory.close();
+  }
+}
+
+async function readRelativeFileSnapshot(root, path, maximumBytes, label) {
+  const bytes = await readRelativeFileBytes(root, path, maximumBytes, label);
   return { bytes, text: decodeUtf8(bytes, label) };
 }
 
 export async function packPlugin(packageRoot) {
-  if (isSymlink(packageRoot)) fail("package root must not be a symlink");
-  const manifestPath = joined(packageRoot, "wake-plugin.json");
-  if (isSymlink(manifestPath)) fail("wake-plugin.json must not be a symlink");
-  const manifestSnapshot = await readFileSnapshot(
-    manifestPath,
-    MAX_MANIFEST_BYTES,
-    "wake-plugin.json",
-  );
-  const manifest = validatePluginManifest(
-    parseCanonicalDocument(manifestSnapshot.text, "wake-plugin.json"),
-  );
-  const files = [];
-  let totalBytes = 0;
-  for (const path of manifest.sources) {
-    const sourcePath = joined(packageRoot, path);
-    const prefixes = path.split("/");
-    for (let index = 1; index <= prefixes.length; index += 1) {
-      if (isSymlink(joined(packageRoot, prefixes.slice(0, index).join("/")))) {
-        fail(`manifest source ${path} crosses a symlink`);
-      }
-    }
-    const snapshot = await readFileSnapshot(
-      sourcePath,
-      MAX_SOURCE_BYTES,
-      `manifest source ${path}`,
+  const root = await openPackageRoot(packageRoot);
+  try {
+    const manifestSnapshot = await readRelativeFileSnapshot(
+      root,
+      "wake-plugin.json",
+      MAX_MANIFEST_BYTES,
+      "wake-plugin.json",
     );
-    totalBytes += snapshot.bytes.byteLength;
-    if (totalBytes > MAX_TOTAL_SOURCE_BYTES) {
-      fail(`manifest source bytes exceed ${MAX_TOTAL_SOURCE_BYTES} bytes`);
+    const manifest = validatePluginManifest(
+      parseCanonicalDocument(manifestSnapshot.text, "wake-plugin.json"),
+    );
+    const files = [];
+    let totalBytes = 0;
+    for (const path of manifest.sources) {
+      const snapshot = await readRelativeFileSnapshot(
+        root,
+        path,
+        MAX_SOURCE_BYTES,
+        `manifest source ${path}`,
+      );
+      totalBytes += snapshot.bytes.byteLength;
+      if (totalBytes > MAX_TOTAL_SOURCE_BYTES) {
+        fail(`manifest source bytes exceed ${MAX_TOTAL_SOURCE_BYTES} bytes`);
+      }
+      files.push({
+        content: snapshot.text,
+        mode: "text",
+        path,
+        sha256: sha256Digest(snapshot.bytes),
+      });
     }
-    files.push({
-      content: snapshot.text,
-      mode: "text",
-      path,
-      sha256: sha256Digest(snapshot.bytes),
-    });
+    const artifact = { files, manifest, schemaVersion: PACKAGE_SCHEMA_VERSION };
+    const bytes = canonicalDocument(artifact);
+    return { artifact, bytes, digest: sha256Digest(bytes) };
+  } finally {
+    await root.close();
   }
-  const artifact = { files, manifest, schemaVersion: PACKAGE_SCHEMA_VERSION };
-  const bytes = canonicalDocument(artifact);
-  return { artifact, bytes, digest: sha256Digest(bytes) };
 }
 
 export function readPluginArtifact(input, expectedDigest, label) {
@@ -453,7 +551,7 @@ export function readPluginArtifact(input, expectedDigest, label) {
 }
 
 export async function readPluginArtifactFile(path, expectedDigest, label) {
-  const bytes = await readFileBytes(path, MAX_ARTIFACT_BYTES, label);
+  const bytes = await readStandaloneFileBytes(path, MAX_ARTIFACT_BYTES, label);
   return readPluginArtifact(bytes, expectedDigest, label);
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { constants as fileConstants } from "node:fs";
+import fileSystemPromises from "node:fs/promises";
 import {
   mkdir,
   mkdtemp,
@@ -294,7 +295,63 @@ describe("plugin package raw-byte boundary", () => {
     );
   });
 
-  test("reads only the identity opened before pathname replacement", async () => {
+  test("keeps nested sources beneath retained package descriptors", async () => {
+    const originalSource = `${validSource}(def provenance: String "package")\n`;
+    const replacementSource = `${validSource}(def provenance: String "escaped")\n`;
+    await temporaryPackage(
+      canonicalDocument(manifest(["content/plugin.bjs"], "content/plugin.bjs")),
+      { "content/plugin.bjs": originalSource },
+      async (root) => {
+        const contentPath = join(root, "content");
+        const retainedPath = join(root, "content-retained");
+        const replacementPath = join(root, "replacement");
+        await mkdir(replacementPath);
+        await writeFile(join(replacementPath, "plugin.bjs"), replacementSource);
+
+        const originalOpen = fileSystemPromises.open;
+        let swapped = false;
+        const openSpy = spyOn(fileSystemPromises, "open")
+          .mockImplementation(async function (path, ...arguments_) {
+            if (!swapped && String(path).endsWith("/plugin.bjs")) {
+              swapped = true;
+              await rename(contentPath, retainedPath);
+              await symlink("replacement", contentPath);
+            }
+            return originalOpen.call(this, path, ...arguments_);
+          });
+        try {
+          const packed = await packPlugin(root);
+          expect(swapped).toBe(true);
+          expect(packed.artifact.files[0].content).toBe(originalSource);
+          expect(packed.artifact.files[0].content).not.toBe(replacementSource);
+        } finally {
+          openSpy.mockRestore();
+        }
+      },
+    );
+  });
+
+  test("rejects package-root and nested-directory symlinks", async () => {
+    await temporaryPackage(
+      canonicalDocument(manifest(["content/plugin.bjs"], "content/plugin.bjs")),
+      { "content/plugin.bjs": validSource },
+      async (root) => {
+        const rootLink = join(root, "root-link");
+        await symlink(".", rootLink);
+        await expect(packPlugin(rootLink)).rejects.toThrow(
+          "package root must be a directory, not a symlink",
+        );
+
+        await rename(join(root, "content"), join(root, "content-retained"));
+        await symlink("content-retained", join(root, "content"));
+        await expect(packPlugin(root)).rejects.toThrow(
+          "manifest source content/plugin.bjs crosses a symlink or non-directory path",
+        );
+      },
+    );
+  });
+
+  test("fails closed when an opened artifact pathname is replaced", async () => {
     await temporaryPackage(
       canonicalDocument(manifest()),
       { "plugin.bjs": validSource },
@@ -329,9 +386,91 @@ describe("plugin package raw-byte boundary", () => {
             artifactPath,
             packed.digest,
             "plugin.wakepkg.json",
-          )).resolves.toEqual(packed.artifact);
+          )).rejects.toThrow("changed while being read");
           expect(replaced).toBe(true);
           expect(await Bun.file(artifactPath).text()).toBe("replacement");
+        } finally {
+          readSpy.mockRestore();
+        }
+      },
+    );
+  });
+
+  test("handles short reads without returning unread buffer bytes", async () => {
+    await temporaryPackage(
+      canonicalDocument(manifest()),
+      { "plugin.bjs": validSource },
+      async (root) => {
+        const packed = await packPlugin(root);
+        const artifactPath = join(root, "plugin.wakepkg.json");
+        await writeFile(artifactPath, packed.bytes);
+
+        const probe = await open(artifactPath, fileConstants.O_RDONLY);
+        const fileHandlePrototype = Object.getPrototypeOf(probe);
+        const originalRead = fileHandlePrototype.read;
+        await probe.close();
+        let shortReads = 0;
+        const readSpy = spyOn(fileHandlePrototype, "read")
+          .mockImplementation(async function (buffer, offset, length, position) {
+            shortReads += 1;
+            return originalRead.call(
+              this,
+              buffer,
+              offset,
+              Math.min(length, 7),
+              position,
+            );
+          });
+        try {
+          await expect(readPluginArtifactFile(
+            artifactPath,
+            packed.digest,
+            "plugin.wakepkg.json",
+          )).resolves.toEqual(packed.artifact);
+          expect(shortReads).toBeGreaterThan(1);
+        } finally {
+          readSpy.mockRestore();
+        }
+      },
+    );
+  });
+
+  test("rejects truncation during a descriptor read", async () => {
+    await temporaryPackage(
+      canonicalDocument(manifest()),
+      { "plugin.bjs": validSource },
+      async (root) => {
+        const packed = await packPlugin(root);
+        const artifactPath = join(root, "plugin.wakepkg.json");
+        await writeFile(artifactPath, packed.bytes);
+
+        const probe = await open(artifactPath, fileConstants.O_RDONLY);
+        const fileHandlePrototype = Object.getPrototypeOf(probe);
+        const originalRead = fileHandlePrototype.read;
+        await probe.close();
+        let truncated = false;
+        const readSpy = spyOn(fileHandlePrototype, "read")
+          .mockImplementation(async function (buffer, offset, length, position) {
+            const result = await originalRead.call(
+              this,
+              buffer,
+              offset,
+              Math.min(length, 16),
+              position,
+            );
+            if (!truncated && result.bytesRead > 0) {
+              truncated = true;
+              await truncate(artifactPath, 8);
+            }
+            return result;
+          });
+        try {
+          await expect(readPluginArtifactFile(
+            artifactPath,
+            packed.digest,
+            "plugin.wakepkg.json",
+          )).rejects.toThrow("changed while being read");
+          expect(truncated).toBe(true);
         } finally {
           readSpy.mockRestore();
         }
