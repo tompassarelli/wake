@@ -91,6 +91,7 @@ test("public declarations represent every wiki value and composition invariant",
     "DigestValueType",
     "InstantValueType",
     "KeywordValueType",
+    "EnumValueType",
     "EntityReferenceValueType",
     "StateValueType",
     "RecordValueType",
@@ -103,6 +104,15 @@ test("public declarations represent every wiki value and composition invariant",
   ]);
   expect(valueTypes["member-fields"].StateValueType).toEqual([
     { name: "state", ann: prim("StateRef") },
+  ]);
+  expect(valueTypes["member-fields"].EnumValueType).toEqual([
+    { name: "allowed", ann: vec("ValueLiteral") },
+  ]);
+  expect(valueTypes["member-fields"].ListValueType).toEqual([
+    { name: "item", ann: prim("ValueTypeSpec") },
+    { name: "minimum-items", ann: optional("BoundInt") },
+    { name: "maximum-items", ann: optional("BoundInt") },
+    { name: "normalization", ann: optional("ListNormalization") },
   ]);
   expect(valueTypes["member-fields"].ExtensionValueType).toEqual([
     { name: "port", ann: prim("EntityFieldsPortRef") },
@@ -129,13 +139,12 @@ test("public declarations represent every wiki value and composition invariant",
     }],
     CommandStateValueExpr: [{ name: "value", ann: prim("StateValueRef") }],
   });
-  expect(publicForm(program, "InputNormalization")).toMatchObject({
-    members: ["SortUniqueInput"],
+  expect(publicForm(program, "ListNormalization")).toMatchObject({
+    members: ["SortUniqueList"],
   });
   expect(fields(publicForm(program, "CommandInputField"))).toEqual([
     ["name", prim("Keyword")],
     ["value-type", prim("ValueTypeSpec")],
-    ["normalization", optional("InputNormalization")],
   ]);
 
   expect(publicForm(program, "QueryValueExpr")["member-fields"]).toMatchObject({
@@ -179,6 +188,15 @@ test("public declarations represent every wiki value and composition invariant",
     ["identities", vec("IdentitySpec")],
     ["plugins", vec("PluginComposition")],
     ["default-route", optional("DefaultRouteTarget")],
+  ]);
+  expect(fields(publicForm(program, "PluginSpec"))).toEqual([
+    ["identity", prim("PluginIdentity")],
+    ["contributions", vec("ContributionKind")],
+    ["configuration", prim("PluginConfigurationSchema")],
+    ["exports", prim("PluginExports")],
+    ["required-providers", vec("ProviderPortRef")],
+    ["migrations", vec("MigrationSpec")],
+    ["default-route", optional("RouteTemplateRef")],
   ]);
 });
 
@@ -226,7 +244,7 @@ test("internal declaration program is closed and mirrors the public model", () =
   const mirrors = [
     "ConfigProjection",
     "EntityReferenceTarget",
-    "InputNormalization",
+    "ListNormalization",
     "ValueEnvelopeSpec",
     "EntityFieldsPortPolicy",
     "DefaultRouteTarget",

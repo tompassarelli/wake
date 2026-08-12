@@ -305,12 +305,7 @@
      id: IrCommandExpr
      fields: (Vec IrCommandWrite)
      when: IrCommandPredicate?]))
-(defunion IrInputNormalization
-  (IrSortUniqueInput [unit: Nil]))
-(defrecord IrCommandInputField
-  [name: String
-   value-type: IrValueTypeSpec
-   normalization: IrInputNormalization?])
+(defrecord IrCommandInputField [name: String value-type: IrValueTypeSpec])
 (defunion IrCommandInjection
   (IrGeneratedIdInjection [name: String])
   (IrProviderInjection
@@ -369,6 +364,8 @@
   (IrBooleanLiteral [value: Bool])
   (IrKeywordLiteral [value: String])
   (IrNilLiteral [unit: Nil]))
+(defunion IrListNormalization
+  (IrSortUniqueList [unit: Nil]))
 (defunion IrValueTypeSpec
   (IrStringValueType
     [minimum-scalars: IrBoundInt?
@@ -379,6 +376,7 @@
   (IrDigestValueType [unit: Nil])
   (IrInstantValueType [unit: Nil])
   (IrKeywordValueType [allowed: (Vec String)])
+  (IrEnumValueType [allowed: (Vec IrValueLiteral)])
   (IrEntityReferenceValueType [entity: IrEntityRef])
   (IrStateValueType [state: IrStateRef])
   (IrRecordValueType [fields: (Vec IrValueRecordField)])
@@ -386,7 +384,8 @@
   (IrListValueType
     [item: IrValueTypeSpec
      minimum-items: IrBoundInt?
-     maximum-items: IrBoundInt?])
+     maximum-items: IrBoundInt?
+     normalization: IrListNormalization?])
   (IrExtensionValueType [port: IrEntityFieldsPortRef])
   (IrNullableValueType [value-type: IrValueTypeSpec])
   (IrNamedValueType [value-type: IrValueTypeRef])
@@ -582,7 +581,8 @@
    configuration: IrPluginConfigurationSchema
    exports: IrPluginExports
    required-providers: (Vec IrProviderPortRef)
-   migrations: (Vec IrMigrationSpec)])
+   migrations: (Vec IrMigrationSpec)
+   default-route: IrRouteTemplateRef?])
 
 (defrecord IrPluginUseSpec
   [ref: IrPluginUseRef

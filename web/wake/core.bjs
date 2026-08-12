@@ -406,14 +406,7 @@
        when: CommandPredicate?])))
 
 (js/export
-  (defunion InputNormalization
-    (SortUniqueInput [unit: Nil])))
-
-(js/export
-  (defrecord CommandInputField
-    [name: Keyword
-     value-type: ValueTypeSpec
-     normalization: InputNormalization?]))
+  (defrecord CommandInputField [name: Keyword value-type: ValueTypeSpec]))
 
 (js/export
   (defunion CommandInjection
@@ -492,6 +485,10 @@
     (NilLiteral [unit: Nil])))
 
 (js/export
+  (defunion ListNormalization
+    (SortUniqueList [unit: Nil])))
+
+(js/export
   (defunion ValueTypeSpec
     (StringValueType
       [minimum-scalars: BoundInt?
@@ -502,6 +499,7 @@
     (DigestValueType [unit: Nil])
     (InstantValueType [unit: Nil])
     (KeywordValueType [allowed: (Vec Keyword)])
+    (EnumValueType [allowed: (Vec ValueLiteral)])
     (EntityReferenceValueType [entity: EntityRef])
     (StateValueType [state: StateRef])
     (RecordValueType [fields: (Vec ValueRecordField)])
@@ -509,7 +507,8 @@
     (ListValueType
       [item: ValueTypeSpec
        minimum-items: BoundInt?
-       maximum-items: BoundInt?])
+       maximum-items: BoundInt?
+       normalization: ListNormalization?])
     (ExtensionValueType [port: EntityFieldsPortRef])
     (NullableValueType [value-type: ValueTypeSpec])
     (NamedValueType [value-type: ValueTypeRef])
@@ -782,7 +781,8 @@
      configuration: PluginConfigurationSchema
      exports: PluginExports
      required-providers: (Vec ProviderPortRef)
-     migrations: (Vec MigrationSpec)]))
+     migrations: (Vec MigrationSpec)
+     default-route: RouteTemplateRef?]))
 
 (js/export
   (defrecord PluginUseSpec
@@ -1311,7 +1311,8 @@
            ~configuration
            ~exports
            ~required-providers
-           ~migrations)))))
+           ~migrations
+           nil)))))
 
 (defmacro use-plugin
   [binding
