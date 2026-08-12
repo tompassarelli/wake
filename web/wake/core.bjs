@@ -8,6 +8,239 @@
   (defunion (Ref T)
     (WakeRef [id: String])))
 
+;; Nominal references carry declaration identity and checked-source provenance.
+(js/export
+  (defrecord EntityRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord FieldRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord StateRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord StateValueRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ValueTypeRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ProviderPortRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord RendererRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord CapabilityRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord QueryRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord CommandRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ComponentRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ViewRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord RouteTemplateRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord EntityFieldsPortRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ComponentSlotRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord RouteSlotRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord PluginUseRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defunion AuthoritySpec
+    (FramAuthority [service: String])
+    (LocalStorageAuthority [namespace: String])
+    (MemoryAuthority [namespace: String])))
+
+(js/export
+  (defrecord StorageSpec [entity: EntityRef storage-id: String]))
+
+(js/export
+  (defrecord IdentitySpec [entity: EntityRef field: FieldRef]))
+
+(js/export
+  (defrecord ApplicationRootSpec
+    [id: String
+     authority: AuthoritySpec
+     storage: (Vec StorageSpec)
+     identities: (Vec IdentitySpec)]))
+
+(js/export
+  (defunion ValueExpr
+    (LiteralStringValue [value: String])
+    (LiteralIntegerValue [value: Int])
+    (LiteralBooleanValue [value: Bool])
+    (LiteralKeywordValue [value: Keyword])
+    (BoundFieldValue [field: FieldRef])
+    (ConfigValue [key: String value-type: ValueTypeRef])))
+
+(js/export
+  (defunion ValueTypeSpec
+    (StringValueType [unit: Nil])
+    (IntegerValueType [unit: Nil])
+    (BooleanValueType [unit: Nil])
+    (KeywordValueType [unit: Nil])
+    (EntityReferenceValueType [entity: EntityRef])
+    (OptionalValueType [value-type: ValueTypeRef])
+    (ManyValueType [value-type: ValueTypeRef])))
+
+(js/export
+  (defrecord ProviderPortSpec
+    [ref: ProviderPortRef
+     input-type: ValueTypeRef
+     output-type: ValueTypeRef
+     capability: CapabilityRef]))
+
+(js/export
+  (defrecord RendererSpec
+    [ref: RendererRef
+     input-type: ValueTypeRef
+     component: ComponentRef]))
+
+(js/export
+  (defrecord PluginIdentity
+    [package-id: String
+     version: String
+     provenance-token: String]))
+
+(js/export
+  (defunion PluginConfigRole
+    (IntConfigRole [unit: Nil])
+    (StringConfigRole [unit: Nil])
+    (BoolConfigRole [unit: Nil])
+    (KeywordConfigRole [unit: Nil])
+    (EntityConfigRole [unit: Nil])
+    (FieldConfigRole [unit: Nil])
+    (StateConfigRole [unit: Nil])
+    (StateValueConfigRole [unit: Nil])
+    (ExternalEntityConfigRole [unit: Nil])))
+
+(js/export
+  (defunion PluginConfigValue
+    (IntConfigValue [value: Int])
+    (StringConfigValue [value: String])
+    (BoolConfigValue [value: Bool])
+    (KeywordConfigValue [value: Keyword])
+    (EntityConfigValue [value: EntityRef])
+    (FieldConfigValue [value: FieldRef])
+    (StateConfigValue [value: StateRef])
+    (StateValueConfigValue [value: StateValueRef])
+    (ExternalEntityConfigValue [value: EntityRef])))
+
+(js/export
+  (defrecord PluginConfigurationField
+    [key: String
+     role: PluginConfigRole
+     required: Bool]))
+
+(js/export
+  (defrecord PluginConfigurationSchema [fields: (Vec PluginConfigurationField)]))
+
+(js/export
+  (defrecord PluginConfigurationBinding [key: String value: PluginConfigValue]))
+
+(js/export
+  (defrecord PluginExports
+    [entities: (Vec EntityRef)
+     fields: (Vec FieldRef)
+     states: (Vec StateRef)
+     state-values: (Vec StateValueRef)
+     value-types: (Vec ValueTypeRef)
+     provider-ports: (Vec ProviderPortRef)
+     renderers: (Vec RendererRef)
+     capabilities: (Vec CapabilityRef)
+     queries: (Vec QueryRef)
+     commands: (Vec CommandRef)
+     components: (Vec ComponentRef)
+     views: (Vec ViewRef)
+     route-templates: (Vec RouteTemplateRef)
+     entity-fields-ports: (Vec EntityFieldsPortRef)
+     component-slots: (Vec ComponentSlotRef)
+     route-slots: (Vec RouteSlotRef)]))
+
+(js/export
+  (defrecord PluginSpec
+    [identity: PluginIdentity
+     configuration: PluginConfigurationSchema
+     exports: PluginExports]))
+
+(js/export
+  (defunion PluginContribution
+    (EntityFieldsContribution [port: EntityFieldsPortRef fields: (Vec FieldRef)])
+    (ComponentSlotContribution [slot: ComponentSlotRef component: ComponentRef])
+    (RouteSlotContribution [slot: RouteSlotRef route: RouteTemplateRef])))
+
+(js/export
+  (defrecord PluginComposition
+    [use: PluginUseRef
+     configuration: (Vec PluginConfigurationBinding)
+     contributions: (Vec PluginContribution)]))
+
 (js/export
   (defunion DerivedExpr
     (FieldExpr [name: Keyword])

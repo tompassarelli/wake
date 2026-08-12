@@ -22,6 +22,188 @@
   [kind: String
    name: String
    provenance: IrProvenance])
+
+(defrecord IrEntityRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrFieldRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrStateRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrStateValueRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrValueTypeRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrProviderPortRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrRendererRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrCapabilityRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrQueryRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrCommandRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrComponentRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrViewRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrRouteTemplateRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrEntityFieldsPortRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrComponentSlotRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrRouteSlotRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+(defrecord IrPluginUseRef
+  [declaration-id: String
+   name: String
+   provenance-token: String])
+
+(defunion IrAuthoritySpec
+  (IrFramAuthority [service: String])
+  (IrLocalStorageAuthority [namespace: String])
+  (IrMemoryAuthority [namespace: String]))
+
+(defrecord IrStorageSpec [entity: IrEntityRef storage-id: String])
+(defrecord IrIdentitySpec [entity: IrEntityRef field: IrFieldRef])
+(defrecord IrApplicationRootSpec
+  [id: String
+   authority: IrAuthoritySpec
+   storage: (Vec IrStorageSpec)
+   identities: (Vec IrIdentitySpec)])
+
+(defunion IrValueExpr
+  (IrLiteralStringValue [value: String])
+  (IrLiteralIntegerValue [value: Int])
+  (IrLiteralBooleanValue [value: Bool])
+  (IrLiteralKeywordValue [value: String])
+  (IrBoundFieldValue [field: IrFieldRef])
+  (IrConfigValue [key: String value-type: IrValueTypeRef]))
+
+(defunion IrValueTypeSpec
+  (IrStringValueType [unit: Nil])
+  (IrIntegerValueType [unit: Nil])
+  (IrBooleanValueType [unit: Nil])
+  (IrKeywordValueType [unit: Nil])
+  (IrEntityReferenceValueType [entity: IrEntityRef])
+  (IrOptionalValueType [value-type: IrValueTypeRef])
+  (IrManyValueType [value-type: IrValueTypeRef]))
+
+(defrecord IrProviderPortSpec
+  [ref: IrProviderPortRef
+   input-type: IrValueTypeRef
+   output-type: IrValueTypeRef
+   capability: IrCapabilityRef])
+(defrecord IrRendererSpec
+  [ref: IrRendererRef
+   input-type: IrValueTypeRef
+   component: IrComponentRef])
+
+(defrecord IrPluginIdentity
+  [package-id: String
+   version: String
+   provenance-token: String])
+
+(defunion IrPluginConfigRole
+  (IrIntConfigRole [unit: Nil])
+  (IrStringConfigRole [unit: Nil])
+  (IrBoolConfigRole [unit: Nil])
+  (IrKeywordConfigRole [unit: Nil])
+  (IrEntityConfigRole [unit: Nil])
+  (IrFieldConfigRole [unit: Nil])
+  (IrStateConfigRole [unit: Nil])
+  (IrStateValueConfigRole [unit: Nil])
+  (IrExternalEntityConfigRole [unit: Nil]))
+
+(defunion IrPluginConfigValue
+  (IrIntConfigValue [value: Int])
+  (IrStringConfigValue [value: String])
+  (IrBoolConfigValue [value: Bool])
+  (IrKeywordConfigValue [value: String])
+  (IrEntityConfigValue [value: IrEntityRef])
+  (IrFieldConfigValue [value: IrFieldRef])
+  (IrStateConfigValue [value: IrStateRef])
+  (IrStateValueConfigValue [value: IrStateValueRef])
+  (IrExternalEntityConfigValue [value: IrEntityRef]))
+
+(defrecord IrPluginConfigurationField
+  [key: String
+   role: IrPluginConfigRole
+   required: Bool])
+(defrecord IrPluginConfigurationSchema
+  [fields: (Vec IrPluginConfigurationField)])
+(defrecord IrPluginConfigurationBinding [key: String value: IrPluginConfigValue])
+
+(defrecord IrPluginExports
+  [entities: (Vec IrEntityRef)
+   fields: (Vec IrFieldRef)
+   states: (Vec IrStateRef)
+   state-values: (Vec IrStateValueRef)
+   value-types: (Vec IrValueTypeRef)
+   provider-ports: (Vec IrProviderPortRef)
+   renderers: (Vec IrRendererRef)
+   capabilities: (Vec IrCapabilityRef)
+   queries: (Vec IrQueryRef)
+   commands: (Vec IrCommandRef)
+   components: (Vec IrComponentRef)
+   views: (Vec IrViewRef)
+   route-templates: (Vec IrRouteTemplateRef)
+   entity-fields-ports: (Vec IrEntityFieldsPortRef)
+   component-slots: (Vec IrComponentSlotRef)
+   route-slots: (Vec IrRouteSlotRef)])
+
+(defrecord IrPluginSpec
+  [identity: IrPluginIdentity
+   configuration: IrPluginConfigurationSchema
+   exports: IrPluginExports])
+
+(defunion IrPluginContribution
+  (IrEntityFieldsContribution
+    [port: IrEntityFieldsPortRef
+     fields: (Vec IrFieldRef)])
+  (IrComponentSlotContribution
+    [slot: IrComponentSlotRef
+     component: IrComponentRef])
+  (IrRouteSlotContribution [slot: IrRouteSlotRef route: IrRouteTemplateRef]))
+
+(defrecord IrPluginComposition
+  [use: IrPluginUseRef
+   configuration: (Vec IrPluginConfigurationBinding)
+   contributions: (Vec IrPluginContribution)])
+
 (defrecord IrApplication [id: String span: SourceSpan])
 (defrecord IrUseConfig [key: String value: Any])
 (defrecord IrUse
