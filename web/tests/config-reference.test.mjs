@@ -9,6 +9,7 @@ const beagleRoot = process.env.BEAGLE_ROOT ?? join(homedir(), "code", "beagle", 
 
 let buildDir;
 let parseAll;
+let parseType;
 let resolveSourceForms;
 
 function compile(source, output) {
@@ -39,12 +40,16 @@ beforeAll(async () => {
   await Bun.write(join(buildDir, "package.json"), '{"type":"module"}\n');
   const sexprPath = join(buildDir, "sexpr.js");
   const referencePath = join(buildDir, "config-reference.js");
+  const commandPath = join(buildDir, "command.js");
   compile(join(wakeRoot, "web", "compiler", "sexpr.bjs"), sexprPath);
   compile(join(wakeRoot, "web", "compiler", "config-reference.bjs"), referencePath);
+  compile(join(wakeRoot, "web", "compiler", "command.bjs"), commandPath);
   await appendExport(sexprPath, ["parse_all"]);
   await appendExport(referencePath, ["resolve_source_forms"]);
+  await appendExport(commandPath, ["parse_type"]);
   ({ parse_all: parseAll } = await import(sexprPath));
   ({ resolve_source_forms: resolveSourceForms } = await import(referencePath));
+  ({ parse_type: parseType } = await import(commandPath));
 });
 
 afterAll(() => rmSync(buildDir, { recursive: true, force: true }));
@@ -80,6 +85,32 @@ test("configuration references resolve recursively before declaration parsing", 
     query[13].items.map(value => value?._tag === "Sym" ? value.name : value),
     ["default", 10, "max", 20],
   );
+});
+
+test("configuration references become literal command String and List bounds", () => {
+  const forms = parseAll(`(String
+      :min (config limits.titleMin)
+      :max (config limits.titleMax)
+      :bytes (config limits.titleBytes))
+    (List String :max (config limits.linksMax))`);
+  const references = new Map([
+    ["limits.titleMin", 1],
+    ["limits.titleMax", 200],
+    ["limits.titleBytes", 1024],
+    ["limits.linksMax", 128],
+  ]);
+  const resolved = resolveSourceForms(forms, references);
+  assert.deepEqual(parseType(resolved[0].value, "title"), {
+    kind: "string",
+    maxBytes: 1024,
+    maxLength: 200,
+    minLength: 1,
+  });
+  assert.deepEqual(parseType(resolved[1].value, "links"), {
+    items: { kind: "string" },
+    kind: "list",
+    maxItems: 128,
+  });
 });
 
 test("configuration references are closed and plugin-only", () => {
