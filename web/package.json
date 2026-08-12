@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "bin/wake-compile --all demo/wiki.wake out/wiki",
-    "test": "bun test runtime/fram-gateway.test.mjs runtime/fram-http.test.mjs tests/*.test.mjs",
+    "test": "bun test runtime/*.test.mjs tests/*.test.mjs",
     "test:browser": "bash bin/wake-browser-test"
   },
   "keywords": [],
