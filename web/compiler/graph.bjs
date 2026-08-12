@@ -796,6 +796,9 @@
   [prog: IrProgram
    entities: (Vec GEntity)] -> (Vec GListDetail)
   (let [details (or (.-list-details prog) [])]
+    (if (> (count details) 1)
+      (graph-error "program may declare at most one list detail")
+      nil)
     (validate-distinct-names
       (mapv (fn [detail] (.-entity-name detail)) details)
       "list detail entity")

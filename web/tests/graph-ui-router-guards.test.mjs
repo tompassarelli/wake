@@ -639,3 +639,16 @@ test("rejects list-detail tab codegen collisions", () => {
     /repeats related entity 'page'/,
   );
 });
+
+test("rejects list details beyond the single generated application surface", () => {
+  assert.throws(
+    () => checkProgram(program({
+      entities: [entity("page"), entity("note")],
+      list_details: [
+        listDetail(),
+        listDetail({ entity_name: "note", title: "Notes" }),
+      ],
+    })),
+    /program may declare at most one list detail/,
+  );
+});

@@ -224,3 +224,30 @@ ${derivedFields})
     rmSync(temporary, { force: true, recursive: true });
   }
 }, COMPILER_TEST_TIMEOUT_MS);
+
+test("compiler rejects list-detail declarations it cannot all generate", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-list-detail-cardinality-"));
+  const sourcePath = join(temporary, "two-list-details.wake");
+  const source = readFileSync(
+    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.wake"),
+    "utf8",
+  );
+  writeFileSync(sourcePath, `${source}
+(list-detail blog-note
+  :title "Blog notes"
+  :columns [note-id summary]
+  :search [note-id summary]
+  :detail (tabs
+    (tab "Overview" (fields [note-id summary]))))
+`);
+  try {
+    const result = compileFram(sourcePath);
+    assert.notEqual(result.status, 0);
+    assert.match(
+      `${result.stdout}\n${result.stderr}`,
+      /program may declare at most one list detail/,
+    );
+  } finally {
+    rmSync(temporary, { force: true, recursive: true });
+  }
+}, COMPILER_TEST_TIMEOUT_MS);
