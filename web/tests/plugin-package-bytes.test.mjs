@@ -29,6 +29,7 @@ import {
 
 const {
   manifestBytes: MAX_MANIFEST_BYTES,
+  retainedSourcePrefixes: MAX_RETAINED_SOURCE_PREFIXES,
   sourceBytes: MAX_SOURCE_BYTES,
   sourceCount: MAX_SOURCE_COUNT,
   sourcePathBytes: MAX_SOURCE_PATH_BYTES,
@@ -87,6 +88,14 @@ async function pack(manifestValue, sources) {
 function sizedSource(size) {
   const headerBytes = encoder.encode(validSource).byteLength;
   return `${validSource}${" ".repeat(size - headerBytes)}`;
+}
+
+function sharedPrefixSources(depths) {
+  return depths.flatMap((depth, index) => {
+    const component = String.fromCharCode("a".charCodeAt(0) + index);
+    const directory = Array.from({ length: depth }, () => component).join("/");
+    return [`${directory}/a.bjs`, `${directory}/b.bjs`];
+  }).sort();
 }
 
 describe("plugin package raw-byte boundary", () => {
@@ -215,6 +224,48 @@ describe("plugin package raw-byte boundary", () => {
       [...exactCount, "source-256.bjs"],
       exactCount[0],
     ))).toThrow(`manifest.sources exceeds ${MAX_SOURCE_COUNT} entries`);
+  });
+
+  test("caps retained prefixes before opening any source descriptor", async () => {
+    const atLimit = sharedPrefixSources([
+      MAX_RETAINED_SOURCE_PREFIXES / 2,
+      MAX_RETAINED_SOURCE_PREFIXES / 2,
+    ]);
+    await expect(pack(
+      manifest(atLimit, atLimit[0]),
+      Object.fromEntries(atLimit.map((path) => [path, validSource])),
+    )).resolves.toBeDefined();
+
+    const overLimit = sharedPrefixSources([
+      MAX_RETAINED_SOURCE_PREFIXES / 2,
+      (MAX_RETAINED_SOURCE_PREFIXES / 2) + 1,
+    ]);
+    await temporaryPackage(
+      canonicalDocument(manifest(overLimit, overLimit[0])),
+      Object.fromEntries(overLimit.map((path) => [path, validSource])),
+      async (root) => {
+        const originalOpen = fileSystemPromises.open;
+        const opened = [];
+        const openSpy = spyOn(fileSystemPromises, "open")
+          .mockImplementation(async function (path, ...arguments_) {
+            const handle = await originalOpen.call(this, path, ...arguments_);
+            opened.push(String(path));
+            return handle;
+          });
+        try {
+          await expect(packPlugin(root)).rejects.toThrow(
+            `requires ${MAX_RETAINED_SOURCE_PREFIXES + 1} retained directory prefixes; maximum is ${MAX_RETAINED_SOURCE_PREFIXES}`,
+          );
+          expect(opened).toHaveLength(3);
+          expect(opened[0]).toBe(root);
+          const rootDescriptor = opened[1];
+          expect(rootDescriptor).toMatch(/^\/proc\/self\/fd\/[0-9]+$/u);
+          expect(opened[2]).toBe(`${rootDescriptor}/wake-plugin.json`);
+        } finally {
+          openSpy.mockRestore();
+        }
+      },
+    );
   });
 
   test("keeps the versioned plugin artifact suffix closed", () => {
@@ -378,8 +429,14 @@ describe("plugin package raw-byte boundary", () => {
 
   test("closes every retained prefix while preserving a pack failure", async () => {
     await temporaryPackage(
-      canonicalDocument(manifest(["content/plugin.bjs"], "content/plugin.bjs")),
-      { "content/plugin.bjs": new Uint8Array([0xc3, 0x28]) },
+      canonicalDocument(manifest(
+        ["content/a.bjs", "content/b.bjs"],
+        "content/a.bjs",
+      )),
+      {
+        "content/a.bjs": new Uint8Array([0xc3, 0x28]),
+        "content/b.bjs": validSource,
+      },
       async (root) => {
         const probe = await open(join(root, "wake-plugin.json"), fileConstants.O_RDONLY);
         const fileHandlePrototype = Object.getPrototypeOf(probe);

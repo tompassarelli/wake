@@ -19,6 +19,7 @@ const MAX_SOURCE_BYTES = 1024 * 1024;
 const MAX_TOTAL_SOURCE_BYTES = 8 * 1024 * 1024;
 const MAX_SOURCE_COUNT = 256;
 const MAX_SOURCE_PATH_BYTES = 240;
+const MAX_RETAINED_SOURCE_PREFIXES = 128;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;
 const VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u;
@@ -501,25 +502,77 @@ async function openRelativeFile(parent, component, label) {
   }
 }
 
-async function readRelativeFileBytes(directoryCache, path, maximumBytes, label) {
-  const components = relativePath(path, label).split("/");
-  let parent = directoryCache.get("");
-  let prefix = "";
-  for (const component of components.slice(0, -1)) {
-    prefix = prefix === "" ? component : `${prefix}/${component}`;
-    let directory = directoryCache.get(prefix);
-    if (!directory) {
-      directory = await openRelativeDirectory(parent, component, label);
-      directoryCache.set(prefix, directory);
+function retainedSourcePrefixes(sources) {
+  const counts = new Map();
+  for (const source of sources) {
+    const components = source.split("/");
+    let prefix = "";
+    for (const component of components.slice(0, -1)) {
+      prefix = prefix === "" ? component : `${prefix}/${component}`;
+      counts.set(prefix, (counts.get(prefix) ?? 0) + 1);
     }
-    parent = directory;
   }
-  const file = await openRelativeFile(parent, components.at(-1), label);
-  return readOpenFileBytes(file, maximumBytes, label);
+  const retained = new Set(
+    [...counts].filter(([, count]) => count > 1).map(([prefix]) => prefix),
+  );
+  if (retained.size > MAX_RETAINED_SOURCE_PREFIXES) {
+    fail(
+      `manifest.sources requires ${retained.size} retained directory prefixes; maximum is ${MAX_RETAINED_SOURCE_PREFIXES}`,
+    );
+  }
+  return retained;
 }
 
-async function readRelativeFileSnapshot(directoryCache, path, maximumBytes, label) {
-  const bytes = await readRelativeFileBytes(directoryCache, path, maximumBytes, label);
+async function readRelativeFileBytes(
+  directoryCache,
+  retainedPrefixes,
+  path,
+  maximumBytes,
+  label,
+) {
+  const components = relativePath(path, label).split("/");
+  const temporaryDirectories = [];
+  let parent = directoryCache.get("");
+  let prefix = "";
+  let result;
+  let primaryError = NO_ERROR;
+  try {
+    for (const component of components.slice(0, -1)) {
+      prefix = prefix === "" ? component : `${prefix}/${component}`;
+      let directory = directoryCache.get(prefix);
+      if (!directory) {
+        directory = await openRelativeDirectory(parent, component, label);
+        if (retainedPrefixes.has(prefix)) {
+          directoryCache.set(prefix, directory);
+        } else {
+          temporaryDirectories.push(directory);
+        }
+      }
+      parent = directory;
+    }
+    const file = await openRelativeFile(parent, components.at(-1), label);
+    result = await readOpenFileBytes(file, maximumBytes, label);
+  } catch (error) {
+    primaryError = error;
+  }
+  await closeAll(temporaryDirectories, primaryError);
+  return result;
+}
+
+async function readRelativeFileSnapshot(
+  directoryCache,
+  retainedPrefixes,
+  path,
+  maximumBytes,
+  label,
+) {
+  const bytes = await readRelativeFileBytes(
+    directoryCache,
+    retainedPrefixes,
+    path,
+    maximumBytes,
+    label,
+  );
   return { bytes, text: decodeUtf8(bytes, label) };
 }
 
@@ -531,6 +584,7 @@ export async function packPlugin(packageRoot) {
   try {
     const manifestSnapshot = await readRelativeFileSnapshot(
       directoryCache,
+      new Set(),
       "wake-plugin.json",
       MAX_MANIFEST_BYTES,
       "wake-plugin.json",
@@ -538,11 +592,13 @@ export async function packPlugin(packageRoot) {
     const manifest = validatePluginManifest(
       parseCanonicalDocument(manifestSnapshot.text, "wake-plugin.json"),
     );
+    const retainedPrefixes = retainedSourcePrefixes(manifest.sources);
     const files = [];
     let totalBytes = 0;
     for (const path of manifest.sources) {
       const snapshot = await readRelativeFileSnapshot(
         directoryCache,
+        retainedPrefixes,
         path,
         MAX_SOURCE_BYTES,
         `manifest source ${path}`,
@@ -600,6 +656,7 @@ export const pluginPackageLimits = Object.freeze({
   sourceBytes: MAX_SOURCE_BYTES,
   sourceCount: MAX_SOURCE_COUNT,
   sourcePathBytes: MAX_SOURCE_PATH_BYTES,
+  retainedSourcePrefixes: MAX_RETAINED_SOURCE_PREFIXES,
   totalSourceBytes: MAX_TOTAL_SOURCE_BYTES,
 });
 
