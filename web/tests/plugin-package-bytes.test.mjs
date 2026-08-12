@@ -20,6 +20,7 @@ import {
 import {
   packPlugin,
   pluginPackageLimits,
+  pluginPackageReadContract,
   readPluginArtifact,
   readPluginArtifactFile,
   validatePluginManifest,
@@ -295,36 +296,184 @@ describe("plugin package raw-byte boundary", () => {
     );
   });
 
-  test("keeps nested sources beneath retained package descriptors", async () => {
-    const originalSource = `${validSource}(def provenance: String "package")\n`;
-    const replacementSource = `${validSource}(def provenance: String "escaped")\n`;
+  test("keeps shared source prefixes on one retained directory generation", async () => {
+    const originalA = `${validSource}(def provenance: String "package-a")\n`;
+    const originalB = `${validSource}(def provenance: String "package-b")\n`;
+    const replacementA = `${validSource}(def provenance: String "escaped-a")\n`;
+    const replacementB = `${validSource}(def provenance: String "escaped-b")\n`;
     await temporaryPackage(
-      canonicalDocument(manifest(["content/plugin.bjs"], "content/plugin.bjs")),
-      { "content/plugin.bjs": originalSource },
+      canonicalDocument(manifest(
+        ["content/a.bjs", "content/b.bjs"],
+        "content/a.bjs",
+      )),
+      {
+        "content/a.bjs": originalA,
+        "content/b.bjs": originalB,
+      },
       async (root) => {
         const contentPath = join(root, "content");
         const retainedPath = join(root, "content-retained");
         const replacementPath = join(root, "replacement");
         await mkdir(replacementPath);
-        await writeFile(join(replacementPath, "plugin.bjs"), replacementSource);
+        await writeFile(join(replacementPath, "a.bjs"), replacementA);
+        await writeFile(join(replacementPath, "b.bjs"), replacementB);
 
         const originalOpen = fileSystemPromises.open;
         let swapped = false;
         const openSpy = spyOn(fileSystemPromises, "open")
           .mockImplementation(async function (path, ...arguments_) {
-            if (!swapped && String(path).endsWith("/plugin.bjs")) {
+            const handle = await originalOpen.call(this, path, ...arguments_);
+            if (!swapped && String(path).endsWith("/a.bjs")) {
               swapped = true;
               await rename(contentPath, retainedPath);
               await symlink("replacement", contentPath);
             }
-            return originalOpen.call(this, path, ...arguments_);
+            return handle;
           });
         try {
           const packed = await packPlugin(root);
           expect(swapped).toBe(true);
-          expect(packed.artifact.files[0].content).toBe(originalSource);
-          expect(packed.artifact.files[0].content).not.toBe(replacementSource);
+          expect(packed.artifact.files.map(({ content }) => content)).toEqual([
+            originalA,
+            originalB,
+          ]);
+          expect(packed.artifact.files.map(({ content }) => content)).not.toContain(
+            replacementB,
+          );
         } finally {
+          openSpy.mockRestore();
+        }
+      },
+    );
+  });
+
+  test("states the Linux descriptor containment boundary", async () => {
+    expect(pluginPackageReadContract).toEqual({
+      descriptorNamespace: "/proc/self/fd",
+      descendantMounts: "followed",
+      descendantSymlinks: "rejected",
+      metadataMutationDetection: "best-effort on ordinary Linux filesystems",
+      packageRootAncestors: "resolved before descriptor anchoring",
+      platform: "linux",
+    });
+    expect(Object.isFrozen(pluginPackageReadContract)).toBe(true);
+
+    await temporaryPackage(
+      canonicalDocument(manifest()),
+      { "plugin.bjs": validSource },
+      async (root) => {
+        const actual = join(root, "actual");
+        const nestedPackage = join(actual, "package");
+        await mkdir(nestedPackage, { recursive: true });
+        await writeFile(
+          join(nestedPackage, "wake-plugin.json"),
+          canonicalDocument(manifest()),
+        );
+        await writeFile(join(nestedPackage, "plugin.bjs"), validSource);
+        await symlink("actual", join(root, "ancestor"));
+        await expect(packPlugin(join(root, "ancestor/package"))).resolves.toBeDefined();
+      },
+    );
+  });
+
+  test("closes every retained prefix while preserving a pack failure", async () => {
+    await temporaryPackage(
+      canonicalDocument(manifest(["content/plugin.bjs"], "content/plugin.bjs")),
+      { "content/plugin.bjs": new Uint8Array([0xc3, 0x28]) },
+      async (root) => {
+        const probe = await open(join(root, "wake-plugin.json"), fileConstants.O_RDONLY);
+        const fileHandlePrototype = Object.getPrototypeOf(probe);
+        const originalClose = fileHandlePrototype.close;
+        await probe.close();
+
+        const originalOpen = fileSystemPromises.open;
+        let rootFd;
+        let contentFd;
+        const closedFds = [];
+        let injectedCloseFailure = false;
+        const openSpy = spyOn(fileSystemPromises, "open")
+          .mockImplementation(async function (path, ...arguments_) {
+            const handle = await originalOpen.call(this, path, ...arguments_);
+            if (String(path) === root) rootFd = handle.fd;
+            if (String(path).endsWith("/content")) contentFd = handle.fd;
+            return handle;
+          });
+        const closeSpy = spyOn(fileHandlePrototype, "close")
+          .mockImplementation(async function (...arguments_) {
+            const fd = this.fd;
+            closedFds.push(fd);
+            const result = await originalClose.apply(this, arguments_);
+            if (!injectedCloseFailure && fd === contentFd) {
+              injectedCloseFailure = true;
+              throw new Error("synthetic retained-prefix close failure");
+            }
+            return result;
+          });
+        try {
+          await expect(packPlugin(root)).rejects.toThrow("must be valid UTF-8");
+          expect(injectedCloseFailure).toBe(true);
+          expect(closedFds).toContain(contentFd);
+          expect(closedFds).toContain(rootFd);
+          expect(closedFds.indexOf(contentFd)).toBeLessThan(closedFds.indexOf(rootFd));
+        } finally {
+          closeSpy.mockRestore();
+          openSpy.mockRestore();
+        }
+      },
+    );
+  });
+
+  test("closes root after descriptor validation and cleanup both fail", async () => {
+    await temporaryPackage(
+      canonicalDocument(manifest()),
+      { "plugin.bjs": validSource },
+      async (root) => {
+        const probe = await open(join(root, "wake-plugin.json"), fileConstants.O_RDONLY);
+        const fileHandlePrototype = Object.getPrototypeOf(probe);
+        const originalClose = fileHandlePrototype.close;
+        const originalStat = fileHandlePrototype.stat;
+        await probe.close();
+
+        const originalOpen = fileSystemPromises.open;
+        let rootFd;
+        let descriptorFd;
+        const closedFds = [];
+        let injectedCloseFailure = false;
+        const openSpy = spyOn(fileSystemPromises, "open")
+          .mockImplementation(async function (path, ...arguments_) {
+            const handle = await originalOpen.call(this, path, ...arguments_);
+            if (String(path) === root) rootFd = handle.fd;
+            if (String(path) === `/proc/self/fd/${rootFd}`) descriptorFd = handle.fd;
+            return handle;
+          });
+        const statSpy = spyOn(fileHandlePrototype, "stat")
+          .mockImplementation(async function (...arguments_) {
+            const stats = await originalStat.apply(this, arguments_);
+            if (this.fd === descriptorFd) stats.ino += 1n;
+            return stats;
+          });
+        const closeSpy = spyOn(fileHandlePrototype, "close")
+          .mockImplementation(async function (...arguments_) {
+            const fd = this.fd;
+            closedFds.push(fd);
+            const result = await originalClose.apply(this, arguments_);
+            if (!injectedCloseFailure && fd === descriptorFd) {
+              injectedCloseFailure = true;
+              throw new Error("synthetic descriptor close failure");
+            }
+            return result;
+          });
+        try {
+          await expect(packPlugin(root)).rejects.toThrow(
+            "descriptor-anchored package reads require a valid Linux /proc/self/fd",
+          );
+          expect(injectedCloseFailure).toBe(true);
+          expect(closedFds).toContain(descriptorFd);
+          expect(closedFds).toContain(rootFd);
+          expect(closedFds.indexOf(descriptorFd)).toBeLessThan(closedFds.indexOf(rootFd));
+        } finally {
+          closeSpy.mockRestore();
+          statSpy.mockRestore();
           openSpy.mockRestore();
         }
       },

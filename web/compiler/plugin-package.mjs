@@ -25,6 +25,7 @@ const VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u;
 const FORBIDDEN_TEXT_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u;
 const textDecoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const textEncoder = new TextEncoder();
+const NO_ERROR = Symbol("no error");
 const CONTRIBUTIONS = new Set([
   "schema",
   "query",
@@ -327,7 +328,25 @@ export function validateWakeLock(value) {
   return value;
 }
 
+async function closeAll(handles, primaryError = NO_ERROR) {
+  let cleanupError = NO_ERROR;
+  const closed = new Set();
+  for (const handle of [...handles].reverse()) {
+    if (!handle || closed.has(handle)) continue;
+    closed.add(handle);
+    try {
+      await handle.close();
+    } catch (error) {
+      if (cleanupError === NO_ERROR) cleanupError = error;
+    }
+  }
+  if (primaryError !== NO_ERROR) throw primaryError;
+  if (cleanupError !== NO_ERROR) throw cleanupError;
+}
+
 async function readOpenFileBytes(handle, maximumBytes, label) {
+  let result;
+  let primaryError = NO_ERROR;
   try {
     const before = await handle.stat({ bigint: true });
     if (!before.isFile()) fail(`${label} must be a regular file`);
@@ -358,10 +377,12 @@ async function readOpenFileBytes(handle, maximumBytes, label) {
       fail(`${label} changed while being read`);
     }
     if (length > maximumBytes) fail(`${label} exceeds ${maximumBytes} bytes`);
-    return buffer.subarray(0, length);
-  } finally {
-    await handle.close();
+    result = buffer.subarray(0, length);
+  } catch (error) {
+    primaryError = error;
   }
+  await closeAll([handle], primaryError);
+  return result;
 }
 
 async function openStandaloneFile(path, label) {
@@ -408,6 +429,7 @@ async function openPackageRoot(packageRoot) {
   }
 
   let descriptorRoot;
+  let primaryError = NO_ERROR;
   try {
     descriptorRoot = await fileSystemPromises.open(
       `/proc/self/fd/${root.fd}`,
@@ -420,17 +442,24 @@ async function openPackageRoot(packageRoot) {
     if (rootStats.dev !== descriptorStats.dev || rootStats.ino !== descriptorStats.ino) {
       fail("descriptor-anchored package reads require a valid Linux /proc/self/fd");
     }
-    return root;
   } catch (error) {
-    await root.close();
-    if (error instanceof TypeError && error.message.startsWith("wake plugin:")) throw error;
-    throw new TypeError(
-      "wake plugin: descriptor-anchored package reads require Linux /proc/self/fd",
-      { cause: error },
-    );
-  } finally {
-    if (descriptorRoot) await descriptorRoot.close();
+    primaryError = error instanceof TypeError && error.message.startsWith("wake plugin:")
+      ? error
+      : new TypeError(
+        "wake plugin: descriptor-anchored package reads require Linux /proc/self/fd",
+        { cause: error },
+      );
   }
+
+  if (primaryError !== NO_ERROR) {
+    await closeAll([root, descriptorRoot], primaryError);
+  }
+  try {
+    await closeAll([descriptorRoot]);
+  } catch (error) {
+    await closeAll([root], error);
+  }
+  return root;
 }
 
 function descriptorChildPath(directory, component) {
@@ -472,33 +501,36 @@ async function openRelativeFile(parent, component, label) {
   }
 }
 
-async function readRelativeFileBytes(root, path, maximumBytes, label) {
+async function readRelativeFileBytes(directoryCache, path, maximumBytes, label) {
   const components = relativePath(path, label).split("/");
-  const directories = [];
-  let parent = root;
-  try {
-    for (const component of components.slice(0, -1)) {
-      const directory = await openRelativeDirectory(parent, component, label);
-      directories.push(directory);
-      parent = directory;
+  let parent = directoryCache.get("");
+  let prefix = "";
+  for (const component of components.slice(0, -1)) {
+    prefix = prefix === "" ? component : `${prefix}/${component}`;
+    let directory = directoryCache.get(prefix);
+    if (!directory) {
+      directory = await openRelativeDirectory(parent, component, label);
+      directoryCache.set(prefix, directory);
     }
-    const file = await openRelativeFile(parent, components.at(-1), label);
-    return await readOpenFileBytes(file, maximumBytes, label);
-  } finally {
-    for (const directory of directories.reverse()) await directory.close();
+    parent = directory;
   }
+  const file = await openRelativeFile(parent, components.at(-1), label);
+  return readOpenFileBytes(file, maximumBytes, label);
 }
 
-async function readRelativeFileSnapshot(root, path, maximumBytes, label) {
-  const bytes = await readRelativeFileBytes(root, path, maximumBytes, label);
+async function readRelativeFileSnapshot(directoryCache, path, maximumBytes, label) {
+  const bytes = await readRelativeFileBytes(directoryCache, path, maximumBytes, label);
   return { bytes, text: decodeUtf8(bytes, label) };
 }
 
 export async function packPlugin(packageRoot) {
   const root = await openPackageRoot(packageRoot);
+  const directoryCache = new Map([["", root]]);
+  let result;
+  let primaryError = NO_ERROR;
   try {
     const manifestSnapshot = await readRelativeFileSnapshot(
-      root,
+      directoryCache,
       "wake-plugin.json",
       MAX_MANIFEST_BYTES,
       "wake-plugin.json",
@@ -510,7 +542,7 @@ export async function packPlugin(packageRoot) {
     let totalBytes = 0;
     for (const path of manifest.sources) {
       const snapshot = await readRelativeFileSnapshot(
-        root,
+        directoryCache,
         path,
         MAX_SOURCE_BYTES,
         `manifest source ${path}`,
@@ -528,10 +560,12 @@ export async function packPlugin(packageRoot) {
     }
     const artifact = { files, manifest, schemaVersion: PACKAGE_SCHEMA_VERSION };
     const bytes = canonicalDocument(artifact);
-    return { artifact, bytes, digest: sha256Digest(bytes) };
-  } finally {
-    await root.close();
+    result = { artifact, bytes, digest: sha256Digest(bytes) };
+  } catch (error) {
+    primaryError = error;
   }
+  await closeAll(directoryCache.values(), primaryError);
+  return result;
 }
 
 export function readPluginArtifact(input, expectedDigest, label) {
@@ -567,4 +601,13 @@ export const pluginPackageLimits = Object.freeze({
   sourceCount: MAX_SOURCE_COUNT,
   sourcePathBytes: MAX_SOURCE_PATH_BYTES,
   totalSourceBytes: MAX_TOTAL_SOURCE_BYTES,
+});
+
+export const pluginPackageReadContract = Object.freeze({
+  descriptorNamespace: "/proc/self/fd",
+  descendantMounts: "followed",
+  descendantSymlinks: "rejected",
+  metadataMutationDetection: "best-effort on ordinary Linux filesystems",
+  packageRootAncestors: "resolved before descriptor anchoring",
+  platform: "linux",
 });
