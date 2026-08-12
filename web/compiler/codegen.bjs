@@ -510,7 +510,8 @@
 (defn gen-fram-connector
   [entities: Any
    all-entities: Any
-   publications: Any] -> String
+   publications: Any
+   semantic-fingerprint: String] -> String
   (let [bindings (.join
         (mapv (fn [ge]
             (let [identity-field (.-identity-field ge)]
@@ -541,7 +542,8 @@
                    (fram-publication-meta-expr publication)))
             publications)
           ",\n")]
-    (str #r#"const wakeFramFieldMeta = Object.assign(Object.create(null), {
+    (str "const wakeApplicationFingerprint = " (q semantic-fingerprint) ";\n"
+         #r#"const wakeFramFieldMeta = Object.assign(Object.create(null), {
 "#
          field-metas
          #r#"
@@ -662,7 +664,7 @@ async function wakeFramPost(path, body) {
     const response = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ fingerprint: wakeApplicationFingerprint, ...body }),
       signal: controller.signal,
     });
     if (!response.ok) {
@@ -2498,7 +2500,8 @@ async function wakeFramStart() {
              (gen-fram-connector
                (publication-entities g [ge])
                (.-entities g)
-               (.-publications g)) "\n")
+               (.-publications g)
+               (.-semantic-fingerprint g)) "\n")
         "")
 
       "// ── Component ────────────────────────────────────────\n"
@@ -3285,7 +3288,10 @@ async function wakeFramStart() {
       (if is-fram
         (str "// ── FRAM gateway connector ────────────────────────────\n"
              (gen-fram-connector
-               unique-entities (.-entities g) (.-publications g)) "\n")
+               unique-entities
+               (.-entities g)
+               (.-publications g)
+               (.-semantic-fingerprint g)) "\n")
         "")
 
       "// ── Components ──────────────────────────────────────\n"
@@ -3502,7 +3508,8 @@ async function wakeFramStart() {
              (gen-fram-connector
                publication-generated-entities
                (.-entities g)
-               (.-publications g)) "\n")
+               (.-publications g)
+               (.-semantic-fingerprint g)) "\n")
         "")
 
       ;; Ref declarations
