@@ -112,6 +112,151 @@
      provenance-token: String]))
 
 (js/export
+  (defrecord IntRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord StringRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord BoolRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord KeywordRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord EntityNameRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord FieldNameRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord StateNameRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord StateValueNameRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ExternalEntityRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedIntRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedStringRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedBoolRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedKeywordRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedEntityNameRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedFieldNameRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedStateNameRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedStateValueNameRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedExternalEntityRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedProviderPortRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedEntityFieldsPortRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedComponentSlotRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedRouteSlotRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
   (defunion AuthoritySpec
     (FramAuthority [service: String])
     (LocalStorageAuthority [namespace: String])
@@ -124,11 +269,141 @@
   (defrecord IdentitySpec [entity: EntityRef field: FieldRef]))
 
 (js/export
-  (defrecord ApplicationRootSpec
-    [id: String
-     authority: AuthoritySpec
-     storage: (Vec StorageSpec)
-     identities: (Vec IdentitySpec)]))
+  (defunion FieldCardinality
+    (SingleField [unit: Nil])
+    (ManyField [unit: Nil])))
+
+(js/export
+  (defunion FieldWriteMode
+    (IdentityWrite [unit: Nil])
+    (CreateWrite [unit: Nil])
+    (CommandWrite [unit: Nil])
+    (ServerWrite [unit: Nil])))
+
+(js/export
+  (defunion FieldValueType
+    (StringField [unit: Nil])
+    (IntField [unit: Nil])
+    (BoolField [unit: Nil])
+    (KeywordField [unit: Nil])
+    (InstantField [unit: Nil])
+    (DigestField [unit: Nil])
+    (StateField [state: StateRef])
+    (RefField [target: EntityRef])
+    (ValueField [value-type: ValueTypeRef])))
+
+(js/export
+  (defrecord FieldSpec
+    [ref: FieldRef
+     owner: EntityRef
+     value-type: FieldValueType
+     cardinality: FieldCardinality
+     write: FieldWriteMode
+     storage-id: String?
+     required: Bool]))
+
+(js/export
+  (defunion CommandExpr
+    (CommandInputExpr [name: Keyword])
+    (CommandInjectedExpr [name: Keyword])
+    (CommandStringExpr [value: String])
+    (CommandIntExpr [value: Int])
+    (CommandBoolExpr [value: Bool])
+    (CommandKeywordExpr [value: Keyword])
+    (CommandNilExpr [unit: Nil])
+    (CommandActorExpr [field: Keyword])
+    (CommandReceiptTimeExpr [unit: Nil])
+    (CommandRecordExpr [fields: (Vec CommandRecordField)])
+    (CommandExtensionExpr [port: EntityFieldsPortRef input: Keyword])))
+
+(js/export
+  (defrecord CommandRecordField [name: Keyword value: CommandExpr]))
+
+(js/export
+  (defunion CommandPredicate
+    (EqualPredicate [left: CommandExpr right: CommandExpr])
+    (NonNullPredicate [value: CommandExpr])
+    (NotContainsPredicate [collection: CommandExpr value: CommandExpr])))
+
+(js/export
+  (defrecord CommandGuardSpec
+    [entity: EntityRef
+     id: CommandExpr
+     field: FieldRef
+     expected: CommandExpr
+     when: CommandPredicate?]))
+
+(js/export
+  (defrecord CommandWrite
+    [field: FieldRef
+     value: CommandExpr
+     allowed-current: CommandExpr?
+     omit-if-null: Bool]))
+
+(js/export
+  (defunion CommandStep
+    (AssertStep [predicate: CommandPredicate])
+    (RequireStep
+      [entity: EntityRef
+       id: CommandExpr
+       when: CommandPredicate?])
+    (RequireEachStep [entity: EntityRef ids: CommandExpr])
+    (GuardStep [guard: CommandGuardSpec])
+    (CreateStep
+      [entity: EntityRef
+       id: CommandExpr
+       fields: (Vec CommandWrite)])
+    (UpdateStep
+      [entity: EntityRef
+       id: CommandExpr
+       fields: (Vec CommandWrite)
+       when: CommandPredicate?])))
+
+(js/export
+  (defrecord CommandInputField [name: Keyword value-type: ValueTypeRef]))
+
+(js/export
+  (defunion CommandInjection
+    (GeneratedIdInjection [name: Keyword])
+    (ProviderInjection
+      [name: Keyword
+       port: ProviderPortRef
+       input: CommandExpr
+       output: ValueTypeRef])
+    (ValidateWithInjection [port: ProviderPortRef input: CommandExpr])
+    (CanonicalDigestInjection [name: Keyword input: CommandExpr])))
+
+(js/export
+  (defrecord CommandResultField
+    [name: Keyword
+     value-type: ValueTypeRef
+     value: CommandExpr]))
+
+(js/export
+  (defrecord ReceiptResultField
+    [name: Keyword
+     field: FieldRef
+     value-type: ValueTypeRef
+     target: EntityRef?]))
+
+(js/export
+  (defrecord ReceiptSpec
+    [results: (Vec ReceiptResultField)
+     extensions: (Vec EntityFieldsPortRef)]))
+
+(js/export
+  (defrecord CommandSpec
+    [ref: CommandRef
+     capabilities: (Vec CapabilityRef)
+     normalizer-version: Int
+     input: (Vec CommandInputField)
+     injections: (Vec CommandInjection)
+     steps: (Vec CommandStep)
+     result: (Vec CommandResultField)
+     receipt: ReceiptSpec]))
+
+(js/export
+  (defrecord CapabilitySpec [ref: CapabilityRef guards: (Vec CommandGuardSpec)]))
 
 (js/export
   (defunion ValueExpr
@@ -140,21 +415,47 @@
     (ConfigValue [key: String value-type: ValueTypeRef])))
 
 (js/export
+  (defrecord ValueRecordField
+    [name: String
+     value-type: ValueTypeSpec
+     required: Bool]))
+
+(js/export
+  (defrecord ValueTaggedVariant [tag: String fields: (Vec ValueRecordField)]))
+
+(js/export
+  (defunion ValueLiteral
+    (StringLiteral [value: String])
+    (IntegerLiteral [value: Int])
+    (BooleanLiteral [value: Bool])
+    (KeywordLiteral [value: Keyword])
+    (NilLiteral [unit: Nil])))
+
+(js/export
   (defunion ValueTypeSpec
-    (StringValueType [unit: Nil])
-    (IntegerValueType [unit: Nil])
+    (StringValueType
+      [minimum-scalars: Int?
+       maximum-scalars: Int?
+       maximum-bytes: Int?])
+    (IntegerValueType [minimum: Int? maximum: Int?])
     (BooleanValueType [unit: Nil])
-    (KeywordValueType [unit: Nil])
+    (KeywordValueType [allowed: (Vec Keyword)])
     (EntityReferenceValueType [entity: EntityRef])
-    (OptionalValueType [value-type: ValueTypeRef])
-    (ManyValueType [value-type: ValueTypeRef])))
+    (RecordValueType [fields: (Vec ValueRecordField)])
+    (TaggedValueType [tag-field: String variants: (Vec ValueTaggedVariant)])
+    (ListValueType
+      [item: ValueTypeSpec
+       minimum-items: Int?
+       maximum-items: Int?])
+    (NullableValueType [value-type: ValueTypeSpec])
+    (LiteralValueType [literal: ValueLiteral])))
 
 (js/export
   (defrecord ProviderPortSpec
     [ref: ProviderPortRef
      input-type: ValueTypeRef
      output-type: ValueTypeRef
-     capability: CapabilityRef]))
+     capability: CapabilityRef?]))
 
 (js/export
   (defrecord RendererSpec
@@ -163,46 +464,146 @@
      component: ComponentRef]))
 
 (js/export
+  (defrecord FieldRequirement
+    [name: String
+     value-type: FieldValueType
+     cardinality: FieldCardinality
+     write: FieldWriteMode]))
+
+(js/export
+  (defrecord EntityFieldsPortSpec
+    [ref: EntityFieldsPortRef
+     target: EntityRef
+     requirements: (Vec FieldRequirement)]))
+
+(js/export
+  (defrecord ComponentSlotSpec [ref: ComponentSlotRef target: ComponentRef]))
+
+(js/export
+  (defrecord RouteSlotSpec [ref: RouteSlotRef target: RouteTemplateRef]))
+
+(js/export
   (defrecord PluginIdentity
     [package-id: String
      version: String
+     compatible-wake: String
+     plugin-abi-version: Int
+     durable-schema-version: Int
      provenance-token: String]))
 
 (js/export
-  (defunion PluginConfigRole
-    (IntConfigRole [unit: Nil])
-    (StringConfigRole [unit: Nil])
-    (BoolConfigRole [unit: Nil])
-    (KeywordConfigRole [unit: Nil])
-    (EntityConfigRole [unit: Nil])
-    (FieldConfigRole [unit: Nil])
-    (StateConfigRole [unit: Nil])
-    (StateValueConfigRole [unit: Nil])
-    (ExternalEntityConfigRole [unit: Nil])))
+  (defrecord IntRoleSpec
+    [ref: IntRoleRef
+     minimum: Int?
+     maximum: Int?]))
 
 (js/export
-  (defunion PluginConfigValue
-    (IntConfigValue [value: Int])
-    (StringConfigValue [value: String])
-    (BoolConfigValue [value: Bool])
-    (KeywordConfigValue [value: Keyword])
-    (EntityConfigValue [value: EntityRef])
-    (FieldConfigValue [value: FieldRef])
-    (StateConfigValue [value: StateRef])
-    (StateValueConfigValue [value: StateValueRef])
-    (ExternalEntityConfigValue [value: EntityRef])))
+  (defrecord StringRoleSpec
+    [ref: StringRoleRef
+     min-scalars: Int?
+     max-scalars: Int?
+     max-bytes: Int?]))
 
 (js/export
-  (defrecord PluginConfigurationField
-    [key: String
-     role: PluginConfigRole
-     required: Bool]))
+  (defrecord BoolRoleSpec [ref: BoolRoleRef]))
 
 (js/export
-  (defrecord PluginConfigurationSchema [fields: (Vec PluginConfigurationField)]))
+  (defrecord KeywordRoleSpec [ref: KeywordRoleRef allowed: (Vec Keyword)]))
 
 (js/export
-  (defrecord PluginConfigurationBinding [key: String value: PluginConfigValue]))
+  (defrecord EntityNameRoleSpec [ref: EntityNameRoleRef target: EntityRef]))
+
+(js/export
+  (defrecord FieldNameRoleSpec [ref: FieldNameRoleRef target: FieldRef]))
+
+(js/export
+  (defrecord StateNameRoleSpec [ref: StateNameRoleRef target: StateRef]))
+
+(js/export
+  (defrecord StateValueNameRoleSpec
+    [ref: StateValueNameRoleRef
+     target: StateValueRef]))
+
+(js/export
+  (defrecord ExternalEntityRoleSpec [ref: ExternalEntityRoleRef]))
+
+(js/export
+  (defrecord PluginConfigurationSchema
+    [ints: (Vec IntRoleSpec)
+     strings: (Vec StringRoleSpec)
+     bools: (Vec BoolRoleSpec)
+     keywords: (Vec KeywordRoleSpec)
+     entity-names: (Vec EntityNameRoleSpec)
+     field-names: (Vec FieldNameRoleSpec)
+     state-names: (Vec StateNameRoleSpec)
+     state-value-names: (Vec StateValueNameRoleSpec)
+     external-entities: (Vec ExternalEntityRoleSpec)]))
+
+(js/export
+  (defunion BoundInt
+    (LiteralBound [value: Int])
+    (ConfiguredBound [role: IntRoleRef])))
+
+(js/export
+  (defrecord IntBinding [role: ImportedIntRoleRef value: Int]))
+
+(js/export
+  (defrecord StringBinding [role: ImportedStringRoleRef value: String]))
+
+(js/export
+  (defrecord BoolBinding [role: ImportedBoolRoleRef value: Bool]))
+
+(js/export
+  (defrecord KeywordBinding [role: ImportedKeywordRoleRef value: Keyword]))
+
+(js/export
+  (defrecord EntityNameBinding
+    [role: ImportedEntityNameRoleRef
+     value: EntityRef]))
+
+(js/export
+  (defrecord FieldNameBinding [role: ImportedFieldNameRoleRef value: FieldRef]))
+
+(js/export
+  (defrecord StateNameBinding [role: ImportedStateNameRoleRef value: StateRef]))
+
+(js/export
+  (defrecord StateValueNameBinding
+    [role: ImportedStateValueNameRoleRef
+     value: StateValueRef]))
+
+(js/export
+  (defrecord ExternalEntityBinding
+    [role: ImportedExternalEntityRoleRef
+     value: EntityRef]))
+
+(js/export
+  (defrecord PluginBindings
+    [ints: (Vec IntBinding)
+     strings: (Vec StringBinding)
+     bools: (Vec BoolBinding)
+     keywords: (Vec KeywordBinding)
+     entity-names: (Vec EntityNameBinding)
+     field-names: (Vec FieldNameBinding)
+     state-names: (Vec StateNameBinding)
+     state-value-names: (Vec StateValueNameBinding)
+     external-entities: (Vec ExternalEntityBinding)]))
+
+(js/export
+  (defunion ContributionKind
+    (SchemaContribution [unit: Nil])
+    (QueryContribution [unit: Nil])
+    (CommandContribution [unit: Nil])
+    (CapabilityContribution [unit: Nil])
+    (UiContribution [unit: Nil])
+    (RouteContribution [unit: Nil])))
+
+(js/export
+  (defrecord MigrationSpec
+    [from-version: Int
+     to-version: Int
+     ordinal: Int
+     command: CommandRef]))
 
 (js/export
   (defrecord PluginExports
@@ -226,20 +627,52 @@
 (js/export
   (defrecord PluginSpec
     [identity: PluginIdentity
+     contributions: (Vec ContributionKind)
      configuration: PluginConfigurationSchema
-     exports: PluginExports]))
+     exports: PluginExports
+     required-providers: (Vec ProviderPortRef)
+     migrations: (Vec MigrationSpec)]))
 
 (js/export
-  (defunion PluginContribution
-    (EntityFieldsContribution [port: EntityFieldsPortRef fields: (Vec FieldRef)])
-    (ComponentSlotContribution [slot: ComponentSlotRef component: ComponentRef])
-    (RouteSlotContribution [slot: RouteSlotRef route: RouteTemplateRef])))
+  (defrecord PluginUseSpec
+    [ref: PluginUseRef
+     package-id: String
+     version: String
+     allow: (Vec ContributionKind)
+     bindings: PluginBindings]))
+
+(js/export
+  (defrecord ProviderBindingSpec [name: String port: ImportedProviderPortRef]))
+
+(js/export
+  (defrecord NamedFieldSupply [name: String field: FieldRef]))
+
+(js/export
+  (defrecord ExtendSpec
+    [port: ImportedEntityFieldsPortRef
+     fields: (Vec NamedFieldSupply)]))
+
+(js/export
+  (defrecord FillSpec [slot: ImportedComponentSlotRef component: ComponentRef]))
+
+(js/export
+  (defrecord MountSpec [slot: ImportedRouteSlotRef path: String]))
 
 (js/export
   (defrecord PluginComposition
-    [use: PluginUseRef
-     configuration: (Vec PluginConfigurationBinding)
-     contributions: (Vec PluginContribution)]))
+    [use: PluginUseSpec
+     providers: (Vec ProviderBindingSpec)
+     extensions: (Vec ExtendSpec)
+     fills: (Vec FillSpec)
+     mounts: (Vec MountSpec)]))
+
+(js/export
+  (defrecord ApplicationRootSpec
+    [id: String
+     authority: AuthoritySpec
+     storage: (Vec StorageSpec)
+     identities: (Vec IdentitySpec)
+     plugins: (Vec PluginComposition)]))
 
 (js/export
   (defunion DerivedExpr
