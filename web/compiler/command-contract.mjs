@@ -18,7 +18,6 @@ function typeKey(type) {
 
 function sameType(left, right) {
   if (left?.kind === "string" && right?.kind === "string") return true;
-  if (left?.kind === "integer" && right?.kind === "integer") return true;
   if (left?.kind === "nullable" && right?.kind === "nullable") {
     return sameType(left.value, right.value);
   }
@@ -36,6 +35,128 @@ function sameType(left, right) {
     });
   }
   return typeKey(left) === typeKey(right);
+}
+
+function descriptorFieldType(field) {
+  return field?.type ?? field?.value;
+}
+
+function lowerBoundContained(actual, expected, key) {
+  return expected?.[key] === undefined
+    || (actual?.[key] !== undefined && actual[key] >= expected[key]);
+}
+
+function upperBoundContained(actual, expected, key) {
+  return expected?.[key] === undefined
+    || (actual?.[key] !== undefined && actual[key] <= expected[key]);
+}
+
+function providerTypeAssignable(actual, expected) {
+  if (expected?.kind === "nullable") {
+    return actual?.kind === "nullable"
+      ? providerTypeAssignable(actual.value, expected.value)
+      : providerTypeAssignable(actual, expected.value);
+  }
+  if (actual?.kind === "nullable" || actual?.kind !== expected?.kind) return false;
+  switch (expected.kind) {
+    case "string":
+      return lowerBoundContained(actual, expected, "minLength")
+        && upperBoundContained(actual, expected, "maxLength")
+        && upperBoundContained(actual, expected, "maxBytes");
+    case "integer":
+      return lowerBoundContained(actual, expected, "minimum")
+        && upperBoundContained(actual, expected, "maximum");
+    case "list":
+      return Number.isSafeInteger(actual.maxItems)
+        && Number.isSafeInteger(expected.maxItems)
+        && actual.maxItems <= expected.maxItems
+        && providerTypeAssignable(actual.items, expected.items);
+    case "record": {
+      if (!Array.isArray(actual.fields) || !Array.isArray(expected.fields)
+          || actual.fields.length !== expected.fields.length) return false;
+      const actualFields = new Map(actual.fields.map(field => [field.name, field]));
+      return expected.fields.every(field => {
+        const provided = actualFields.get(field.name);
+        return provided !== undefined
+          && (field.required !== true || provided.required === true)
+          && providerTypeAssignable(descriptorFieldType(provided), descriptorFieldType(field));
+      });
+    }
+    case "enum":
+      return Array.isArray(actual.values) && Array.isArray(expected.values)
+        && actual.values.every(value => expected.values.some(candidate => Object.is(candidate, value)));
+    case "literal":
+      return Object.is(actual.value, expected.value);
+    case "bounded":
+    case "tagged":
+    case "ref":
+      return typeKey(actual) === typeKey(expected);
+    default:
+      return true;
+  }
+}
+
+function providerLiteralAssignable(value, expected) {
+  if (expected?.kind === "nullable") {
+    return value === null || providerLiteralAssignable(value, expected.value);
+  }
+  switch (expected?.kind) {
+    case "literal": return Object.is(value, expected.value);
+    case "enum":
+      return Array.isArray(expected.values)
+        && expected.values.some(candidate => Object.is(candidate, value));
+    case "string": {
+      if (typeof value !== "string") return false;
+      const scalars = [...value].length;
+      const bytes = new TextEncoder().encode(value).byteLength;
+      return (expected.minLength === undefined || scalars >= expected.minLength)
+        && (expected.maxLength === undefined || scalars <= expected.maxLength)
+        && (expected.maxBytes === undefined || bytes <= expected.maxBytes);
+    }
+    case "integer":
+      return typeof value === "number" && Number.isSafeInteger(value) && !Object.is(value, -0)
+        && (expected.minimum === undefined || value >= expected.minimum)
+        && (expected.maximum === undefined || value <= expected.maximum);
+    case "number":
+      return typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0);
+    case "boolean": return typeof value === "boolean";
+    default: return false;
+  }
+}
+
+function providerExpressionAssignable(expression, expected, environment, label) {
+  if (expression.kind === "literal") {
+    return providerLiteralAssignable(expression.value, expected);
+  }
+  if (expression.kind === "record") {
+    const target = expected?.kind === "nullable" ? expected.value : expected;
+    if (target?.kind !== "record") return false;
+    const fields = new Map(expression.fields.map(field => [field.name, field.value]));
+    const expectedFields = new Map(target.fields.map(field => [field.name, field]));
+    if (fields.size !== expression.fields.length
+        || [...fields.keys()].some(name => !expectedFields.has(name))) return false;
+    return target.fields.every(field => {
+      if (!fields.has(field.name)) return field.required !== true;
+      return providerExpressionAssignable(
+        fields.get(field.name),
+        descriptorFieldType(field),
+        environment,
+        `${label}.${field.name}`,
+      );
+    });
+  }
+  if (expression.kind === "list") {
+    const target = expected?.kind === "nullable" ? expected.value : expected;
+    return target?.kind === "list"
+      && expression.items.length <= target.maxItems
+      && expression.items.every((item, index) => providerExpressionAssignable(
+        item,
+        target.items,
+        environment,
+        `${label}[${index}]`,
+      ));
+  }
+  return providerTypeAssignable(expressionType(expression, environment, label), expected);
 }
 
 function nullable(type) {
@@ -288,12 +409,18 @@ function checkCommand(command, checked, indexes) {
         environment,
         `${label} provider '${injection.name}' input`,
       );
-      expectType(
-        inputType,
+      if (!providerExpressionAssignable(
+        injection.input,
         provider.input_type,
+        environment,
         `${label} provider '${injection.name}' input`,
-        { allowDigestString: false },
-      );
+      )) {
+        fail(
+          `${label} provider '${injection.name}' input has incompatible type `
+          + `'${inputType?.kind ?? "unknown"}', expected `
+          + `'${provider.input_type?.kind ?? "unknown"}'`,
+        );
+      }
       expectType(
         injection.type,
         provider.output_type,

@@ -294,6 +294,37 @@ test("checker enforces exact provider input and output contracts", () => {
     () => checkCommandGraph([wrongOutput], checked),
     /provider 'digest' output has incompatible type/,
   );
+
+  const bounded = structuredClone(checked);
+  bounded.providers[0].input_type.fields[0].type = {
+    kind: "string",
+    maxBytes: 2048,
+  };
+  bounded.providers[0].input_type.fields.push({
+    name: "limit",
+    required: true,
+    value: { kind: "integer", minimum: 1, maximum: 16 },
+  });
+  const boundedCommand = structuredClone(command);
+  boundedCommand.injections[1].input.fields.push({
+    name: "limit",
+    value: { kind: "literal", value: 8 },
+  });
+  assert.doesNotThrow(() => checkCommandGraph([boundedCommand], bounded));
+
+  const outOfRange = structuredClone(boundedCommand);
+  outOfRange.injections[1].input.fields.at(-1).value.value = 17;
+  assert.throws(
+    () => checkCommandGraph([outOfRange], bounded),
+    /provider 'digest' input has incompatible type/,
+  );
+
+  const tooNarrow = structuredClone(bounded);
+  tooNarrow.providers[0].input_type.fields[0].type.maxBytes = 512;
+  assert.throws(
+    () => checkCommandGraph([boundedCommand], tooNarrow),
+    /provider 'digest' input has incompatible type/,
+  );
 });
 
 test("checker accepts a literal integer for a bounded provider record field", () => {
