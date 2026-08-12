@@ -206,7 +206,7 @@ function fixture({ providerNames = [] } = {}) {
       framPlan: { path: "app.fram.json", sha256: planDigest },
     },
     checkedApplication: { fingerprint, schemaVersion: 1 },
-    compiler: { name: "wake", sourceCommit: "b".repeat(40), version: "0.2.0" },
+    compiler: { name: "wake", sourceCommit: "b".repeat(40), version: "0.1.0" },
     digests: {
       operationSurface: operationDigest,
       stateSchema: `sha256:${"7".repeat(64)}`,

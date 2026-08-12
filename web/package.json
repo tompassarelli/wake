@@ -1,6 +1,6 @@
 {
   "name": "wake",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "packageManager": "bun@1.3.13",
   "type": "module",
   "description": "Wake application compiler and Bun-hosted FRAM gateway",

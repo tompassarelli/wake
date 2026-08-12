@@ -54,7 +54,7 @@ function artifacts() {
       framPlan: { path: "app.fram.json", sha256: sha256Digest(plan) },
     },
     checkedApplication: { fingerprint, schemaVersion: 1 },
-    compiler: { name: "wake", sourceCommit: "a".repeat(40), version: "0.2.0" },
+    compiler: { name: "wake", sourceCommit: "a".repeat(40), version: "0.1.0" },
     digests: {
       operationSurface: operationSurfaceDigest,
       stateSchema: stateSchemaDigest,
