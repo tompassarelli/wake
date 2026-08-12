@@ -1,5 +1,5 @@
 #lang beagle/js
-(ns wake.dsl)
+(ns wake.core)
 
 ;; Wake declarations remain ordinary typed Beagle data. The macros below only
 ;; introduce Beagle definitions whose checked AST is elaborated by Wake.

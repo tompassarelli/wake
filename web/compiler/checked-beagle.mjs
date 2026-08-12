@@ -4,7 +4,7 @@ function fail(message) {
 
 const CHECKED_PROGRAM_KIND = "beagle.checked-program";
 const CHECKED_PROGRAM_SCHEMA_VERSION = 1;
-const WAKE_PROVIDER_NAMESPACE = "wake.dsl";
+const WAKE_PROVIDER_NAMESPACE = "wake.core";
 
 function basename(path) {
   const end = path.lastIndexOf("/");
@@ -298,7 +298,10 @@ function route(node, alias, label) {
   };
 }
 
-export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
+export function programFromCheckedAst(
+  ast,
+  { sourcePath, expectedSourceId, compilerVersion },
+) {
   if (ast?.kind !== CHECKED_PROGRAM_KIND
       || ast.schemaVersion !== CHECKED_PROGRAM_SCHEMA_VERSION
       || ast.phase !== "checked") {
@@ -315,11 +318,11 @@ export function programFromCheckedAst(ast, { sourcePath, compilerVersion }) {
       || typeof wakeImports[0].alias !== "string"
       || wakeImports[0].alias.length === 0
       || wakeImports[0].refer !== false) {
-    fail("input must import exactly [wake.dsl :as ALIAS] without :refer");
+    fail("input must import exactly [wake.core :as ALIAS] without :refer");
   }
   const wakeAlias = wakeImports[0].alias;
-  if (ast.sourceId !== sourcePath) {
-    fail(`projection source '${ast.sourceId}' does not match input '${sourcePath}'`);
+  if (ast.sourceId !== expectedSourceId) {
+    fail(`projection source '${ast.sourceId}' does not match input identity '${expectedSourceId}'`);
   }
 
   const records = recordIndex(ast);

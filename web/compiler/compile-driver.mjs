@@ -60,7 +60,7 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const option = argv[index];
     const value = argv[index + 1];
-    if (!["--ast", "--dist", "--mode", "--source", "--output"].includes(option) || value === undefined) {
+    if (!["--ast", "--dist", "--mode", "--source", "--source-id", "--output"].includes(option) || value === undefined) {
       fail("driver requires --dist, --mode, --source, and --output");
     }
     if (values.has(option)) fail(`driver repeats ${option}`);
@@ -73,12 +73,20 @@ function parseArguments(argv) {
   if (!["all", "fram", "js"].includes(mode)) fail(`unknown driver mode ${mode}`);
   const source = nonempty(values.get("--source"), "source path");
   if (!source.startsWith("/")) fail("source path must be absolute");
+  const ast = values.has("--ast") ? nonempty(values.get("--ast"), "checked AST path") : null;
+  const sourceId = values.has("--source-id")
+    ? nonempty(values.get("--source-id"), "checked source identity")
+    : null;
+  if ((ast === null) !== (sourceId === null)) {
+    fail("--ast and --source-id must be supplied together");
+  }
   return {
     dist: nonempty(values.get("--dist"), "compiler distribution"),
-    ast: values.has("--ast") ? nonempty(values.get("--ast"), "checked AST path") : null,
+    ast,
     mode,
     output: nonempty(values.get("--output"), "output path"),
     source,
+    sourceId,
   };
 }
 
@@ -1704,7 +1712,11 @@ async function main() {
       )
     : programFromCheckedAst(
         JSON.parse(await Bun.file(options.ast).text()),
-        { compilerVersion, sourcePath: options.source },
+        {
+          compilerVersion,
+          expectedSourceId: options.sourceId,
+          sourcePath: options.source,
+        },
       );
   const { linked, resolved } = await linkProgram(
     root,
