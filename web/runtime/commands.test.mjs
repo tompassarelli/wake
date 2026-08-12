@@ -19,6 +19,8 @@ const ifNull = (value, thenValue, elseValue) => ({
   else: elseValue,
 });
 
+const listType = Object.freeze({ kind: "list", items: stringType, maxItems: 4 });
+
 const receipt = Object.freeze({
   entity: "receipt",
   identityField: "id",
@@ -34,12 +36,13 @@ const receipt = Object.freeze({
 
 const command = Object.freeze({
   name: "replace-release",
-  capability: "release:replace",
+  capabilities: [{ capability: "release:replace" }],
   normalizerVersion: 1,
   input: [
     { name: "entry", type: stringType, required: true },
     { name: "expected", type: nullableString, required: true },
     { name: "content", type: stringType, required: true },
+    { name: "links", type: listType, required: true },
   ],
   injections: [
     { name: "version", kind: "generated-id", type: stringType },
@@ -49,13 +52,24 @@ const command = Object.freeze({
       provider: "content-digest",
       input: {
         kind: "record",
-        fields: { content: input("content") },
+        fields: [{ name: "content", value: input("content") }],
+      },
+      type: stringType,
+    },
+    {
+      name: "canonical",
+      kind: "canonical-digest",
+      input: {
+        kind: "record",
+        fields: [{ name: "content", value: input("content") }],
       },
       type: stringType,
     },
   ],
   steps: [
+    { op: "assert", left: input("entry"), right: input("entry") },
     { op: "require", entity: "entry", identity: input("entry") },
+    { op: "require-each", entity: "entry", identities: input("links") },
     {
       op: "guard",
       entity: "entry",
@@ -223,6 +237,7 @@ test("receipt lookup precedes generated values, providers, guards, and transacti
       content: "new content",
       entry: "entry-1",
       expected: "version-1",
+      links: ["entry-2", "entry-3"],
     }, authority),
     rejects("command/idempotency-conflict"),
   );
@@ -239,6 +254,7 @@ test("compound command lowers mixed create, guarded updates, requirements, and r
     content: "new content",
     entry: "entry-1",
     expected: "version-1",
+    links: ["entry-2", "entry-3"],
   }, authority);
 
   assert.equal(result.replayed, false);
@@ -277,6 +293,7 @@ test("null branch lowers exact zero-or-one clear and omits conditional update", 
     content: "first content",
     entry: "entry-1",
     expected: null,
+    links: [],
   }, authority);
 
   const transaction = fixture.calls.transactions[0];
@@ -298,9 +315,11 @@ test("ambiguous submit failure recovers the receipt without rerunning providers"
         const receiptCreate = transaction.creates.at(-1);
         const decoded = Object.fromEntries(receiptCreate.fields.map(field => {
           const name = field.predicate[3][1];
-          const value = name.startsWith("result-")
-            ? field.value[3][1]
-            : field.value[1];
+          const value = name === "created-at"
+            ? { epochSeconds: field.value[1], nanos: Number(field.value[2]) }
+            : name.startsWith("result-")
+              ? field.value[3][1]
+              : field.value[1];
           return [name, value];
         }));
         committedReceipt = decoded;
@@ -317,6 +336,7 @@ test("ambiguous submit failure recovers the receipt without rerunning providers"
     content: "new content",
     entry: "entry-1",
     expected: "version-1",
+    links: [],
   }, authority);
 
   assert.equal(result.replayed, true);
@@ -334,6 +354,7 @@ test("authority, input, provider, and plan failures occur before submission", as
       content: "new content",
       entry: "entry-1",
       expected: null,
+      links: [],
     }, { id: "actor-1", capabilities: [] }),
     rejects("command/forbidden"),
   );
@@ -342,6 +363,7 @@ test("authority, input, provider, and plan failures occur before submission", as
       content: "",
       entry: "entry-1",
       expected: null,
+      links: [],
     }, authority),
     rejects("command/invalid-input"),
   );
@@ -362,6 +384,7 @@ test("result-changing fields outside normalized caller input do not change its d
     content: "same content",
     entry: "entry-1",
     expected: null,
+    links: [],
   }, authority];
   const a = await first.runtime.invoke(...args);
   const b = await second.runtime.invoke(...args);

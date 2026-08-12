@@ -1,0 +1,613 @@
+#lang beagle/js
+(ns wake.command)
+
+;; Domain-neutral checked-command source grammar. The reader owns top-level
+;; dispatch; this module owns the closed command subtree and its plan shape.
+
+(defn command-error [message: String] -> Any
+  (throw (ex-info (str "wake: " message) {})))
+
+(defn sym? [value: Any] -> Bool
+  (and (some? value) (= (.-_tag value) "Sym")))
+
+(defn kw? [value: Any] -> Bool
+  (and (some? value) (= (.-_tag value) "Kw")))
+
+(defn sexpr-vec? [value: Any] -> Bool
+  (and (some? value) (= (.-_tag value) "SexprVec")))
+
+(defn sym-name [value: Any] -> String
+  (.-name value))
+
+(defn kw-name [value: Any] -> String
+  (.-name value))
+
+(defn strip-colon [value: String] -> String
+  (if (.startsWith value ":") (subs value 1) value))
+
+(defn require-symbol [value: Any label: String] -> String
+  (if (sym? value)
+    (sym-name value)
+    (command-error (str label " requires a symbol"))))
+
+(defn require-keyword [value: Any label: String] -> String
+  (if (kw? value)
+    (kw-name value)
+    (command-error (str label " requires a keyword"))))
+
+(defn require-items [value: Any label: String] -> Any
+  (if (sexpr-vec? value)
+    (.-items value)
+    (command-error (str label " requires a vector"))))
+
+(defn require-form [value: Any label: String] -> Any
+  (if (vector? value)
+    value
+    (command-error (str label " requires a list form"))))
+
+(defn duplicate-names [items: Any label: String] -> Any
+  (reduce
+    (fn [seen item]
+      (let [name (get item "name")]
+        (if (.includes seen name)
+          (command-error (str label " repeats '" name "'"))
+          (conj seen name))))
+    [] items)
+  items)
+
+(defn option-map
+  [form: Any
+   start: Int
+   allowed: (Vec String)
+   required: (Vec String)
+   label: String] -> Any
+  (loop [index: Int start result: Any {} seen: (Vec String) []]
+    (if (>= index (count form))
+      (do
+        (doseq [name required]
+          (if (not (.includes seen name))
+            (command-error (str label " requires " name))
+            nil))
+        result)
+      (let [name (require-keyword (nth form index nil) (str label " option"))]
+        (if (not (.includes allowed name))
+          (command-error (str label " has unknown option " name))
+          nil)
+        (if (.includes seen name)
+          (command-error (str label " repeats option " name))
+          nil)
+        (if (>= (+ index 1) (count form))
+          (command-error (str label " option " name " requires a value"))
+          nil)
+        (recur
+          (+ index 2)
+          (assoc result name (nth form (+ index 1)))
+          (conj seen name))))))
+
+(defn primitive-type [name: String label: String] -> Any
+  (cond
+    (= name "String") {"kind" "string"}
+    (or (= name "Int") (= name "Integer")) {"kind" "integer"}
+    (or (= name "Float") (= name "Double") (= name "Number"))
+      {"kind" "number"}
+    (or (= name "Bool") (= name "Boolean")) {"kind" "boolean"}
+    (= name "Instant") {"kind" "instant"}
+    (= name "Keyword") {"kind" "keyword"}
+    :else (command-error (str label " has unsupported type '" name "'"))))
+
+(defn parse-record-type-field [value: Any label: String] -> Any
+  (let [form (require-form value label)]
+    (if (not (= (count form) 3))
+      (command-error (str label " must be (NAME : TYPE)"))
+      nil)
+    (if (not (= (require-keyword (nth form 1 nil) label) ":"))
+      (command-error (str label " must separate name and type with :"))
+      nil)
+    {"name" (require-symbol (nth form 0 nil) (str label " name"))
+     "required" true
+     "type" (parse-type (nth form 2 nil) (str label " type"))}))
+
+(defn parse-type [value: Any label: String] -> Any
+  (if (sym? value)
+    (primitive-type (sym-name value) label)
+    (let [form (require-form value label)
+          name (require-symbol (nth form 0 nil) label)]
+      (cond
+        (= name "String")
+          (let [options
+                (option-map
+                  form 1 [":min" ":max" ":bytes"] [] label)
+                minimum (get options ":min")
+                maximum (get options ":max")
+                bytes (get options ":bytes")]
+            (doseq [entry [[":min" minimum] [":max" maximum] [":bytes" bytes]]]
+              (let [source (nth entry 0) bound (nth entry 1)]
+                (if (and
+                      (some? bound)
+                      (or (not (number? bound))
+                          (not (js/Number.isSafeInteger bound))
+                          (< bound 0)))
+                  (command-error (str label " " source " must be nonnegative"))
+                  nil)))
+            ;; Keep exported plan maps as native JS objects. Beagle's assoc is a
+            ;; persistent HAMT and therefore is not a wire-plan object.
+            (cond
+              (and (some? minimum) (some? maximum) (some? bytes))
+                {"kind" "string" "minLength" minimum
+                 "maxLength" maximum "maxBytes" bytes}
+              (and (some? minimum) (some? maximum))
+                {"kind" "string" "minLength" minimum "maxLength" maximum}
+              (and (some? minimum) (some? bytes))
+                {"kind" "string" "minLength" minimum "maxBytes" bytes}
+              (and (some? maximum) (some? bytes))
+                {"kind" "string" "maxLength" maximum "maxBytes" bytes}
+              (some? minimum) {"kind" "string" "minLength" minimum}
+              (some? maximum) {"kind" "string" "maxLength" maximum}
+              (some? bytes) {"kind" "string" "maxBytes" bytes}
+              :else {"kind" "string"}))
+        (= name "Nullable")
+          (do
+            (if (not (= (count form) 2))
+              (command-error (str label " Nullable requires one type"))
+              nil)
+            {"kind" "nullable" "value" (parse-type (nth form 1 nil) label)})
+        (= name "List")
+          (do
+            (if (not (= (count form) 4))
+              (command-error (str label " List must be (List TYPE :max N)"))
+              nil)
+            (if (not (= (require-keyword (nth form 2 nil) label) ":max"))
+              (command-error (str label " List requires :max"))
+              nil)
+            (let [maximum (nth form 3 nil)]
+              (if (or (not (number? maximum))
+                      (not (js/Number.isSafeInteger maximum))
+                      (< maximum 0))
+                (command-error (str label " List :max must be nonnegative"))
+                nil)
+              {"kind" "list"
+               "items" (parse-type (nth form 1 nil) label)
+               "maxItems" maximum}))
+        (= name "Record")
+          (do
+            (if (not (= (count form) 2))
+              (command-error (str label " Record requires one field vector"))
+              nil)
+            (let [fields
+                  (mapv
+                    (fn [field]
+                      (parse-record-type-field field (str label " Record field")))
+                    (require-items (nth form 1 nil) (str label " Record")))]
+              (duplicate-names fields (str label " Record"))
+              {"kind" "record" "fields" fields}))
+        :else (command-error (str label " has unsupported type form '" name "'"))))))
+
+(defn literal-value [value: Any label: String] -> Any
+  (cond
+    (kw? value) (strip-colon (kw-name value))
+    (sym? value)
+      (if (= (sym-name value) "nil")
+        nil
+        (command-error (str label " literal symbols are not data")))
+    (or (nil? value) (string? value) (number? value) (boolean? value)) value
+    :else (command-error (str label " literal must be scalar JSON data"))))
+
+(defn parse-record-expression [value: Any label: String] -> Any
+  (let [items (require-items value label)]
+    (if (not (= (mod (count items) 2) 0))
+      (command-error (str label " must contain name/expression pairs"))
+      nil)
+    (loop [index: Int 0 fields: Any [] seen: (Vec String) []]
+      (if (>= index (count items))
+        fields
+        (let [name (require-symbol (nth items index nil) (str label " field"))]
+          (if (.includes seen name)
+            (command-error (str label " repeats field '" name "'"))
+            nil)
+          (recur
+            (+ index 2)
+            (conj
+              fields
+              {"name" name
+               "value"
+               (parse-expression
+                 (nth items (+ index 1) nil) (str label " field '" name "'"))})
+            (conj seen name)))))))
+
+(defn parse-expression [value: Any label: String] -> Any
+  (let [form (require-form value label)
+        kind (require-symbol (nth form 0 nil) label)]
+    (cond
+      (.includes ["input" "injected" "actor"] kind)
+        (do
+          (if (not (= (count form) 2))
+            (command-error (str label " " kind " requires one name"))
+            nil)
+          {"kind" kind
+           "name" (require-symbol (nth form 1 nil) (str label " " kind))})
+      (.includes ["receipt-time" "artifact-digest"] kind)
+        (do
+          (if (not (= (count form) 1))
+            (command-error (str label " " kind " accepts no values"))
+            nil)
+          {"kind" kind})
+      (= kind "literal")
+        (do
+          (if (not (= (count form) 2))
+            (command-error (str label " literal requires one value"))
+            nil)
+          (let [source (nth form 1 nil)]
+            (if (kw? source)
+              {"kind" "literal" "value" (literal-value source label)
+               "type" "keyword"}
+              {"kind" "literal" "value" (literal-value source label)})))
+      (= kind "list")
+        {"kind" "list"
+         "items"
+         (mapv
+           (fn [item] (parse-expression item (str label " list item")))
+           (subvec form 1))}
+      (= kind "record")
+        (do
+          (if (not (= (count form) 2))
+            (command-error (str label " record requires one field vector"))
+            nil)
+          {"kind" "record"
+           "fields" (parse-record-expression (nth form 1 nil) label)})
+      (= kind "get")
+        (do
+          (if (not (= (count form) 3))
+            (command-error (str label " get requires an expression and field"))
+            nil)
+          {"kind" "get"
+           "value" (parse-expression (nth form 1 nil) label)
+           "field" (require-symbol (nth form 2 nil) (str label " get field"))})
+      (= kind "if-null")
+        (do
+          (if (not (= (count form) 4))
+            (command-error (str label " if-null requires value, then, and else"))
+            nil)
+          {"kind" "if-null"
+           "value" (parse-expression (nth form 1 nil) label)
+           "then" (parse-expression (nth form 2 nil) label)
+           "else" (parse-expression (nth form 3 nil) label)})
+      :else (command-error (str label " has unknown expression '" kind "'")))))
+
+(defn parse-condition [value: Any label: String] -> Any
+  (let [form (require-form value label)
+        kind (require-symbol (nth form 0 nil) label)]
+    (if (not (.includes ["null" "non-null"] kind))
+      (command-error (str label " must be (null EXPR) or (non-null EXPR)"))
+      nil)
+    (if (not (= (count form) 2))
+      (command-error (str label " " kind " requires one expression"))
+      nil)
+    {"kind" kind "value" (parse-expression (nth form 1 nil) label)}))
+
+(defn parse-capability [value: Any command-name: String] -> Any
+  (if (sym? value)
+    {"capability" (sym-name value) "guards" []}
+    (let [form (require-form value (str "command '" command-name "' capability"))
+          name (require-symbol (nth form 0 nil) "command capability")
+          options
+          (option-map
+            form 1 [":guards"] [] (str "command capability '" name "'"))
+          guards
+          (if (some? (get options ":guards"))
+            (mapv
+              (fn [step]
+                (let [parsed (parse-step step command-name)]
+                  (if (not (.includes ["require" "guard"] (get parsed "op")))
+                    (command-error
+                      (str "command capability '" name
+                           "' guards accept only require and guard"))
+                    nil)
+                  parsed))
+              (require-items (get options ":guards") "capability :guards"))
+            [])]
+      {"capability" name "guards" guards})))
+
+(defn parse-capabilities [value: Any command-name: String] -> Any
+  (let [choices
+        (if (sexpr-vec? value)
+          (mapv (fn [choice] (parse-capability choice command-name)) (.-items value))
+          [(parse-capability value command-name)])]
+    (duplicate-names
+      (mapv (fn [choice] {"name" (get choice "capability")}) choices)
+      (str "command '" command-name "' capabilities"))
+    choices))
+
+(defn parse-input [value: Any command-name: String] -> Any
+  (let [fields
+        (mapv
+          (fn [item]
+            (let [form (require-form item (str "command '" command-name "' input"))]
+              (if (not (= (count form) 3))
+                (command-error
+                  (str "command '" command-name "' input must be (NAME : TYPE)"))
+                nil)
+              (if (not (= (require-keyword (nth form 1 nil) "command input") ":"))
+                (command-error (str "command '" command-name "' input requires :"))
+                nil)
+              {"name" (require-symbol (nth form 0 nil) "command input name")
+               "required" true
+               "type" (parse-type (nth form 2 nil) "command input type")}))
+          (require-items value (str "command '" command-name "' :input")))]
+    (duplicate-names fields (str "command '" command-name "' inputs"))))
+
+(defn parse-injection [value: Any command-name: String] -> Any
+  (let [form (require-form value (str "command '" command-name "' injection"))
+        name (require-symbol (nth form 0 nil) "injection name")
+        kind (strip-colon (require-keyword (nth form 1 nil) "injection kind"))]
+    (cond
+      (= kind "generated-id")
+        (do
+          (if (not (= (count form) 3))
+            (command-error "generated-id injection must be (NAME :generated-id TYPE)")
+            nil)
+          {"name" name "kind" kind
+           "type" (parse-type (nth form 2 nil) "generated-id type")})
+      (= kind "provider")
+        (do
+          (if (not (= (count form) 5))
+            (command-error
+              "provider injection must be (NAME :provider PROVIDER TYPE INPUT)")
+            nil)
+          {"name" name "kind" kind
+           "provider" (require-symbol (nth form 2 nil) "provider injection")
+           "type" (parse-type (nth form 3 nil) "provider output type")
+           "input" (parse-expression (nth form 4 nil) "provider input")})
+      (= kind "canonical-digest")
+        (do
+          (if (not (= (count form) 4))
+            (command-error
+              "canonical-digest injection must be (NAME :canonical-digest String INPUT)")
+            nil)
+          {"name" name "kind" kind
+           "type" (parse-type (nth form 2 nil) "canonical-digest type")
+           "input" (parse-expression (nth form 3 nil) "canonical-digest input")})
+      :else (command-error (str "command '" command-name
+                                "' has unknown injection kind '" kind "'")))))
+
+(defn parse-injections [value: Any command-name: String] -> Any
+  (let [items
+        (mapv
+          (fn [item] (parse-injection item command-name))
+          (require-items value (str "command '" command-name "' :inject")))]
+    (duplicate-names items (str "command '" command-name "' injections"))))
+
+(defn parse-create-field [value: Any label: String] -> Any
+  (let [form (require-form value label)]
+    (if (or (< (count form) 2) (> (count form) 3))
+      (command-error (str label " must be (FIELD EXPR [:omit-if-null])"))
+      nil)
+    (if (and (= (count form) 3)
+             (not (= (require-keyword (nth form 2 nil) label) ":omit-if-null")))
+      (command-error (str label " accepts only :omit-if-null"))
+      nil)
+    {"field" (require-symbol (nth form 0 nil) (str label " field"))
+     "value" (parse-expression (nth form 1 nil) (str label " value"))
+     "omitIfNull" (= (count form) 3)}))
+
+(defn parse-update-field [value: Any label: String] -> Any
+  (let [form (require-form value label)]
+    (if (not (or (= (count form) 2) (= (count form) 4)))
+      (command-error
+        (str label " must be (FIELD EXPR [:allowed-current EXPR])"))
+      nil)
+    (let [field
+          {"field" (require-symbol (nth form 0 nil) (str label " field"))
+           "value" (parse-expression (nth form 1 nil) (str label " value"))}]
+      (if (= (count form) 4)
+        (do
+          (if (not
+                (= (require-keyword (nth form 2 nil) label) ":allowed-current"))
+            (command-error (str label " accepts only :allowed-current"))
+            nil)
+          (assoc
+            field "allowedCurrent"
+            (parse-expression (nth form 3 nil) (str label " allowed current"))))
+        field))))
+
+(defn step-options
+  [form: Any
+   start: Int
+   label: String] -> Any
+  (option-map form start [":when"] [] label))
+
+(defn with-step-condition
+  [step: Any
+   options: Any
+   label: String] -> Any
+  (let [condition (get options ":when")]
+    (if (some? condition)
+      (assoc step "when" (parse-condition condition (str label " :when")))
+      step)))
+
+(defn parse-step [value: Any command-name: String] -> Any
+  (let [form (require-form value (str "command '" command-name "' step"))
+        op (require-symbol (nth form 0 nil) "command step")
+        label (str "command '" command-name "' " op " step")]
+    (cond
+      (= op "require")
+        (do
+          (if (< (count form) 3)
+            (command-error (str label " requires entity and identity"))
+            nil)
+          (with-step-condition
+            {"op" op
+             "entity" (require-symbol (nth form 1 nil) (str label " entity"))
+             "identity" (parse-expression (nth form 2 nil) (str label " identity"))}
+            (step-options form 3 label) label))
+      (= op "require-each")
+        (do
+          (if (< (count form) 3)
+            (command-error (str label " requires entity and bounded identities"))
+            nil)
+          (with-step-condition
+            {"op" op
+             "entity" (require-symbol (nth form 1 nil) (str label " entity"))
+             "identities"
+             (parse-expression (nth form 2 nil) (str label " identities"))}
+            (step-options form 3 label) label))
+      (= op "assert")
+        (do
+          (if (not (= (count form) 2))
+            (command-error (str label " requires one (= LEFT RIGHT) predicate"))
+            nil)
+          (let [predicate
+                (require-form (nth form 1 nil) (str label " predicate"))]
+            (if (or
+                  (not (= (count predicate) 3))
+                  (not (= (require-symbol (nth predicate 0 nil) label) "=")))
+              (command-error (str label " requires (= LEFT RIGHT)"))
+              nil)
+            {"op" op
+             "left" (parse-expression (nth predicate 1 nil) (str label " left"))
+             "right" (parse-expression (nth predicate 2 nil) (str label " right"))}))
+      (= op "guard")
+        (do
+          (if (< (count form) 5)
+            (command-error
+              (str label " requires entity, identity, field, and expected value"))
+            nil)
+          (with-step-condition
+            {"op" op
+             "entity" (require-symbol (nth form 1 nil) (str label " entity"))
+             "identity" (parse-expression (nth form 2 nil) (str label " identity"))
+             "field" (require-symbol (nth form 3 nil) (str label " field"))
+             "equals" (parse-expression (nth form 4 nil) (str label " expected"))}
+            (step-options form 5 label) label))
+      (or (= op "create") (= op "update"))
+        (do
+          (if (< (count form) 5)
+            (command-error
+              (str label " requires entity, identity, and :fields"))
+            nil)
+          (let [options
+                (option-map form 3 [":fields" ":when"] [":fields"] label)
+                raw-fields (require-items (get options ":fields") (str label " :fields"))
+                fields
+                (mapv
+                  (fn [field]
+                    (if (= op "create")
+                      (parse-create-field field label)
+                      (parse-update-field field label)))
+                  raw-fields)
+                step
+                {"op" op
+                 "entity" (require-symbol (nth form 1 nil) (str label " entity"))
+                 "identity" (parse-expression (nth form 2 nil) (str label " identity"))
+                 "fields" fields}]
+            (with-step-condition step options label)))
+      :else (command-error (str label " has unknown operation '" op "'")))))
+
+(defn parse-result-field [value: Any command-name: String] -> Any
+  (let [form (require-form value (str "command '" command-name "' result"))]
+    (if (not (= (count form) 4))
+      (command-error (str "command '" command-name
+                          "' result must be (NAME : TYPE EXPR)"))
+      nil)
+    (if (not (= (require-keyword (nth form 1 nil) "command result") ":"))
+      (command-error (str "command '" command-name "' result requires :"))
+      nil)
+    {"name" (require-symbol (nth form 0 nil) "command result name")
+     "type" (parse-type (nth form 2 nil) "command result type")
+     "value" (parse-expression (nth form 3 nil) "command result value")}))
+
+(defn parse-result [value: Any command-name: String] -> Any
+  (let [fields
+        (mapv
+          (fn [field] (parse-result-field field command-name))
+          (require-items value (str "command '" command-name "' :result")))]
+    (duplicate-names fields (str "command '" command-name "' results"))))
+
+(defn parse-receipt-result [value: Any command-name: String] -> Any
+  (let [form (require-form value (str "command '" command-name "' receipt result"))]
+    (if (not (= (count form) 3))
+      (command-error "receipt result must be (NAME FIELD TYPE)")
+      nil)
+    {"name" (require-symbol (nth form 0 nil) "receipt result name")
+     "field" (require-symbol (nth form 1 nil) "receipt result field")
+     "type" (parse-type (nth form 2 nil) "receipt result type")}))
+
+(defn parse-receipt [value: Any command-name: String] -> Any
+  (let [form (require-form value (str "command '" command-name "' receipt"))]
+    (if (not (= (require-symbol (nth form 0 nil) "command receipt") "receipt"))
+      (command-error "command :receipt must begin with receipt")
+      nil)
+    (let [options
+          (option-map
+            form 1
+            [":entity" ":identity" ":actor" ":command" ":input-digest"
+             ":created-at" ":result"]
+            [":entity" ":identity" ":actor" ":command" ":input-digest"
+             ":created-at" ":result"]
+            (str "command '" command-name "' receipt"))
+          results
+          (mapv
+            (fn [item] (parse-receipt-result item command-name))
+            (require-items (get options ":result") "receipt :result"))]
+      (duplicate-names results (str "command '" command-name "' receipt results"))
+      {"entity" (require-symbol (get options ":entity") "receipt :entity")
+       "identityField" (require-symbol (get options ":identity") "receipt :identity")
+       "actorField" (require-symbol (get options ":actor") "receipt :actor")
+       "commandField" (require-symbol (get options ":command") "receipt :command")
+       "inputDigestField"
+       (require-symbol (get options ":input-digest") "receipt :input-digest")
+       "createdAtField"
+       (require-symbol (get options ":created-at") "receipt :created-at")
+       "resultFields" results})))
+
+(defn parse-command [form: Any] -> Any
+  (let [name (require-symbol (nth form 1 nil) "command name")
+        label (str "command '" name "'")
+        options
+        (option-map
+          form 2
+          [":capability" ":normalizer-version" ":input" ":inject" ":steps"
+           ":result" ":receipt"]
+          [":capability" ":normalizer-version" ":input" ":inject" ":steps"
+           ":result" ":receipt"]
+          label)
+        normalizer-version (get options ":normalizer-version")]
+    (if (or (not (number? normalizer-version))
+            (not (js/Number.isSafeInteger normalizer-version))
+            (< normalizer-version 1))
+      (command-error (str label " :normalizer-version must be positive"))
+      nil)
+    {"name" name
+     "capabilities" (parse-capabilities (get options ":capability") name)
+     "normalizerVersion" normalizer-version
+     "input" (parse-input (get options ":input") name)
+     "injections" (parse-injections (get options ":inject") name)
+     "steps"
+     (mapv
+       (fn [step] (parse-step step name))
+       (require-items (get options ":steps") (str label " :steps")))
+     "result" (parse-result (get options ":result") name)
+     "receipt" (parse-receipt (get options ":receipt") name)}))
+
+(defn qualify-command
+  [command: Any
+   alias: String
+   entity-names: Any] -> Any
+  (let [qualify (fn [name] (str alias "." name))
+        qualify-entity
+        (fn [name]
+          (if (.has entity-names name) (qualify name) name))
+        qualify-step
+        (fn [step]
+          (assoc step "entity" (qualify-entity (get step "entity"))))
+        receipt (get command "receipt")]
+    (assoc
+      (assoc
+        (assoc
+          (assoc command "name" (qualify (get command "name")))
+          "capabilities"
+          (mapv
+            (fn [choice]
+              (assoc choice "capability" (qualify (get choice "capability"))))
+            (get command "capabilities")))
+        "steps" (mapv qualify-step (get command "steps")))
+      "receipt" (assoc receipt "entity" (qualify-entity (get receipt "entity"))))))

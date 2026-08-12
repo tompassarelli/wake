@@ -3,6 +3,8 @@ import { canonicalDocument, sha256Digest } from "../compiler/canonical.mjs";
 const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/u;
 const MAX_EXPRESSION_DEPTH = 32;
+const MIN_I64 = -(1n << 63n);
+const MAX_I64 = (1n << 63n) - 1n;
 
 export class CommandError extends Error {
   constructor(code, message, detail = undefined, options = undefined) {
@@ -58,8 +60,17 @@ function cloneJson(value) {
   if (Array.isArray(value)) return value.map(cloneJson);
   if (!plainObject(value)) fail("command/type-mismatch", "value must be JSON data");
   const result = {};
-  for (const [key, item] of Object.entries(value)) result[key] = cloneJson(item);
+  for (const [key, item] of Object.entries(value)) defineData(result, key, cloneJson(item));
   return result;
+}
+
+function defineData(target, key, value) {
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: true,
+    value,
+    writable: true,
+  });
 }
 
 function validateType(type, label) {
@@ -129,6 +140,10 @@ function normalizeValue(value, type, label, code = "command/type-mismatch") {
           ? value
           : null;
       if (spelling === null) fail(code, `${label} must be an exact integer`);
+      const integer = BigInt(spelling);
+      if (integer < MIN_I64 || integer > MAX_I64) {
+        fail(code, `${label} must fit a signed 64-bit integer`);
+      }
       return spelling;
     }
     case "number":
@@ -172,7 +187,11 @@ function normalizeValue(value, type, label, code = "command/type-mismatch") {
           if (field.required) fail(code, `${label}.${field.name} is required`);
           continue;
         }
-        result[field.name] = normalizeValue(value[field.name], field.type, `${label}.${field.name}`, code);
+        defineData(
+          result,
+          field.name,
+          normalizeValue(value[field.name], field.type, `${label}.${field.name}`, code),
+        );
       }
       return result;
     }
@@ -199,7 +218,10 @@ function validateExpression(expression, label, depth = 0) {
   const kind = nonempty(expression.kind, `${label}.kind`);
   switch (kind) {
     case "literal":
-      exactKeys(expression, ["kind", "value"], [], label);
+      exactKeys(expression, ["kind", "value"], ["type"], label);
+      if (own(expression, "type") && expression.type !== "keyword") {
+        fail("command/invalid-plan", `${label}.type must be keyword when present`);
+      }
       cloneJson(expression.value);
       break;
     case "input":
@@ -219,11 +241,13 @@ function validateExpression(expression, label, depth = 0) {
       break;
     case "record":
       exactKeys(expression, ["kind", "fields"], [], label);
-      if (!plainObject(expression.fields)) fail("command/invalid-plan", `${label}.fields must be an object`);
-      for (const [name, value] of Object.entries(expression.fields)) {
-        nonempty(name, `${label}.field name`);
-        validateExpression(value, `${label}.fields.${name}`, depth + 1);
+      if (!Array.isArray(expression.fields)) fail("command/invalid-plan", `${label}.fields must be an array`);
+      for (const [index, field] of expression.fields.entries()) {
+        exactKeys(field, ["name", "value"], [], `${label}.fields[${index}]`);
+        nonempty(field.name, `${label}.fields[${index}].name`);
+        validateExpression(field.value, `${label}.fields[${index}].value`, depth + 1);
       }
+      uniqueNames(expression.fields, `${label}.fields`);
       break;
     case "get":
       exactKeys(expression, ["kind", "value", "field"], [], label);
@@ -250,11 +274,32 @@ function validateWhen(when, label) {
   validateExpression(when.value, `${label}.value`);
 }
 
+function validateCapabilityChoice(choice, label) {
+  exactKeys(choice, ["capability"], ["guards"], label);
+  nonempty(choice.capability, `${label}.capability`);
+  if (own(choice, "guards")) {
+    if (!Array.isArray(choice.guards)) fail("command/invalid-plan", `${label}.guards must be an array`);
+    choice.guards.forEach((guard, index) => validateStep(guard, `${label}.guards[${index}]`));
+    if (choice.guards.some(guard => guard.op !== "require" && guard.op !== "guard")) {
+      fail("command/invalid-plan", `${label}.guards accept only require and guard steps`);
+    }
+  }
+  return choice;
+}
+
 function validateStep(step, label) {
   if (!plainObject(step)) fail("command/invalid-plan", `${label} must be an object`);
   const op = nonempty(step.op, `${label}.op`);
   if (op === "require") {
     exactKeys(step, ["op", "entity", "identity"], ["when"], label);
+  } else if (op === "require-each") {
+    exactKeys(step, ["op", "entity", "identities"], ["when"], label);
+    validateExpression(step.identities, `${label}.identities`);
+  } else if (op === "assert") {
+    exactKeys(step, ["op", "left", "right"], [], label);
+    validateExpression(step.left, `${label}.left`);
+    validateExpression(step.right, `${label}.right`);
+    return step;
   } else if (op === "guard") {
     exactKeys(step, ["op", "entity", "identity", "field", "equals"], ["when"], label);
     nonempty(step.field, `${label}.field`);
@@ -289,7 +334,7 @@ function validateStep(step, label) {
     fail("command/invalid-plan", `${label}.op '${op}' is unsupported`);
   }
   nonempty(step.entity, `${label}.entity`);
-  validateExpression(step.identity, `${label}.identity`);
+  if (op !== "require-each") validateExpression(step.identity, `${label}.identity`);
   if (own(step, "when")) validateWhen(step.when, `${label}.when`);
   return step;
 }
@@ -297,13 +342,21 @@ function validateStep(step, label) {
 function validateInjection(injection, label) {
   exactKeys(injection, ["name", "kind", "type"], ["provider", "input"], label);
   nonempty(injection.name, `${label}.name`);
-  if (!["generated-id", "provider"].includes(injection.kind)) {
+  if (!["canonical-digest", "generated-id", "provider"].includes(injection.kind)) {
     fail("command/invalid-plan", `${label}.kind '${injection.kind}' is unsupported`);
   }
   validateType(injection.type, `${label}.type`);
   if (injection.kind === "provider") {
     nonempty(injection.provider, `${label}.provider`);
     validateExpression(injection.input, `${label}.input`);
+  } else if (injection.kind === "canonical-digest") {
+    if (own(injection, "provider")) {
+      fail("command/invalid-plan", `${label} canonical-digest cannot name a provider`);
+    }
+    validateExpression(injection.input, `${label}.input`);
+    if (injection.type.kind !== "string") {
+      fail("command/invalid-plan", `${label} canonical-digest output type must be string`);
+    }
   } else if (own(injection, "provider") || own(injection, "input")) {
     fail("command/invalid-plan", `${label} generated-id cannot name a provider or input`);
   }
@@ -341,7 +394,7 @@ function validateCommand(command, index) {
   const label = `commands[${index}]`;
   exactKeys(command, [
     "name",
-    "capability",
+    "capabilities",
     "normalizerVersion",
     "input",
     "injections",
@@ -350,7 +403,13 @@ function validateCommand(command, index) {
     "receipt",
   ], [], label);
   nonempty(command.name, `${label}.name`);
-  nonempty(command.capability, `${label}.capability`);
+  if (!Array.isArray(command.capabilities) || command.capabilities.length === 0) {
+    fail("command/invalid-plan", `${label}.capabilities must be a nonempty array`);
+  }
+  command.capabilities.forEach((choice, choiceIndex) => (
+    validateCapabilityChoice(choice, `${label}.capabilities[${choiceIndex}]`)
+  ));
+  uniqueNames(command.capabilities.map(choice => ({ name: choice.capability })), `${label}.capabilities`);
   if (!Number.isSafeInteger(command.normalizerVersion) || command.normalizerVersion < 1) {
     fail("command/invalid-plan", `${label}.normalizerVersion must be a positive integer`);
   }
@@ -413,11 +472,15 @@ function normalizedInput(command, value) {
       if (field.required === true) fail("command/invalid-input", `command input.${field.name} is required`);
       continue;
     }
-    result[field.name] = normalizeValue(
-      value[field.name],
-      field.type,
-      `command input.${field.name}`,
-      "command/invalid-input",
+    defineData(
+      result,
+      field.name,
+      normalizeValue(
+        value[field.name],
+        field.type,
+        `command input.${field.name}`,
+        "command/invalid-input",
+      ),
     );
   }
   return result;
@@ -451,8 +514,8 @@ function evaluate(expression, environment, depth = 0) {
       return expression.items.map(item => evaluate(item, environment, depth + 1));
     case "record": {
       const result = {};
-      for (const [name, value] of Object.entries(expression.fields)) {
-        result[name] = evaluate(value, environment, depth + 1);
+      for (const field of expression.fields) {
+        defineData(result, field.name, evaluate(field.value, environment, depth + 1));
       }
       return result;
     }
@@ -534,15 +597,43 @@ function encodedValues(storage, entity, fieldName, raw, label) {
   };
 }
 
-function compileTransaction(command, environment, storage, receiptId, result) {
+function compileTransaction(command, environment, storage, receiptId, result, authorityGuards) {
   const creates = [];
   const updates = [];
   const requirements = new Map();
   const updateCells = new Map();
 
-  for (const [stepIndex, step] of command.steps.entries()) {
+  for (const [stepIndex, step] of [...authorityGuards, ...command.steps].entries()) {
     if (!stepEnabled(step, environment)) continue;
     const label = `${command.name}.steps[${stepIndex}]`;
+    if (step.op === "assert") {
+      const left = evaluate(step.left, environment);
+      const right = evaluate(step.right, environment);
+      if (canonicalDocument(left) !== canonicalDocument(right)) {
+        fail("command/assertion-failed", `${label} equality assertion failed`);
+      }
+      continue;
+    }
+    if (step.op === "require-each") {
+      const identities = evaluate(step.identities, environment);
+      if (!Array.isArray(identities)) {
+        fail("command/type-mismatch", `${label}.identities must be a bounded list`);
+      }
+      for (const [identityIndex, value] of identities.entries()) {
+        const identity = checkedIdentity(
+          storage,
+          step.entity,
+          value,
+          `${label}.identities[${identityIndex}]`,
+        );
+        addRequirement(requirements, {
+          subject: identity.subject,
+          predicate: identity.predicate,
+          value: identity.value,
+        });
+      }
+      continue;
+    }
     const identity = checkedIdentity(
       storage,
       step.entity,
@@ -696,15 +787,26 @@ function recoveredReceipt(command, receiptId, inputDigest, actor, receiptValue) 
   const result = {};
   for (const field of receipt.resultFields) {
     if (!own(row, field.field)) continue;
-    result[field.name] = normalizeValue(
-      row[field.field],
-      field.type,
-      `receipt.${field.field}`,
-      "command/receipt-corrupt",
+    defineData(
+      result,
+      field.name,
+      normalizeValue(
+        row[field.field],
+        field.type,
+        `receipt.${field.field}`,
+        "command/receipt-corrupt",
+      ),
     );
   }
+  const createdAt = normalizeValue(
+    row[receipt.createdAtField],
+    { kind: "instant" },
+    `receipt.${receipt.createdAtField}`,
+    "command/receipt-corrupt",
+  );
   return Object.freeze({
     command: command.name,
+    createdAt,
     inputDigest,
     receiptId,
     replayed: true,
@@ -750,8 +852,15 @@ export function createCommandRuntime(plan, {
     const command = compiled.byName.get(commandName);
     if (!command) fail("command/unknown", `unknown command '${commandName}'`);
     const actor = checkedActor(authority);
-    if (!new Set(actor.capabilities).has(command.capability)) {
-      fail("command/forbidden", `command '${commandName}' requires capability '${command.capability}'`);
+    const granted = new Set(actor.capabilities);
+    const grantedChoices = command.capabilities.filter(choice => granted.has(choice.capability));
+    const authorityChoice = grantedChoices.find(choice => (choice.guards ?? []).length === 0)
+      ?? grantedChoices[0];
+    if (authorityChoice === undefined) {
+      fail(
+        "command/forbidden",
+        `command '${commandName}' requires one of: ${command.capabilities.map(choice => choice.capability).join(", ")}`,
+      );
     }
 
     const normalized = normalizedInput(command, input);
@@ -801,6 +910,8 @@ export function createCommandRuntime(plan, {
           name: injection.name,
           requestId,
         }));
+      } else if (injection.kind === "canonical-digest") {
+        value = sha256Digest(canonicalDocument(evaluate(injection.input, environment)));
       } else {
         const provider = providers[injection.provider];
         if (typeof provider !== "function") {
@@ -811,24 +922,39 @@ export function createCommandRuntime(plan, {
           command: command.name,
         }));
       }
-      environment.injected[injection.name] = normalizeValue(
-        value,
-        injection.type,
-        `injection '${injection.name}'`,
-        "command/provider-output",
+      defineData(
+        environment.injected,
+        injection.name,
+        normalizeValue(
+          value,
+          injection.type,
+          `injection '${injection.name}'`,
+          "command/provider-output",
+        ),
       );
     }
 
     const result = {};
     for (const field of command.result) {
-      result[field.name] = normalizeValue(
-        evaluate(field.value, environment),
-        field.type,
-        `result '${field.name}'`,
-        "command/result-invalid",
+      defineData(
+        result,
+        field.name,
+        normalizeValue(
+          evaluate(field.value, environment),
+          field.type,
+          `result '${field.name}'`,
+          "command/result-invalid",
+        ),
       );
     }
-    const transaction = compileTransaction(command, environment, storage, receiptId, result);
+    const transaction = compileTransaction(
+      command,
+      environment,
+      storage,
+      receiptId,
+      result,
+      authorityChoice.guards ?? [],
+    );
     try {
       const committed = await schema.transactUnique(transaction);
       if (!plainObject(committed) || typeof committed.servedVersion !== "bigint") {
@@ -836,6 +962,7 @@ export function createCommandRuntime(plan, {
       }
       return Object.freeze({
         command: command.name,
+        createdAt: receiptTime,
         inputDigest,
         receiptId,
         replayed: false,
