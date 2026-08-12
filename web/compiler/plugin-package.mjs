@@ -10,9 +10,18 @@ import {
 
 const PACKAGE_SCHEMA_VERSION = 1;
 const PLUGIN_ABI_VERSION = 1;
+// Package ingestion is bounded before untrusted text reaches a parser.
+const MAX_MANIFEST_BYTES = 256 * 1024;
+const MAX_SOURCE_BYTES = 1024 * 1024;
+const MAX_TOTAL_SOURCE_BYTES = 8 * 1024 * 1024;
+const MAX_SOURCE_COUNT = 256;
+const MAX_SOURCE_PATH_BYTES = 240;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;
 const VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u;
+const FORBIDDEN_TEXT_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/u;
+const textDecoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+const textEncoder = new TextEncoder();
 const CONTRIBUTIONS = new Set([
   "schema",
   "query",
@@ -54,14 +63,62 @@ function exactVersion(value, label) {
   return value;
 }
 
+function validateUnicodeText(value, label) {
+  if (value.includes("\ufeff")) fail(`${label} must not contain a byte-order mark`);
+  if (FORBIDDEN_TEXT_CONTROL.test(value)) fail(`${label} contains a forbidden control character`);
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const following = value.charCodeAt(index + 1);
+      if (!(following >= 0xdc00 && following <= 0xdfff)) {
+        fail(`${label} contains an unpaired Unicode surrogate`);
+      }
+      index += 1;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) {
+      fail(`${label} contains an unpaired Unicode surrogate`);
+    }
+  }
+  return value;
+}
+
+function utf8Bytes(value, label) {
+  if (typeof value !== "string") fail(`${label} must be UTF-8 text`);
+  validateUnicodeText(value, label);
+  return textEncoder.encode(value);
+}
+
+function decodeUtf8(bytes, label) {
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    fail(`${label} must not begin with a UTF-8 byte-order mark`);
+  }
+  let value;
+  try {
+    value = textDecoder.decode(bytes);
+  } catch (error) {
+    throw new TypeError(`wake plugin: ${label} must be valid UTF-8`, { cause: error });
+  }
+  return validateUnicodeText(value, label);
+}
+
 function relativePath(value, label) {
   nonempty(value, label);
-  if (value.startsWith("/") || value.includes("\\")) {
+  validateUnicodeText(value, label);
+  if (value.normalize("NFC") !== value) fail(`${label} must use NFC Unicode normalization`);
+  if (value.startsWith("/") || value.includes("\\") || /^[A-Za-z]:\//u.test(value)) {
     fail(`${label} must be a package-relative POSIX path`);
   }
   const pieces = value.split("/");
   if (pieces.some((piece) => piece === "" || piece === "." || piece === "..")) {
     fail(`${label} escapes its package`);
+  }
+  return value;
+}
+
+function sourcePath(value, label) {
+  relativePath(value, label);
+  if (!value.endsWith(".bjs")) fail(`${label} must name authored Beagle .bjs source`);
+  if (textEncoder.encode(value).byteLength > MAX_SOURCE_PATH_BYTES) {
+    fail(`${label} exceeds ${MAX_SOURCE_PATH_BYTES} UTF-8 bytes`);
   }
   return value;
 }
@@ -170,9 +227,16 @@ export function validatePluginManifest(value) {
   nonempty(value.packageId, "manifest.packageId");
   exactVersion(value.version, "manifest.version");
   exactVersion(value.compatibleWake, "manifest.compatibleWake");
-  relativePath(value.entry, "manifest.entry");
+  sourcePath(value.entry, "manifest.entry");
   const sources = uniqueStrings(value.sources, "manifest.sources");
-  sources.forEach((source, index) => relativePath(source, `manifest.sources[${index}]`));
+  if (sources.length > MAX_SOURCE_COUNT) {
+    fail(`manifest.sources exceeds ${MAX_SOURCE_COUNT} entries`);
+  }
+  sources.forEach((source, index) => sourcePath(source, `manifest.sources[${index}]`));
+  const orderedSources = [...sources].sort();
+  if (sources.some((source, index) => source !== orderedSources[index])) {
+    fail("manifest.sources must be in canonical path order");
+  }
   if (!sources.includes(value.entry)) fail("manifest.entry must be listed in manifest.sources");
   const contributions = uniqueStrings(value.contributions, "manifest.contributions");
   for (const contribution of contributions) {
@@ -199,6 +263,9 @@ export function validatePluginManifest(value) {
     fail("manifest.durableSchemaVersion must be a positive integer");
   }
   if (!Array.isArray(value.migrations)) fail("manifest.migrations must be an array");
+  if (textEncoder.encode(canonicalDocument(value)).byteLength > MAX_MANIFEST_BYTES) {
+    fail(`manifest exceeds ${MAX_MANIFEST_BYTES} UTF-8 bytes`);
+  }
   return value;
 }
 
@@ -208,20 +275,27 @@ export function validatePluginArtifact(value) {
   const manifest = validatePluginManifest(value.manifest);
   if (!Array.isArray(value.files)) fail("artifact.files must be an array");
   const paths = [];
+  let totalBytes = 0;
   for (const [index, source] of value.files.entries()) {
     exactKeys(source, ["content", "mode", "path", "sha256"], `artifact.files[${index}]`);
-    paths.push(relativePath(source.path, `artifact.files[${index}].path`));
+    paths.push(sourcePath(source.path, `artifact.files[${index}].path`));
     if (source.mode !== "text") fail(`artifact.files[${index}].mode must be text`);
-    if (typeof source.content !== "string") fail(`artifact.files[${index}].content must be UTF-8 text`);
-    if (!SHA256.test(source.sha256) || source.sha256 !== sha256Digest(source.content)) {
+    const contentBytes = utf8Bytes(source.content, `artifact.files[${index}].content`);
+    if (contentBytes.byteLength > MAX_SOURCE_BYTES) {
+      fail(`artifact.files[${index}].content exceeds ${MAX_SOURCE_BYTES} UTF-8 bytes`);
+    }
+    totalBytes += contentBytes.byteLength;
+    if (totalBytes > MAX_TOTAL_SOURCE_BYTES) {
+      fail(`artifact source bytes exceed ${MAX_TOTAL_SOURCE_BYTES} bytes`);
+    }
+    if (!SHA256.test(source.sha256) || source.sha256 !== sha256Digest(contentBytes)) {
       fail(`artifact.files[${index}].sha256 does not match its content`);
     }
   }
   if (new Set(paths).size !== paths.length) fail("artifact.files contains a duplicate path");
-  const expected = [...manifest.sources].sort();
-  const actual = [...paths].sort();
-  if (actual.length !== expected.length || actual.some((path, index) => path !== expected[index])) {
-    fail("artifact.files must exactly match manifest.sources");
+  if (paths.length !== manifest.sources.length
+      || paths.some((path, index) => path !== manifest.sources[index])) {
+    fail("artifact.files must exactly match manifest.sources in canonical path order");
   }
   return value;
 }
@@ -237,6 +311,9 @@ export function validateWakeLock(value) {
     nonempty(entry.packageId, `wake.lock.plugins[${index}].packageId`);
     exactVersion(entry.version, `wake.lock.plugins[${index}].version`);
     relativePath(entry.artifact, `wake.lock.plugins[${index}].artifact`);
+    if (!entry.artifact.endsWith(".wakepkg.json")) {
+      fail(`wake.lock.plugins[${index}].artifact must end in .wakepkg.json`);
+    }
     if (!SHA256.test(entry.digest)) fail(`wake.lock.plugins[${index}].digest must be sha256:<hex>`);
     exactKeys(entry.source, ["commit", "kind"], `wake.lock.plugins[${index}].source`);
     if (entry.source.kind !== "git") fail(`wake.lock.plugins[${index}].source.kind must be git`);
@@ -259,14 +336,31 @@ function isSymlink(path) {
   return result.exitCode === 0;
 }
 
+async function readFileSnapshot(file, maximumBytes, label) {
+  if (!(await file.exists())) fail(`${label} does not exist`);
+  const stats = await file.stat();
+  if (!stats.isFile()) fail(`${label} must be a regular file`);
+  if (stats.size > maximumBytes) fail(`${label} exceeds ${maximumBytes} bytes`);
+  const bytes = new Uint8Array(await file.slice(0, maximumBytes + 1).arrayBuffer());
+  if (bytes.byteLength > maximumBytes) fail(`${label} exceeds ${maximumBytes} bytes`);
+  return { bytes, text: decodeUtf8(bytes, label) };
+}
+
 export async function packPlugin(packageRoot) {
   if (isSymlink(packageRoot)) fail("package root must not be a symlink");
   const manifestPath = joined(packageRoot, "wake-plugin.json");
   if (isSymlink(manifestPath)) fail("wake-plugin.json must not be a symlink");
-  const manifestText = await Bun.file(manifestPath).text();
-  const manifest = validatePluginManifest(parseCanonicalDocument(manifestText, "wake-plugin.json"));
+  const manifestSnapshot = await readFileSnapshot(
+    Bun.file(manifestPath),
+    MAX_MANIFEST_BYTES,
+    "wake-plugin.json",
+  );
+  const manifest = validatePluginManifest(
+    parseCanonicalDocument(manifestSnapshot.text, "wake-plugin.json"),
+  );
   const files = [];
-  for (const path of [...manifest.sources].sort()) {
+  let totalBytes = 0;
+  for (const path of manifest.sources) {
     const sourcePath = joined(packageRoot, path);
     const prefixes = path.split("/");
     for (let index = 1; index <= prefixes.length; index += 1) {
@@ -274,25 +368,37 @@ export async function packPlugin(packageRoot) {
         fail(`manifest source ${path} crosses a symlink`);
       }
     }
-    const file = Bun.file(sourcePath);
-    if (!(await file.exists())) fail(`manifest source ${path} does not exist`);
-    const stats = await file.stat();
-    if (!stats.isFile()) fail(`manifest source ${path} must be a regular file`);
-    const content = await file.text();
-    files.push({ content, mode: "text", path, sha256: sha256Digest(content) });
+    const snapshot = await readFileSnapshot(
+      Bun.file(sourcePath),
+      MAX_SOURCE_BYTES,
+      `manifest source ${path}`,
+    );
+    totalBytes += snapshot.bytes.byteLength;
+    if (totalBytes > MAX_TOTAL_SOURCE_BYTES) {
+      fail(`manifest source bytes exceed ${MAX_TOTAL_SOURCE_BYTES} bytes`);
+    }
+    files.push({
+      content: snapshot.text,
+      mode: "text",
+      path,
+      sha256: sha256Digest(snapshot.bytes),
+    });
   }
   const artifact = { files, manifest, schemaVersion: PACKAGE_SCHEMA_VERSION };
   const bytes = canonicalDocument(artifact);
   return { artifact, bytes, digest: sha256Digest(bytes) };
 }
 
-export function readPluginArtifact(text, expectedDigest, label) {
+export function readPluginArtifact(input, expectedDigest, label) {
   if (!SHA256.test(expectedDigest)) fail(`${label} has an invalid digest`);
-  const actualDigest = sha256Digest(text);
+  const inputBytes = typeof input === "string"
+    ? utf8Bytes(input, label)
+    : Uint8Array.from(input);
+  const actualDigest = sha256Digest(inputBytes);
   if (actualDigest !== expectedDigest) {
     fail(`${label} digest mismatch: expected ${expectedDigest}, received ${actualDigest}`);
   }
-  return validatePluginArtifact(parseCanonicalDocument(text, label));
+  return validatePluginArtifact(parseCanonicalDocument(decodeUtf8(inputBytes, label), label));
 }
 
 export const pluginContractVersions = Object.freeze({
