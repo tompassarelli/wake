@@ -13,9 +13,11 @@ const expectedFiles = [
   "package/LICENSE-APACHE",
   "package/LICENSE-MIT",
   "package/README.md",
+  "package/application-installer.mjs",
   "package/application-receipt.mjs",
   "package/bun-adapter.mjs",
   "package/canonical.mjs",
+  "package/checked-value.mjs",
   "package/commands.mjs",
   "package/cursor-provider.mjs",
   "package/fram-gateway.mjs",
@@ -24,6 +26,7 @@ const expectedFiles = [
   "package/index.mjs",
   "package/named-query.mjs",
   "package/package.json",
+  "package/safe-document.mjs",
 ];
 
 function run(command) {
@@ -87,10 +90,22 @@ describe("@tompassarelli/wake-runtime package", () => {
       run(["tar", "-xzf", `${first}/${archiveName}`, "-C", extracted]);
       const publicModule = await import(`${extracted}/package/index.mjs`);
       expect(Object.keys(publicModule).sort()).toEqual([
+        "CheckedValueError",
+        "compileCheckedValue",
         "createWakeBunAdapter",
+        "installApplication",
         "loadApplicationReceipt",
+        "normalizeCheckedValue",
         "rejectProviderInput",
+        "renderSafeDocument",
       ]);
+      const checkedValue = publicModule.compileCheckedValue({
+        kind: "string",
+        maxLength: 4,
+      });
+      expect(checkedValue.normalize("wake")).toBe("wake");
+      expect(() => checkedValue.normalize("wake!"))
+        .toThrow(expect.any(publicModule.CheckedValueError));
       expect(() => publicModule.rejectProviderInput("invalid content", { field: "body" }))
         .toThrow(expect.objectContaining({
           code: "command/provider-rejected",

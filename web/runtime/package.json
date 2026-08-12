@@ -14,16 +14,19 @@
     "LICENSE-APACHE",
     "LICENSE-MIT",
     "README.md",
+    "application-installer.mjs",
     "application-receipt.mjs",
     "bun-adapter.mjs",
     "canonical.mjs",
+    "checked-value.mjs",
     "commands.mjs",
     "cursor-provider.mjs",
     "fram-gateway.mjs",
     "fram-http.mjs",
     "index.d.ts",
     "index.mjs",
-    "named-query.mjs"
+    "named-query.mjs",
+    "safe-document.mjs"
   ],
   "sideEffects": false,
   "engines": {

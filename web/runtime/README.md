@@ -8,17 +8,30 @@ no compiler, plugin implementation, dynamic plugin loader, or raw FRAM escape.
 ```js
 import {
   createWakeBunAdapter,
+  installApplication,
   loadApplicationReceipt,
   rejectProviderInput,
 } from "@tompassarelli/wake-runtime";
 
-const applicationReceipt = await loadApplicationReceipt({
+const applicationReceipt = await installApplication({
   applicationId: "my-application",
   deploymentReceipt,
   fram,
   manifest,
   plan,
+  schema,
+  async initialize({ applicationReceipt, plan, schema }) {
+    await reconcileApplicationPrincipals({ applicationReceipt, plan, schema });
+  },
 });
+
+await loadApplicationReceipt({
+  applicationId: "my-application",
+  deploymentReceipt,
+  fram,
+  manifest,
+  plan,
+}); // Verifies the ready receipt without changing state.
 
 const runtime = createWakeBunAdapter({
   applicationReceipt,
@@ -35,6 +48,7 @@ const runtime = createWakeBunAdapter({
   plan,
   providers,
   schema,
+  serverValues,
 });
 
 const page = await runtime.executeQuery(
@@ -55,8 +69,11 @@ await runtime.invokeCommand(
 `loadApplicationReceipt` performs two bounded, application-scoped FRAM queries:
 one to prove the receipt subject is unique and one snapshot-pinned document read.
 It refuses a missing, duplicate, malformed, or artifact-mismatched durable
-receipt. Receipt installation and migration are maintenance concerns and are
-not part of this package.
+receipt. `installApplication` is the maintenance boundary: it validates the
+artifact closure before writes, records a durable installing intent and
+compiled schema, awaits an idempotent initializer, atomically advances the
+exact intent to ready, and then re-verifies the receipt. Failed initialization
+leaves a resumable intent that `loadApplicationReceipt` will not accept.
 
 Authentication remains host-owned. The adapter accepts only a derived actor
 and trace ID, validates the checked artifact closure before composition, and
@@ -68,7 +85,16 @@ application-bound cursors using the injected rotating AES-GCM key set.
 bytes bound by the deployment receipt. `providers` must exactly match
 the provider bindings in the checked FRAM plan; extra, missing, accessor, or
 non-function entries fail startup.
+`serverValues` is an optional static data registry whose own enumerable keys
+must exactly match checked server-value injections; Wake type-checks and
+freezes every value during startup and never invokes it as a callback.
 
 Checked providers can call `rejectProviderInput(message, detail?)` to return a
 trusted, public `command/provider-rejected` error. Other thrown provider errors
 are normalized to `command/provider-failed` without exposing their cause.
+
+`compileCheckedValue` and `normalizeCheckedValue` validate and freeze values
+against Wake's bounded recursive value descriptors. `renderSafeDocument`
+accepts only a descriptor-checked SafeDocument, constructs DOM nodes without
+HTML string sinks, and resolves its closed SafeUrl union through a caller-owned
+navigation policy.

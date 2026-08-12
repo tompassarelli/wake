@@ -134,6 +134,7 @@ export interface WakeBunAdapterInput {
     (input: unknown) => unknown | Promise<unknown>
   >>;
   readonly schema: WakeSchemaClient;
+  readonly serverValues?: Readonly<Record<string, unknown>>;
 }
 
 export interface LoadApplicationReceiptInput {
@@ -144,10 +145,69 @@ export interface LoadApplicationReceiptInput {
   readonly plan: string | Uint8Array;
 }
 
+export interface WakeApplicationInitializeContext {
+  readonly applicationReceipt: WakeApplicationReceipt;
+  readonly plan: Readonly<Record<string, unknown>>;
+  readonly schema: WakeSchemaClient;
+}
+
+export interface InstallApplicationInput extends LoadApplicationReceiptInput {
+  readonly initialize: (
+    context: WakeApplicationInitializeContext,
+  ) => void | Promise<void>;
+  readonly schema: WakeSchemaClient;
+}
+
 export function createWakeBunAdapter(input: WakeBunAdapterInput): WakeBunAdapter;
 
 export function loadApplicationReceipt(
   input: LoadApplicationReceiptInput,
 ): Promise<WakeApplicationReceipt>;
 
+export function installApplication(
+  input: InstallApplicationInput,
+): Promise<WakeApplicationReceipt>;
+
 export function rejectProviderInput(message: string, detail?: unknown): never;
+
+export class CheckedValueError extends TypeError {
+  readonly code: string;
+}
+
+export interface WakeCheckedValueOptions {
+  readonly code?: string;
+  readonly label?: string;
+}
+
+export interface WakeCompiledCheckedValue<Value = unknown> {
+  readonly descriptor: unknown;
+  normalize(value: unknown, options?: WakeCheckedValueOptions): Value;
+}
+
+export function compileCheckedValue<Value = unknown>(
+  descriptor: unknown,
+  options?: Readonly<{ descriptorCode?: string }>,
+): WakeCompiledCheckedValue<Value>;
+
+export function normalizeCheckedValue<Value = unknown>(
+  value: unknown,
+  descriptor: unknown,
+  options?: WakeCheckedValueOptions,
+): Value;
+
+export type WakeSafeUrl =
+  | Readonly<{ kind: "external"; href: string }>
+  | Readonly<{ kind: "internal"; reference: string }>;
+
+export type WakeSafeUrlResolution =
+  | Readonly<{ kind: "canonical"; href: string }>
+  | Readonly<{ kind: "unavailable" }>;
+
+export function renderSafeDocument(
+  value: unknown,
+  options: Readonly<{
+    descriptor: unknown;
+    document?: Document;
+    resolveSafeUrl?: (value: WakeSafeUrl) => WakeSafeUrlResolution;
+  }>,
+): DocumentFragment;
