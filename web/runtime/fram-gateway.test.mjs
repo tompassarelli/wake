@@ -42,6 +42,7 @@ const plan = {
   backend: "fram",
   semanticFingerprint: SEMANTIC_FINGERPRINT,
   pluginClosure: [],
+  queries: [],
   entities: [
     {
       name: "page",

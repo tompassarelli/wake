@@ -1,7 +1,9 @@
 const MAX_BODY_BYTES = 64 * 1024;
+const MAX_RESPONSE_BYTES = 256 * 1024;
 const MAX_VERSION = 9_223_372_036_854_775_807n;
 const MIN_I64 = -9_223_372_036_854_775_808n;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/;
+const SHA256 = /^sha256:[0-9a-f]{64}$/;
 
 const ROUTES = new Set([
   "/api/wake/query",
@@ -20,6 +22,7 @@ const GATEWAY_ERROR_STATUS = new Map([
   ["gateway/unknown-entity", 404],
   ["gateway/unknown-field", 404],
   ["gateway/unknown-publication", 404],
+  ["gateway/unknown-query", 404],
   ["gateway/result-limit", 409],
   ["gateway/protocol", 500],
   ["gateway/data-integrity", 500],
@@ -47,7 +50,7 @@ function exactJsonNumber(value) {
   return Number.isFinite(value) && !Object.is(value, -0);
 }
 
-function jsonResponse(value, status = 200, headers = {}) {
+function jsonResponse(value, status = 200, headers = {}, maxBytes = null) {
   const body = JSON.stringify(
     value === undefined ? null : value,
     (_key, item) => {
@@ -58,6 +61,13 @@ function jsonResponse(value, status = 200, headers = {}) {
       return item;
     },
   );
+  if (maxBytes !== null && new TextEncoder().encode(body).byteLength > maxBytes) {
+    throw new RequestError(
+      500,
+      "response_too_large",
+      "Gateway response exceeds the encoded-byte limit.",
+    );
+  }
 
   return new Response(body, {
     status,
@@ -241,14 +251,40 @@ function validateQuery(body) {
   }
 
   if (body.op === "list") {
-    requireExactKeys(body, ["op", "entity"]);
+    requireExactKeys(body, ["fingerprint", "op", "entity"]);
   } else if (body.op === "get") {
-    requireExactKeys(body, ["op", "entity", "identity"]);
+    requireExactKeys(body, ["fingerprint", "op", "entity", "identity"]);
     requireIdentity(body.identity);
+  } else if (body.op === "execute") {
+    requireExactKeys(body, ["fingerprint", "op", "query", "input"], ["options"]);
+    requireNonemptyString(body.query, "query");
+    if (!isPlainObject(body.input)) {
+      throw new RequestError(400, "invalid_request", "input must be a JSON object.");
+    }
+    requireExactJsonNumbers(body.input, "input");
+    if (Object.hasOwn(body, "options")) {
+      requireExactKeys(body.options, [], ["limit", "cursor", "asOf"]);
+      if (Object.hasOwn(body.options, "limit")
+          && (!Number.isSafeInteger(body.options.limit)
+            || body.options.limit < 1 || body.options.limit > 247)) {
+        throw new RequestError(
+          400,
+          "invalid_request",
+          "options.limit must be an integer from 1 through 247.",
+        );
+      }
+      if (Object.hasOwn(body.options, "cursor") && !Array.isArray(body.options.cursor)) {
+        throw new RequestError(400, "invalid_request", "options.cursor must be an opaque Term.");
+      }
+      if (Object.hasOwn(body.options, "asOf")) {
+        const asOf = parseSinceVersion(body.options.asOf);
+        body = { ...body, options: { ...body.options, asOf } };
+      }
+    }
   } else {
-    throw new RequestError(400, "invalid_request", "query op must be list or get.");
+    throw new RequestError(400, "invalid_request", "query op must be list, get, or execute.");
   }
-  requireNonemptyString(body.entity, "entity");
+  if (body.op !== "execute") requireNonemptyString(body.entity, "entity");
   return body;
 }
 
@@ -258,18 +294,19 @@ function validateCommand(body) {
   }
 
   if (body.op === "create") {
-    requireExactKeys(body, ["op", "entity", "values"]);
+    requireExactKeys(body, ["fingerprint", "op", "entity", "values"]);
     if (!isPlainObject(body.values)) {
       throw new RequestError(400, "invalid_request", "values must be a JSON object.");
     }
     requireExactJsonNumbers(body.values, "values");
   } else if (body.op === "set") {
-    requireExactKeys(body, ["op", "entity", "identity", "field", "value"]);
+    requireExactKeys(body, ["fingerprint", "op", "entity", "identity", "field", "value"]);
     requireIdentity(body.identity);
     requireNonemptyString(body.field, "field");
     requireExactJsonNumbers(body.value, "value");
   } else if (body.op === "publish") {
     requireExactKeys(body, [
+      "fingerprint",
       "op",
       "publication",
       "owner",
@@ -292,8 +329,26 @@ function validateCommand(body) {
 }
 
 function validateChanges(body) {
-  requireExactKeys(body, ["sinceVersion"]);
+  requireExactKeys(body, ["fingerprint", "sinceVersion"]);
   return { ...body, sinceVersion: parseSinceVersion(body.sinceVersion) };
+}
+
+function validateFingerprint(body, expectedFingerprint) {
+  if (!isPlainObject(body) || typeof body.fingerprint !== "string"
+      || !SHA256.test(body.fingerprint)) {
+    throw new RequestError(
+      400,
+      "invalid_request",
+      "fingerprint must be a sha256 digest.",
+    );
+  }
+  if (body.fingerprint !== expectedFingerprint) {
+    throw new RequestError(
+      409,
+      "application_mismatch",
+      "Request fingerprint does not match the deployed application.",
+    );
+  }
 }
 
 function authorizationContext(request, route, payload) {
@@ -306,6 +361,9 @@ function authorizationContext(request, route, payload) {
     ...(Object.hasOwn(payload, "entity") ? { entity: payload.entity } : {}),
     ...(Object.hasOwn(payload, "identity") ? { identity: payload.identity } : {}),
     ...(Object.hasOwn(payload, "field") ? { field: payload.field } : {}),
+    ...(Object.hasOwn(payload, "query") ? { query: payload.query } : {}),
+    ...(Object.hasOwn(payload, "input") ? { input: payload.input } : {}),
+    ...(Object.hasOwn(payload, "options") ? { options: payload.options } : {}),
     ...(Object.hasOwn(payload, "publication") ? { publication: payload.publication } : {}),
     ...(Object.hasOwn(payload, "owner") ? { owner: payload.owner } : {}),
     ...(Object.hasOwn(payload, "revision") ? { revision: payload.revision } : {}),
@@ -315,28 +373,38 @@ function authorizationContext(request, route, payload) {
   };
 }
 
-async function dispatch(gateway, route, payload) {
+async function dispatch(gateway, route, payload, decision) {
   if (route === "/api/wake/query") {
-    return payload.op === "list"
-      ? gateway.list(payload.entity)
-      : gateway.get(payload.entity, payload.identity);
+    if (payload.op === "list") return gateway.list(payload.entity, decision);
+    if (payload.op === "get") return gateway.get(payload.entity, payload.identity, decision);
+    return gateway.executeQuery(
+      payload.query,
+      payload.input,
+      payload.options ?? {},
+      decision,
+    );
   }
   if (route === "/api/wake/command") {
-    if (payload.op === "create") return gateway.create(payload.entity, payload.values);
+    if (payload.op === "create") return gateway.create(payload.entity, payload.values, decision);
     if (payload.op === "set") {
-      return gateway.set(payload.entity, payload.identity, payload.field, payload.value);
+      return gateway.set(payload.entity, payload.identity, payload.field, payload.value, decision);
     }
     return gateway.publish(
       payload.publication,
       payload.owner,
       payload.revision,
       payload.expectedPointer,
+      decision,
     );
   }
-  return gateway.changes(payload.sinceVersion);
+  return gateway.changes(payload.sinceVersion, decision);
 }
 
-export function createWakeHttpHandler(gateway, { authorize } = {}) {
+export function createWakeHttpHandler(gateway, { authorize, expectedFingerprint } = {}) {
+  const fingerprint = expectedFingerprint ?? gateway?.semanticFingerprint;
+  if (typeof fingerprint !== "string" || !SHA256.test(fingerprint)) {
+    throw new TypeError("Wake HTTP requires an expected application fingerprint.");
+  }
   return async function handle(request) {
     const url = new URL(request.url);
     const route = url.pathname;
@@ -359,6 +427,7 @@ export function createWakeHttpHandler(gateway, { authorize } = {}) {
 
     try {
       const body = await readJson(request);
+      validateFingerprint(body, fingerprint);
       const payload = route === "/api/wake/query"
         ? validateQuery(body)
         : route === "/api/wake/command"
@@ -369,17 +438,26 @@ export function createWakeHttpHandler(gateway, { authorize } = {}) {
         return errorResponse(403, "forbidden", "Request is not authorized.");
       }
 
-      let allowed = false;
+      let decision = null;
       try {
-        allowed = await authorize(authorizationContext(request, route, payload));
+        const result = await authorize(authorizationContext(request, route, payload));
+        if (result === true) decision = Object.freeze({ allowed: true });
+        else if (isPlainObject(result) && result.allowed === true) {
+          decision = Object.freeze({ ...result });
+        }
       } catch {
-        allowed = false;
+        decision = null;
       }
-      if (allowed !== true) {
+      if (decision === null) {
         return errorResponse(403, "forbidden", "Request is not authorized.");
       }
 
-      return jsonResponse(await dispatch(gateway, route, payload));
+      return jsonResponse(
+        await dispatch(gateway, route, payload, decision),
+        200,
+        {},
+        MAX_RESPONSE_BYTES,
+      );
     } catch (error) {
       if (error instanceof RequestError) {
         return errorResponse(error.status, error.code, error.message);

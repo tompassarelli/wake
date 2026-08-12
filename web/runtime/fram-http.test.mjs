@@ -4,18 +4,23 @@ import { test } from "bun:test";
 import { createWakeHttpHandler } from "./fram-http.mjs";
 
 const origin = "https://wake.test";
+const fingerprint = `sha256:${"f".repeat(64)}`;
 
 function post(path, body, headers = {}) {
+  const payload = typeof body === "string"
+    ? body
+    : JSON.stringify({ fingerprint, ...body });
   return new Request(`${origin}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
-    body: typeof body === "string" ? body : JSON.stringify(body),
+    body: payload,
   });
 }
 
 function gateway(overrides = {}) {
   const unexpected = () => { throw new Error("unexpected gateway call"); };
   return {
+    semanticFingerprint: fingerprint,
     list: unexpected,
     get: unexpected,
     create: unexpected,
@@ -137,6 +142,134 @@ test("authorization is deny-by-default and exceptions fail closed", async () => 
   assert.equal(calls, 0);
 });
 
+test("application fingerprint is checked before authorization and dispatch", async () => {
+  let authorizationCalls = 0;
+  let gatewayCalls = 0;
+  const handle = createWakeHttpHandler(gateway({
+    list() {
+      gatewayCalls += 1;
+      return { rows: [], servedVersion: 1n };
+    },
+  }), {
+    expectedFingerprint: fingerprint,
+    authorize() {
+      authorizationCalls += 1;
+      return true;
+    },
+  });
+
+  for (const body of [
+    { op: "list", entity: "page", fingerprint: undefined },
+    { op: "list", entity: "page", fingerprint: "not-a-digest" },
+  ]) {
+    const response = await handle(new Request(`${origin}/api/wake/query`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }));
+    assert.equal(response.status, 400);
+    assert.equal((await json(response)).error.code, "invalid_request");
+  }
+
+  const mismatch = await handle(post("/api/wake/query", {
+    fingerprint: `sha256:${"e".repeat(64)}`,
+    op: "list",
+    entity: "page",
+  }));
+  assert.equal(mismatch.status, 409);
+  assert.deepEqual(await json(mismatch), {
+    error: {
+      code: "application_mismatch",
+      message: "Request fingerprint does not match the deployed application.",
+    },
+  });
+  assert.equal(authorizationCalls, 0);
+  assert.equal(gatewayCalls, 0);
+});
+
+test("named queries use a closed envelope and preserve the authorization decision", async () => {
+  const actor = Object.freeze({ id: "actor-1" });
+  let call;
+  const handle = createWakeHttpHandler(gateway({
+    executeQuery(...args) {
+      call = args;
+      return {
+        rows: [{ id: "release-1" }],
+        page: { done: true, nextCursor: null },
+        servedVersion: 7n,
+      };
+    },
+  }), {
+    expectedFingerprint: fingerprint,
+    authorize: () => Object.freeze({ allowed: true, actor }),
+  });
+
+  const response = await handle(post("/api/wake/query", {
+    op: "execute",
+    query: "wiki.browse-published",
+    input: { phase: "published" },
+    options: { limit: 20, asOf: "7" },
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(call.slice(0, 3), [
+    "wiki.browse-published",
+    { phase: "published" },
+    { limit: 20, asOf: 7n },
+  ]);
+  assert.equal(call[3].allowed, true);
+  assert.equal(call[3].actor, actor);
+  assert.deepEqual(await json(response), {
+    rows: [{ id: "release-1" }],
+    page: { done: true, nextCursor: null },
+    servedVersion: "7",
+  });
+
+  for (const invalid of [
+    {
+      op: "execute",
+      query: "wiki.browse-published",
+      input: {},
+      options: { limit: 248 },
+    },
+    {
+      op: "execute",
+      query: "wiki.browse-published",
+      input: {},
+      options: { asOf: "01" },
+    },
+    {
+      op: "execute",
+      query: "wiki.browse-published",
+      input: {},
+      options: { unexpected: true },
+    },
+    {
+      op: "execute",
+      query: "wiki.browse-published",
+      input: {},
+      unexpected: true,
+    },
+  ]) {
+    const invalidResponse = await handle(post("/api/wake/query", invalid));
+    assert.equal(invalidResponse.status, 400);
+    assert.equal((await json(invalidResponse)).error.code, "invalid_request");
+  }
+});
+
+test("success responses are bounded by encoded UTF-8 bytes", async () => {
+  const handle = createWakeHttpHandler(gateway({
+    list: () => ({ rows: [{ body: "界".repeat(256 * 1024) }], servedVersion: 1n }),
+  }), { authorize: () => true });
+  const response = await handle(post("/api/wake/query", { op: "list", entity: "page" }));
+  assert.equal(response.status, 500);
+  assert.deepEqual(await json(response), {
+    error: {
+      code: "response_too_large",
+      message: "Gateway response exceeds the encoded-byte limit.",
+    },
+  });
+});
+
 test("authorization receives the validated operation context", async () => {
   let context;
   const handle = createWakeHttpHandler(gateway({
@@ -160,7 +293,12 @@ test("authorization receives the validated operation context", async () => {
   assert.equal(context.op, "get");
   assert.equal(context.entity, "page");
   assert.equal(context.identity, "wake");
-  assert.deepEqual(context.payload, { op: "get", entity: "page", identity: "wake" });
+  assert.deepEqual(context.payload, {
+    fingerprint,
+    op: "get",
+    entity: "page",
+    identity: "wake",
+  });
   assert.deepEqual(await json(response), {
     row: { title: "Wake" },
     servedVersion: "7",
@@ -361,20 +499,23 @@ test("validated operations dispatch to the narrow gateway API", async () => {
   }
 
   assert.deepEqual(calls, [
-    ["list", "page"],
-    ["get", "page", "wake"],
-    ["create", "page", { title: "New" }],
-    ["set", "page", "wake", "published", false],
-    ["publish", "canonical", "wake", "rev-2", null],
-    ["changes", 5n],
+    ["list", "page", { allowed: true }],
+    ["get", "page", "wake", { allowed: true }],
+    ["create", "page", { title: "New" }, { allowed: true }],
+    ["set", "page", "wake", "published", false, { allowed: true }],
+    ["publish", "canonical", "wake", "rev-2", null, { allowed: true }],
+    ["changes", 5n, { allowed: true }],
   ]);
 });
 
 function rawPost(path, body) {
+  const exactBody = body.startsWith("{") && body.length > 1
+    ? `{"fingerprint":"${fingerprint}",${body.slice(1)}`
+    : body;
   return new Request(`${origin}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body,
+    body: exactBody,
   });
 }
 
@@ -427,9 +568,9 @@ test("HTTP rejects non-JSON-exact request numbers and dispatches finite values u
     await response.body.cancel();
   }
   assert.deepEqual(calls, [
-    ["get", "metric", -1.25],
-    ["set", "metric", 1, "value", Number.MIN_VALUE],
-    ["create", "metric", { value: Number.MAX_VALUE }],
+    ["get", "metric", -1.25, { allowed: true }],
+    ["set", "metric", 1, "value", Number.MIN_VALUE, { allowed: true }],
+    ["create", "metric", { value: Number.MAX_VALUE }, { allowed: true }],
   ]);
 });
 

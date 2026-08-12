@@ -1,3 +1,5 @@
+import { createNamedQueryRuntime } from "./named-query.mjs";
+
 const PAGE_LIMIT = 128;
 const MAX_QUERY_PAGES = 32;
 const MAX_QUERY_ROWS = PAGE_LIMIT * MAX_QUERY_PAGES;
@@ -321,6 +323,7 @@ function compilePlan(plan) {
       || !SHA256.test(plan.semanticFingerprint)
       || !Array.isArray(plan.pluginClosure)
       || !Array.isArray(plan.entities)
+      || !Array.isArray(plan.queries)
       || !Array.isArray(plan.stateMachines) || !Array.isArray(plan.publications)) {
     fail("gateway/invalid-plan", "expected a Wake FRAM plan with schemaVersion 2");
   }
@@ -810,6 +813,10 @@ export function createFramGateway(plan, { fram, schema } = {}) {
       || typeof schema.updateUniqueMany !== "function") {
     fail("gateway/invalid-client", "the FRAM schema client is incomplete");
   }
+  const namedQueries = createNamedQueryRuntime(plan.queries, {
+    fram,
+    entities: plan.entities,
+  });
 
   const entityNamed = name => {
     inputName(name, "entity");
@@ -837,6 +844,13 @@ export function createFramGateway(plan, { fram, schema } = {}) {
   };
 
   return Object.freeze({
+    applicationId: compiled.applicationId,
+    semanticFingerprint: compiled.semanticFingerprint,
+
+    async executeQuery(name, input, options = {}) {
+      return namedQueries.execute(name, input, options);
+    },
+
     async list(entityName) {
       const entity = entityNamed(entityName);
       const response = await drainQuery(fram, readQuery(entity), { timeoutMs: QUERY_TIMEOUT_MS });
