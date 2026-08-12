@@ -196,7 +196,7 @@ function storage() {
   };
 }
 
-function harness(overrides = {}) {
+function harness(overrides = {}, runtimePlan = plan) {
   const calls = { ids: [], now: 0, providers: [], reads: [], transactions: [] };
   let receipts = [];
   const schema = {
@@ -205,7 +205,7 @@ function harness(overrides = {}) {
       return { servedVersion: 42n };
     },
   };
-  const runtime = createCommandRuntime(plan, {
+  const runtime = createCommandRuntime(runtimePlan, {
     async generateId(context) {
       calls.ids.push(context);
       return "version-2";
@@ -463,4 +463,67 @@ test("providers cannot mutate digest-bound input, authority, or validated inject
     JSON.stringify(field.predicate) === JSON.stringify(predicate("receipt", "actor"))
       && field.value[1] === "actor-1"
   )));
+});
+
+test("server values are frozen into new receipts and recovered unchanged on replay", async () => {
+  const policyDigest = `sha256:${"b".repeat(64)}`;
+  const storageId = "wiki/field/release-rule-digest";
+  const policyCommand = structuredClone(command);
+  policyCommand.injections.push({
+    kind: "server-value",
+    name: "release-rule-digest",
+    storageId,
+    type: digestType,
+  });
+  policyCommand.result.push({
+    name: "policyDigest",
+    type: digestType,
+    value: injected("release-rule-digest"),
+  });
+  policyCommand.receipt.resultFields.push({
+    field: "policy-digest",
+    name: "policyDigest",
+    type: digestType,
+  });
+  const policyPlan = { ...plan, commands: [policyCommand] };
+  const fixture = harness({ serverValues: { [storageId]: policyDigest } }, policyPlan);
+  const commandInput = {
+    content: "new content",
+    entry: "entry-1",
+    expected: null,
+    links: [],
+  };
+
+  const first = await fixture.runtime.invoke(
+    "replace-release",
+    "request-policy-receipt",
+    commandInput,
+    authority,
+  );
+  assert.equal(first.replayed, false);
+  assert.equal(first.result.policyDigest, policyDigest);
+  const receiptCreate = fixture.calls.transactions[0].creates.at(-1);
+  assert.ok(receiptCreate.fields.some(field => (
+    JSON.stringify(field.predicate) === JSON.stringify(predicate("receipt", "policy-digest"))
+      && field.value[1] === policyDigest
+  )));
+
+  fixture.setReceipts([{
+    actor: "actor-1",
+    command: "replace-release",
+    "created-at": first.createdAt,
+    "input-digest": first.inputDigest,
+    "policy-digest": policyDigest,
+    "result-entry": "entry-1",
+    "result-version": "version-2",
+  }]);
+  const replay = await fixture.runtime.invoke(
+    "replace-release",
+    "request-policy-receipt",
+    commandInput,
+    authority,
+  );
+  assert.equal(replay.replayed, true);
+  assert.deepEqual(replay.result, first.result);
+  assert.equal(fixture.calls.transactions.length, 1);
 });
