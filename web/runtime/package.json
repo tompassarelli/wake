@@ -1,0 +1,38 @@
+{
+  "name": "@tompassarelli/wake-runtime",
+  "version": "1.0.0",
+  "description": "Checked Wake application runtime for Bun and FRAM",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.mjs"
+    }
+  },
+  "types": "./index.d.ts",
+  "files": [
+    "LICENSE-APACHE",
+    "LICENSE-MIT",
+    "README.md",
+    "application-receipt.mjs",
+    "bun-adapter.mjs",
+    "canonical.mjs",
+    "commands.mjs",
+    "cursor-provider.mjs",
+    "fram-gateway.mjs",
+    "fram-http.mjs",
+    "index.d.ts",
+    "index.mjs",
+    "named-query.mjs"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "bun": ">=1.3.13"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tompassarelli/wake.git",
+    "directory": "web/runtime"
+  },
+  "license": "MIT OR Apache-2.0"
+}

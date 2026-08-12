@@ -1,0 +1,113 @@
+#!/usr/bin/env bun
+
+import {
+  canonicalDocument,
+  sha256Digest,
+} from "../runtime/canonical.mjs";
+
+function usage() {
+  console.error(
+    "usage: wake-runtime-pack --output /absolute/directory [--receipt /absolute/file | --check /absolute/file]",
+  );
+  process.exit(64);
+}
+
+function parseArguments(argv) {
+  const options = {};
+  for (let index = 0; index < argv.length; index += 2) {
+    const name = argv[index];
+    const value = argv[index + 1];
+    if (!["--check", "--output", "--receipt"].includes(name) || value === undefined) usage();
+    if (Object.hasOwn(options, name)) usage();
+    options[name] = value;
+  }
+  if (!options["--output"] || (options["--check"] && options["--receipt"])) usage();
+  for (const value of Object.values(options)) {
+    if (!value.startsWith("/")) usage();
+  }
+  return options;
+}
+
+function run(command, options = {}) {
+  const result = Bun.spawnSync(command, {
+    cwd: options.cwd,
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  if (result.exitCode !== 0) {
+    const stderr = new TextDecoder().decode(result.stderr);
+    throw new Error(`${command[0]} failed (${result.exitCode}): ${stderr.trim()}`);
+  }
+  return result.stdout;
+}
+
+function packageArchiveName(name, version) {
+  return `${name.replace(/^@/u, "").replaceAll("/", "-")}-${version}.tgz`;
+}
+
+const options = parseArguments(Bun.argv.slice(2));
+const packageRoot = decodeURIComponent(new URL("../runtime/", import.meta.url).pathname);
+const packageJson = await Bun.file(`${packageRoot}/package.json`).json();
+const archiveName = packageArchiveName(packageJson.name, packageJson.version);
+const archivePath = `${options["--output"]}/${archiveName}`;
+
+run(["mkdir", "-p", options["--output"]]);
+run([
+  "bun",
+  "pm",
+  "pack",
+  "--destination",
+  options["--output"],
+  "--ignore-scripts",
+  "--quiet",
+], { cwd: packageRoot });
+
+const expectedFiles = ["package.json", ...packageJson.files]
+  .map(path => `package/${path}`)
+  .sort();
+const archiveFiles = new TextDecoder()
+  .decode(run(["tar", "-tzf", archivePath]))
+  .trim()
+  .split("\n")
+  .filter(Boolean)
+  .sort();
+if (canonicalDocument(archiveFiles) !== canonicalDocument(expectedFiles)) {
+  throw new Error("wake runtime archive contains an unexpected file closure");
+}
+
+const files = archiveFiles.map((path) => {
+  const bytes = run(["tar", "-xOzf", archivePath, path]);
+  return Object.freeze({
+    path,
+    sha256: sha256Digest(bytes),
+    size: bytes.byteLength,
+  });
+});
+const archiveBytes = new Uint8Array(await Bun.file(archivePath).arrayBuffer());
+const receipt = Object.freeze({
+  artifact: Object.freeze({
+    filename: archiveName,
+    sha256: sha256Digest(archiveBytes),
+    size: archiveBytes.byteLength,
+  }),
+  files,
+  package: Object.freeze({
+    name: packageJson.name,
+    version: packageJson.version,
+  }),
+  packer: `bun@${Bun.version}`,
+  schemaVersion: 1,
+});
+const receiptDocument = canonicalDocument(receipt);
+
+if (options["--check"]) {
+  const checked = await Bun.file(options["--check"]).text();
+  if (checked !== receiptDocument) {
+    throw new Error(`wake runtime package receipt is stale: ${options["--check"]}`);
+  }
+}
+if (options["--receipt"]) {
+  await Bun.write(options["--receipt"], receiptDocument);
+}
+
+console.log(archivePath);
