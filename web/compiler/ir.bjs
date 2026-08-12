@@ -92,6 +92,7 @@
    binding: String
    field: String])
 (defrecord IrQueryFieldSplice [port: String binding: String])
+(defrecord IrQueryProvided [name: String provider: String input: Any])
 (defrecord IrQueryPage [default-limit: Int max-limit: Int])
 (defrecord IrQuery
   [name: String
@@ -171,6 +172,8 @@
    application: IrApplication?
    uses: (Vec IrUse)
    providers: (Vec IrProvider)
+   value-types: (Vec Any)
+   provider-ports: (Vec Any)
    extends: (Vec IrExtend)
    fills: (Vec IrFill)
    mounts: (Vec IrMount)

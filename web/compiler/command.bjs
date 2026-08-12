@@ -99,7 +99,7 @@
     (= name "Instant") {"kind" "instant"}
     (= name "Keyword") {"kind" "keyword"}
     (= name "Digest") {"kind" "digest"}
-    :else (command-error (str label " has unsupported type '" name "'"))))
+    :else {"kind" "named" "name" name}))
 
 (defn parse-record-type-field [value: Any label: String] -> Any
   (let [form (require-form value label)]

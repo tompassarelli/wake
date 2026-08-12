@@ -3,6 +3,7 @@
 (require wake.sexpr :as sexpr)
 (require wake.config-reference :as config-reference)
 (require wake.command :as command)
+(require wake.value-type :as value-type)
 (require wake.ir :as ir)
 
 ;; Reader: s-expressions → IR program.
@@ -948,8 +949,86 @@
     (parse-query-operand (nth value 1 nil) query-name)
     (parse-query-operand (nth value 2 nil) query-name)))
 
+(defn provider-query-literal [value: Any label: String] -> Any
+  (cond
+    (string? value) value
+    (number? value) value
+    (boolean? value) value
+    (kw? value) (kw-name value)
+    (and (sym? value) (= (sym-name value) "nil")) nil
+    :else (parse-error (str label " literal must be scalar JSON data"))))
+
+(defn parse-provider-query-input [value: Any label: String] -> Any
+  (if (not (vector? value))
+    {"kind" "literal" "value" (provider-query-literal value label)}
+    (let [name (require-symbol (nth value 0 nil) label)]
+      (cond
+        (= name "field")
+          (do
+            (if (not (= (count value) 3))
+              (parse-error (str label " field must be (field BINDING FIELD)"))
+              nil)
+            {"kind" "column"
+             "binding" (require-query-local-name (nth value 1 nil) label)
+             "field" (require-query-local-name (nth value 2 nil) label)})
+        (= name "literal")
+          (do
+            (if (not (= (count value) 2))
+              (parse-error (str label " literal must be (literal VALUE)"))
+              nil)
+            {"kind" "literal"
+             "value" (provider-query-literal (nth value 1 nil) label)})
+        (= name "record")
+          (do
+            (if (not (= (count value) 2))
+              (parse-error (str label " record must be (record [NAME VALUE...])"))
+              nil)
+            (let [items (require-vector (nth value 1 nil) label)]
+              (if (not (= (mod (count items) 2) 0))
+                (parse-error (str label " record requires name/value pairs"))
+                nil)
+              (loop [index: Int 0 fields: Any [] seen: (Vec String) []]
+                (if (>= index (count items))
+                  {"kind" "record" "fields" fields}
+                  (let [field-name
+                        (require-query-local-name
+                          (nth items index nil) (str label " record field"))]
+                    (if (.includes seen field-name)
+                      (parse-error (str label " record repeats field '" field-name "'"))
+                      nil)
+                    (recur
+                      (+ index 2)
+                      (conj fields
+                        {"name" field-name
+                         "value" (parse-provider-query-input
+                                   (nth items (+ index 1) nil)
+                                   (str label "." field-name))})
+                      (conj seen field-name)))))))
+        :else (parse-error (str label " has unknown expression '" name "'"))))))
+
 (defn parse-query-select [value: Any query-name: String] -> Any
-  (if (and (vector? value) (sym= (nth value 0 nil) "extension-fields"))
+  (if (and (vector? value) (sym= (nth value 0 nil) "provided"))
+    (let [output
+          (require-query-local-name
+            (nth value 1 nil) (str "query '" query-name "' provided output"))]
+      (if (not (= (count value) 6))
+        (parse-error
+          (str "query '" query-name
+               "' provided projection must be (provided OUTPUT :by PROVIDER :input INPUT)"))
+        nil)
+      (if (not (kw= (nth value 2 nil) ":by"))
+        (parse-error (str "query '" query-name "' provided projection requires :by"))
+        nil)
+      (if (not (kw= (nth value 4 nil) ":input"))
+        (parse-error (str "query '" query-name "' provided projection requires :input"))
+        nil)
+      (ir/->IrQueryProvided
+        output
+        (require-symbol
+          (nth value 3 nil) (str "query '" query-name "' provided provider"))
+        (parse-provider-query-input
+          (nth value 5 nil) (str "query '" query-name "' provided input"))))
+    (if (and (vector? value) (sym= (nth value 0 nil) "extension-fields"))
     (do
       (if (not (= (count value) 3))
         (parse-error
@@ -977,7 +1056,7 @@
                  "' must select a bound field with BINDING.FIELD or (field BINDING FIELD)"))
           nil)
         (ir/->IrQuerySelect
-          output (or (.-binding operand) "") (or (.-field operand) ""))))))
+          output (or (.-binding operand) "") (or (.-field operand) "")))))))
 
 (defn positive-safe-int? [value: Any] -> Bool
   (and (number? value)
@@ -1748,6 +1827,12 @@
           (= form-name "provider")
             (let [value (parse-provider form span)]
               (->ParseResult "provider" (.-name value) value provenance))
+          (= form-name "value-type")
+            (let [value (value-type/parse-value-type form)]
+              (->ParseResult "value-type" (get value "name") value provenance))
+          (= form-name "provider-port")
+            (let [value (value-type/parse-provider-port form)]
+              (->ParseResult "provider-port" (get value "name") value provenance))
           (= form-name "extend")
             (let [value (parse-extend form span)]
               (->ParseResult "extend" (.-port value) value provenance))
@@ -1872,6 +1957,8 @@
           applications (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "application")) parsed))
           uses      (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "use")) parsed))
           providers (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "provider")) parsed))
+          value-types (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "value-type")) parsed))
+          provider-ports (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "provider-port")) parsed))
           extends   (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "extend")) parsed))
           fills     (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "fill")) parsed))
           mounts    (mapv (fn [p] (.-value p)) (filterv (fn [p] (= (.-type p) "mount")) parsed))
@@ -1903,8 +1990,14 @@
           persist   (first persists)]
       (validate-program
         ns-name ns-count applications uses backends persists entities defstates)
+      (duplicate-name-error
+        "value-type"
+        (mapv (fn [value-type] (get value-type "name")) value-types))
+      (duplicate-name-error
+        "provider-port"
+        (mapv (fn [provider-port] (get provider-port "name")) provider-ports))
       (ir/->IrProgram
-        source-unit application uses providers extends fills mounts
+        source-unit application uses providers value-types provider-ports extends fills mounts
         declaration-provenance
         (or ns-name "wake.app")
         backend entities persist defstates publications queries commands lds smart-forms theme components views
