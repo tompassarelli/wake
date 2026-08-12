@@ -1,4 +1,5 @@
 import { canonicalDocument, sha256Digest } from "./canonical.mjs";
+import { CheckedValueError, compileCheckedValue } from "./checked-value.mjs";
 
 const REQUEST_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/u;
@@ -6,6 +7,7 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const MAX_EXPRESSION_DEPTH = 32;
 const MIN_I64 = -(1n << 63n);
 const MAX_I64 = (1n << 63n) - 1n;
+const checkedValueContracts = new WeakMap();
 
 export class CommandError extends Error {
   constructor(code, message, detail = undefined, options = undefined) {
@@ -95,6 +97,21 @@ function frozenSnapshot(value) {
   return deepFreeze(cloneJson(value));
 }
 
+function boundedContract(type, label) {
+  const existing = checkedValueContracts.get(type);
+  if (existing !== undefined) return existing;
+  try {
+    const contract = compileCheckedValue(type, { descriptorCode: "command/invalid-plan" });
+    checkedValueContracts.set(type, contract);
+    return contract;
+  } catch (error) {
+    if (error instanceof CheckedValueError) {
+      fail("command/invalid-plan", `${label} is not a valid bounded value descriptor`);
+    }
+    throw error;
+  }
+}
+
 function validateType(type, label) {
   if (!plainObject(type)) fail("command/invalid-plan", `${label} must be a type descriptor`);
   const kind = nonempty(type.kind, `${label}.kind`);
@@ -130,6 +147,9 @@ function validateType(type, label) {
       type.fields.forEach((field, index) => validateInputField(field, `${label}.fields[${index}]`));
       uniqueNames(type.fields, `${label}.fields`);
       break;
+    case "bounded":
+      boundedContract(type, label);
+      break;
     default:
       fail("command/invalid-plan", `${label}.kind '${kind}' is unsupported`);
   }
@@ -143,6 +163,13 @@ function validateType(type, label) {
 
 function normalizeValue(value, type, label, code = "command/type-mismatch") {
   switch (type.kind) {
+    case "bounded":
+      try {
+        return boundedContract(type, label).normalize(value, { code, label });
+      } catch (error) {
+        if (error instanceof CheckedValueError) fail(code, error.message);
+        throw error;
+      }
     case "string": {
       if (typeof value !== "string") fail(code, `${label} must be a string`);
       const length = [...value].length;

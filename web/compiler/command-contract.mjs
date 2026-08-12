@@ -18,8 +18,21 @@ function typeKey(type) {
 
 function sameType(left, right) {
   if (left?.kind === "string" && right?.kind === "string") return true;
+  if (left?.kind === "nullable" && right?.kind === "nullable") {
+    return sameType(left.value, right.value);
+  }
   if (left?.kind === "list" && right?.kind === "list") {
     return sameType(left.items, right.items);
+  }
+  if (left?.kind === "record" && right?.kind === "record") {
+    if (left.fields.length !== right.fields.length) return false;
+    const rightFields = new Map(right.fields.map(field => [field.name, field]));
+    return left.fields.every(field => {
+      const expected = rightFields.get(field.name);
+      return expected !== undefined
+        && field.required === expected.required
+        && sameType(field.type ?? field.value, expected.type ?? expected.value);
+    });
   }
   return typeKey(left) === typeKey(right);
 }
@@ -82,9 +95,12 @@ function fieldValueType(field, entities, stateNames) {
   return storageType(target.identity_field.type, stateNames);
 }
 
-function expectType(actual, expected, label, { allowNull = false } = {}) {
+function expectType(actual, expected, label, {
+  allowDigestString = true,
+  allowNull = false,
+} = {}) {
   if (allowNull && nullable(actual) && sameType(withoutNull(actual), expected)) return;
-  if (actual?.kind === "digest" && expected?.kind === "string") return;
+  if (allowDigestString && actual?.kind === "digest" && expected?.kind === "string") return;
   if (!sameType(actual, expected)) {
     fail(`${label} has incompatible type '${actual?.kind ?? "unknown"}', expected '${expected.kind}'`);
   }
@@ -262,10 +278,27 @@ function checkCommand(command, checked, indexes) {
 
   for (const injection of command.injections) {
     if (injection.kind === "provider") {
-      if (!indexes.providers.has(injection.provider)) {
+      const provider = indexes.providers.get(injection.provider);
+      if (provider === undefined) {
         fail(`${label} names unbound provider '${injection.provider}'`);
       }
-      expressionType(injection.input, environment, `${label} provider '${injection.name}' input`);
+      const inputType = expressionType(
+        injection.input,
+        environment,
+        `${label} provider '${injection.name}' input`,
+      );
+      expectType(
+        inputType,
+        provider.input_type,
+        `${label} provider '${injection.name}' input`,
+        { allowDigestString: false },
+      );
+      expectType(
+        injection.type,
+        provider.output_type,
+        `${label} provider '${injection.name}' output`,
+        { allowDigestString: false },
+      );
     } else if (injection.kind === "canonical-digest") {
       expressionType(
         injection.input,
@@ -426,7 +459,7 @@ export function checkCommandGraph(commands, checked, {
     : new Set(exportedCapabilities);
   const indexes = {
     entities: entityIndexes(checked),
-    providers: new Set((checked.providers ?? []).map(provider => provider.name)),
+    providers: new Map((checked.providers ?? []).map(provider => [provider.name, provider])),
     stateNames: new Set((checked.defstates ?? []).map(state => state.name)),
   };
   for (const machine of checked.state_machines ?? []) indexes.stateNames.add(machine.state_type);

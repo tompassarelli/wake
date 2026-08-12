@@ -8,6 +8,49 @@ const stringType = Object.freeze({ kind: "string", minLength: 1, maxBytes: 1024 
 const nullableString = Object.freeze({ kind: "nullable", value: stringType });
 const instantType = Object.freeze({ kind: "instant" });
 const digestType = Object.freeze({ kind: "digest" });
+const safeDocumentType = Object.freeze({
+  definitions: Object.freeze([{
+    name: "SafeDocument",
+    value: Object.freeze({
+      fields: Object.freeze([
+        Object.freeze({
+          name: "tag",
+          required: true,
+          value: Object.freeze({ kind: "literal", value: "document" }),
+        }),
+        Object.freeze({
+          name: "blocks",
+          required: true,
+          value: Object.freeze({
+            items: Object.freeze({ kind: "ref", name: "Block" }),
+            kind: "list",
+            maxItems: 4,
+          }),
+        }),
+      ]),
+      kind: "record",
+    }),
+  }, {
+    name: "Block",
+    value: Object.freeze({
+      kind: "tagged",
+      tag: "tag",
+      variants: Object.freeze([Object.freeze({
+        fields: Object.freeze([Object.freeze({
+          name: "text",
+          required: true,
+          value: Object.freeze({ kind: "string", maxBytes: 32 }),
+        })]),
+        tag: "paragraph",
+      })]),
+    }),
+  }]),
+  kind: "bounded",
+  maxBytes: 128,
+  maxDepth: 8,
+  maxNodes: 16,
+  value: Object.freeze({ kind: "ref", name: "SafeDocument" }),
+});
 
 const input = name => ({ kind: "input", name });
 const injected = name => ({ kind: "injected", name });
@@ -538,6 +581,39 @@ test("providers cannot mutate digest-bound input, authority, or validated inject
     JSON.stringify(field.predicate) === JSON.stringify(predicate("receipt", "actor"))
       && field.value[1] === "actor-1"
   )));
+});
+
+test("bounded provider output is checked without invoking hostile properties", async () => {
+  const boundedCommand = structuredClone(command);
+  boundedCommand.injections[1].type = safeDocumentType;
+  let getterCalls = 0;
+  const hostile = { tag: "document" };
+  Object.defineProperty(hostile, "blocks", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return [];
+    },
+  });
+  const fixture = harness({
+    providers: {
+      async "content-digest"() {
+        return hostile;
+      },
+    },
+  }, { ...plan, commands: [boundedCommand] });
+
+  await assert.rejects(
+    fixture.runtime.invoke("replace-release", "request-hostile-document", {
+      content: "content",
+      entry: "entry-1",
+      expected: null,
+      links: [],
+    }, authority),
+    rejects("command/provider-output"),
+  );
+  assert.equal(getterCalls, 0);
+  assert.deepEqual(fixture.calls.transactions, []);
 });
 
 test("server values are frozen into new receipts and recovered unchanged on replay", async () => {

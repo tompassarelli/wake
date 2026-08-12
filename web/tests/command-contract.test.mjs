@@ -84,7 +84,16 @@ const checked = {
       ],
     },
   ],
-  providers: [{ name: "content-digest" }],
+  providers: [{
+    name: "content-digest",
+    input_type: {
+      kind: "record",
+      fields: [
+        { name: "content", required: true, type: { kind: "string" } },
+      ],
+    },
+    output_type: { kind: "string" },
+  }],
   state_machines: [{
     entity: "version",
     field: "state",
@@ -267,6 +276,24 @@ test("checker normalizes configured keyword state names", () => {
   };
 
   assert.doesNotThrow(() => checkCommandGraph([command], configured));
+});
+
+test("checker enforces exact provider input and output contracts", () => {
+  const [{ value: form }] = sexpr.parse_all(source);
+  const command = parseCommand(form);
+  const wrongInput = structuredClone(command);
+  wrongInput.injections[1].input.fields[0].value = { kind: "input", name: "expected" };
+  assert.throws(
+    () => checkCommandGraph([wrongInput], checked),
+    /provider 'digest' input has incompatible type/,
+  );
+
+  const wrongOutput = structuredClone(command);
+  wrongOutput.injections[1].type = { kind: "digest" };
+  assert.throws(
+    () => checkCommandGraph([wrongOutput], checked),
+    /provider 'digest' output has incompatible type/,
+  );
 });
 
 test("parser rejects unknown command steps rather than accepting a no-op", () => {
