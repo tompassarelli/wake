@@ -1702,10 +1702,11 @@ async function main() {
   const { gen_program_bang: generateProgram } = await import(new URL("codegen.js", distUrl).href);
   const { gen_fram: generateFram } = await import(new URL("emit-fram.js", distUrl).href);
   const { generateWakeClient } = await import("./emit-client.mjs");
+  const sourceText = await Bun.file(options.source).text();
 
   const root = options.ast === null
     ? parseProgramAt(
-        await Bun.file(options.source).text(),
+        sourceText,
         basename(options.source),
         "application",
         compilerVersion,
@@ -1716,6 +1717,7 @@ async function main() {
           compilerVersion,
           expectedSourceId: options.sourceId,
           sourcePath: options.source,
+          sourceText,
         },
       );
   const { linked, resolved } = await linkProgram(
