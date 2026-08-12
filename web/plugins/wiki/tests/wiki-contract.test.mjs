@@ -299,6 +299,28 @@ describe("wake-wiki K0C data contract", () => {
     expect(entry).toContain("[:superseded ->]");
   });
 
+  test("materializes every exported query without draft leakage", async () => {
+    const manifest = await jsonAt("wake-plugin.json");
+    const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
+    for (const query of manifest.exports.queries) {
+      expect(entry).toContain(`(query ${query}\n`);
+    }
+    const publishedStart = entry.indexOf("(query read-published\n");
+    const publishedEnd = entry.indexOf("\n(query read-draft\n", publishedStart);
+    const published = entry.slice(publishedStart, publishedEnd);
+    expect(published).toContain("(= entry.published-revision published)");
+    expect(published).toContain("(= published.resource entry)");
+    expect(published).toContain("(= published.state :published)");
+    expect(published).not.toMatch(/draft|superseded/u);
+
+    const backlinksStart = entry.indexOf("(query backlinks\n");
+    const backlinksEnd = entry.indexOf("\n(component browse-page\n", backlinksStart);
+    const backlinks = entry.slice(backlinksStart, backlinksEnd);
+    expect(backlinks).toContain("(= source.published-revision published)");
+    expect(backlinks).toContain("(= published.state :published)");
+    expect(backlinks).not.toMatch(/draft|superseded/u);
+  });
+
   test("packs deterministically from the real declaration source", async () => {
     const first = await packPlugin(pluginRoot);
     const second = await packPlugin(pluginRoot);
@@ -317,7 +339,7 @@ describe("wake-wiki K0C data contract", () => {
     expect(plan.pluginClosure).toHaveLength(1);
     expect(plan.pluginClosure[0]).toMatchObject({
       alias: "wiki",
-      allowedContributions: ["schema", "ui"],
+      allowedContributions: ["schema", "query", "ui"],
       packageId: "wake-wiki",
       version: "0.1.0",
     });
@@ -357,6 +379,31 @@ describe("wake-wiki K0C data contract", () => {
         superseded: [],
       },
     }]);
+    expect(plan.queries.map((query) => query.name)).toEqual([
+      "wiki.browse-published",
+      "wiki.read-published",
+      "wiki.read-draft",
+      "wiki.review",
+      "wiki.history",
+      "wiki.backlinks",
+    ]);
+    expect(plan.queries.filter((query) => query.result.kind === "page")
+      .map((query) => [
+        query.name,
+        query.result.defaultLimit,
+        query.result.maxLimit,
+      ])).toEqual([
+      ["wiki.browse-published", 10, 20],
+      ["wiki.history", 10, 20],
+      ["wiki.backlinks", 10, 20],
+    ]);
+    for (const query of plan.queries) {
+      expect(query.select[0]).toMatchObject({
+        cardinality: "single",
+        valueKind: "literal",
+      });
+      expect(query.dependencies.length).toBeGreaterThan(0);
+    }
   }, 30_000);
 });
 

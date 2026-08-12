@@ -15,14 +15,18 @@ never participate in storage identity.
 ## Materialization status
 
 `plugin.wake` currently materializes both durable entities, the three-state
-revision lifecycle, and all twelve exported UI components. A neutral substrate
-fixture is packed, digest-pinned, linked, checked, and emitted as a FRAM plan in
-the package tests.
+revision lifecycle, all six exported named queries, and all twelve exported UI
+components. A neutral substrate fixture is packed, digest-pinned, linked,
+checked, and emitted as a FRAM plan in the package tests. `review` returns the
+current draft half; a host composes it with `read-published` at the same served
+snapshot because named-query ABI 1 has no optional joined binding. `history`
+pages direct `based-on` edges; a host follows further edges at that same
+snapshot to assemble a complete lineage.
 
-The remaining frozen exports—five commands, six queries, twelve capabilities,
-the content-parser provider port, extension ports, and six route slots—stay in
-the version-1 public contract while Wake's shared checked declaration grammars
-land. They are not implemented as callbacks or a package-local mini-language.
+The remaining frozen exports—five commands, twelve capabilities, the
+content-parser provider port, extension ports, and six route slots—stay in the
+version-1 public contract while Wake's shared checked declaration grammars land.
+They are not implemented as callbacks or a package-local mini-language.
 Consumers must not treat an operation-surface manifest entry as executable
 until the checked application artifact contains its declaration.
 

@@ -24,6 +24,116 @@
   (summary : String :write :create)
   (content-source : String :write :create))
 
+(query browse-published
+  :params []
+  :from [(entry : resource)
+         (published : revision)]
+  :where [(= entry.published-revision published)
+          (= published.resource entry)
+          (= published.state :published)]
+  :select [(resource-id entry.id)
+           (revision-id published.id)
+           (title published.title)
+           (summary published.summary)
+           (author published.author)
+           (created-at published.created-at)]
+  :result :page
+  :page [default 10 max 20])
+
+(query read-published
+  :params [(resource-id : String)]
+  :from [(entry : resource)
+         (published : revision)]
+  :where [(= entry.id $resource-id)
+          (= entry.published-revision published)
+          (= published.resource entry)
+          (= published.state :published)]
+  :select [(resource-id entry.id)
+           (revision-id published.id)
+           (title published.title)
+           (summary published.summary)
+           (content-source published.content-source)
+           (links-to published.links-to)
+           (author published.author)
+           (created-at published.created-at)
+           (digest published.digest)]
+  :result :optional)
+
+(query read-draft
+  :params [(resource-id : String)]
+  :from [(entry : resource)
+         (draft : revision)]
+  :where [(= entry.id $resource-id)
+          (= entry.draft-revision draft)
+          (= draft.resource entry)
+          (= draft.state :draft)]
+  :select [(resource-id entry.id)
+           (revision-id draft.id)
+           (title draft.title)
+           (summary draft.summary)
+           (content-source draft.content-source)
+           (links-to draft.links-to)
+           (author draft.author)
+           (created-at draft.created-at)
+           (digest draft.digest)]
+  :result :optional)
+
+(query review
+  :params [(resource-id : String)]
+  :from [(entry : resource)
+         (candidate : revision)]
+  :where [(= entry.id $resource-id)
+          (= entry.draft-revision candidate)
+          (= candidate.resource entry)
+          (= candidate.state :draft)]
+  :select [(resource-id entry.id)
+           (revision-id candidate.id)
+           (title candidate.title)
+           (summary candidate.summary)
+           (content-source candidate.content-source)
+           (links-to candidate.links-to)
+           (author candidate.author)
+           (created-at candidate.created-at)
+           (digest candidate.digest)]
+  :result :optional)
+
+(query history
+  :params [(resource-id : String)]
+  :from [(edition : revision)
+         (entry : resource)
+         (prior : revision)]
+  :where [(= edition.resource entry)
+          (= entry.id $resource-id)
+          (= edition.based-on prior)
+          (= prior.resource entry)]
+  :select [(revision-id edition.id)
+           (based-on prior.id)
+           (state edition.state)
+           (title edition.title)
+           (summary edition.summary)
+           (author edition.author)
+           (created-at edition.created-at)
+           (digest edition.digest)]
+  :result :page
+  :page [default 10 max 20])
+
+(query backlinks
+  :params [(resource-id : String)]
+  :from [(source : resource)
+         (published : revision)
+         (target : resource)]
+  :where [(= target.id $resource-id)
+          (= source.published-revision published)
+          (= published.resource source)
+          (= published.state :published)
+          (= published.links-to target)]
+  :select [(resource-id source.id)
+           (revision-id published.id)
+           (title published.title)
+           (summary published.summary)]
+  :result :page
+  :page [default 10 max 20])
+
 (component browse-page
   :props [title summary]
   (main :class "wake-wiki-browse-page"

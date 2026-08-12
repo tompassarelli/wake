@@ -5,7 +5,7 @@
 (use "wake-wiki"
   :as wiki
   :version "0.1.0"
-  :allow [schema ui]
+  :allow [schema query ui]
   :config [resource entry
            resource-id entry-id
            revision edition
