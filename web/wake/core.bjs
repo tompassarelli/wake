@@ -166,6 +166,12 @@
      provenance-token: String]))
 
 (js/export
+  (defrecord ValueRoleRef
+    [declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
   (defrecord ImportedIntRoleRef
     [use: PluginUseRef
      declaration-id: String
@@ -223,6 +229,13 @@
 
 (js/export
   (defrecord ImportedExternalEntityRoleRef
+    [use: PluginUseRef
+     declaration-id: String
+     name: String
+     provenance-token: String]))
+
+(js/export
+  (defrecord ImportedValueRoleRef
     [use: PluginUseRef
      declaration-id: String
      name: String
@@ -303,6 +316,29 @@
      required: Bool]))
 
 (js/export
+  (defrecord EntityDeclarationSpec
+    [ref: EntityRef
+     record-name: String
+     fields: (Vec FieldSpec)
+     storage-id: String?]))
+
+(js/export
+  (defrecord StateValueSpec
+    [ref: StateValueRef
+     state: StateRef
+     value: Keyword]))
+
+(js/export
+  (defrecord StateTransitionSpec [from: StateValueRef to: (Vec StateValueRef)]))
+
+(js/export
+  (defrecord StateDeclarationSpec
+    [ref: StateRef
+     values: (Vec StateValueSpec)
+     initial: StateValueRef
+     transitions: (Vec StateTransitionSpec)]))
+
+(js/export
   (defunion CommandExpr
     (CommandInputExpr [name: Keyword])
     (CommandInjectedExpr [name: Keyword])
@@ -360,7 +396,7 @@
        when: CommandPredicate?])))
 
 (js/export
-  (defrecord CommandInputField [name: Keyword value-type: ValueTypeRef]))
+  (defrecord CommandInputField [name: Keyword value-type: ValueTypeSpec]))
 
 (js/export
   (defunion CommandInjection
@@ -369,21 +405,21 @@
       [name: Keyword
        port: ProviderPortRef
        input: CommandExpr
-       output: ValueTypeRef])
+       output: ValueTypeSpec])
     (ValidateWithInjection [port: ProviderPortRef input: CommandExpr])
     (CanonicalDigestInjection [name: Keyword input: CommandExpr])))
 
 (js/export
   (defrecord CommandResultField
     [name: Keyword
-     value-type: ValueTypeRef
+     value-type: ValueTypeSpec
      value: CommandExpr]))
 
 (js/export
   (defrecord ReceiptResultField
     [name: Keyword
      field: FieldRef
-     value-type: ValueTypeRef
+     value-type: ValueTypeSpec
      target: EntityRef?]))
 
 (js/export
@@ -406,13 +442,19 @@
   (defrecord CapabilitySpec [ref: CapabilityRef guards: (Vec CommandGuardSpec)]))
 
 (js/export
+  (defrecord ValueRecordEntry [name: Keyword value: ValueExpr]))
+
+(js/export
   (defunion ValueExpr
     (LiteralStringValue [value: String])
     (LiteralIntegerValue [value: Int])
     (LiteralBooleanValue [value: Bool])
     (LiteralKeywordValue [value: Keyword])
+    (LiteralNilValue [unit: Nil])
+    (RecordValue [fields: (Vec ValueRecordEntry)])
+    (ListValue [items: (Vec ValueExpr)])
     (BoundFieldValue [field: FieldRef])
-    (ConfigValue [key: String value-type: ValueTypeRef])))
+    (ConfigValue [role: ValueRoleRef])))
 
 (js/export
   (defrecord ValueRecordField
@@ -448,19 +490,82 @@
        minimum-items: Int?
        maximum-items: Int?])
     (NullableValueType [value-type: ValueTypeSpec])
+    (NamedValueType [value-type: ValueTypeRef])
     (LiteralValueType [literal: ValueLiteral])))
+
+(js/export
+  (defrecord ValueTypeDefinition [ref: ValueTypeRef spec: ValueTypeSpec]))
+
+(js/export
+  (defrecord ValueTypeDeclarationSpec
+    [root: ValueTypeRef
+     definitions: (Vec ValueTypeDefinition)]))
+
+(js/export
+  (defrecord QueryParameterSpec [name: Keyword value-type: ValueTypeSpec]))
+
+(js/export
+  (defrecord QueryBindingSpec [name: Keyword entity: EntityRef]))
+
+(js/export
+  (defunion QueryValueExpr
+    (QueryFieldValue [binding: Keyword field: FieldRef])
+    (QueryParameterValue [name: Keyword])
+    (QueryBindingValue [name: Keyword])
+    (QueryStringValue [value: String])
+    (QueryIntegerValue [value: Int])
+    (QueryBooleanValue [value: Bool])
+    (QueryKeywordValue [value: Keyword])
+    (QueryNilValue [unit: Nil])
+    (QueryRecordValue [fields: (Vec QueryRecordField)])
+    (QueryListValue [items: (Vec QueryValueExpr)])
+    (QueryConfiguredValue [role: ValueRoleRef])))
+
+(js/export
+  (defrecord QueryRecordField [name: Keyword value: QueryValueExpr]))
+
+(js/export
+  (defunion QueryPredicateSpec
+    (QueryEqualPredicate [left: QueryValueExpr right: QueryValueExpr])
+    (QueryContainsPredicate [collection: QueryValueExpr value: QueryValueExpr])))
+
+(js/export
+  (defunion QuerySelectionSpec
+    (QueryValueSelection [name: Keyword value: QueryValueExpr])
+    (QueryProviderSelection
+      [name: Keyword
+       provider: ProviderPortRef
+       input: QueryValueExpr
+       output: ValueTypeSpec])
+    (QueryExtensionSelection [port: EntityFieldsPortRef binding: Keyword])))
+
+(js/export
+  (defunion QueryResultSpec
+    (QueryPageResult [default-limit: BoundInt max-limit: BoundInt])
+    (QueryOptionalResult [unit: Nil])
+    (QueryOneResult [unit: Nil])))
+
+(js/export
+  (defrecord QueryDeclarationSpec
+    [ref: QueryRef
+     capabilities: (Vec CapabilityRef)
+     parameters: (Vec QueryParameterSpec)
+     bindings: (Vec QueryBindingSpec)
+     predicates: (Vec QueryPredicateSpec)
+     selection: (Vec QuerySelectionSpec)
+     result: QueryResultSpec]))
 
 (js/export
   (defrecord ProviderPortSpec
     [ref: ProviderPortRef
-     input-type: ValueTypeRef
-     output-type: ValueTypeRef
+     input-type: ValueTypeSpec
+     output-type: ValueTypeSpec
      capability: CapabilityRef?]))
 
 (js/export
   (defrecord RendererSpec
     [ref: RendererRef
-     input-type: ValueTypeRef
+     input-type: ValueTypeSpec
      component: ComponentRef]))
 
 (js/export
@@ -528,6 +633,9 @@
   (defrecord ExternalEntityRoleSpec [ref: ExternalEntityRoleRef]))
 
 (js/export
+  (defrecord ValueRoleSpec [ref: ValueRoleRef value-type: ValueTypeSpec]))
+
+(js/export
   (defrecord PluginConfigurationSchema
     [ints: (Vec IntRoleSpec)
      strings: (Vec StringRoleSpec)
@@ -537,7 +645,8 @@
      field-names: (Vec FieldNameRoleSpec)
      state-names: (Vec StateNameRoleSpec)
      state-value-names: (Vec StateValueNameRoleSpec)
-     external-entities: (Vec ExternalEntityRoleSpec)]))
+     external-entities: (Vec ExternalEntityRoleSpec)
+     values: (Vec ValueRoleSpec)]))
 
 (js/export
   (defunion BoundInt
@@ -578,6 +687,9 @@
      value: EntityRef]))
 
 (js/export
+  (defrecord ValueBinding [role: ImportedValueRoleRef value: ValueExpr]))
+
+(js/export
   (defrecord PluginBindings
     [ints: (Vec IntBinding)
      strings: (Vec StringBinding)
@@ -587,7 +699,8 @@
      field-names: (Vec FieldNameBinding)
      state-names: (Vec StateNameBinding)
      state-value-names: (Vec StateValueNameBinding)
-     external-entities: (Vec ExternalEntityBinding)]))
+     external-entities: (Vec ExternalEntityBinding)
+     values: (Vec ValueBinding)]))
 
 (js/export
   (defunion ContributionKind
@@ -770,11 +883,46 @@
     (BindAttr [prop: Keyword])))
 
 (js/export
+  (defunion UiCondition
+    (UiPropertyPresent [prop: Keyword])
+    (UiQueryPredicate [predicate: QueryPredicateSpec])))
+
+(js/export
   (defunion UiNode
     (Element
       [tag: Keyword
        attrs: (Map Keyword UiAttr)
-       children: (Vec UiNode)])))
+       children: (Vec UiNode)])
+    (WhenNode [condition: UiCondition children: (Vec UiNode)])))
+
+(js/export
+  (defrecord ComponentPropertySpec [name: Keyword value-type: ValueTypeSpec]))
+
+(js/export
+  (defrecord ComponentDeclarationSpec
+    [ref: ComponentRef
+     properties: (Vec ComponentPropertySpec)
+     body: (Vec UiNode)]))
+
+(js/export
+  (defrecord ViewDeclarationSpec
+    [ref: ViewRef
+     entity: EntityRef
+     component: ComponentRef
+     title: String]))
+
+(js/export
+  (defrecord RouteQuerySpec [query: QueryRef alias: String?]))
+
+(js/export
+  (defrecord RouteParameterSpec [name: Keyword value-type: ValueTypeSpec]))
+
+(js/export
+  (defrecord RouteTemplateSpec
+    [ref: RouteTemplateRef
+     view: ViewRef
+     queries: (Vec RouteQuerySpec)
+     parameters: (Vec RouteParameterSpec)]))
 
 (js/export
   (defrecord ComponentSpec
