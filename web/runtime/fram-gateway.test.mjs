@@ -379,6 +379,57 @@ test("create requires its identity and delegates exact typed fields to createUni
   assert.equal(calls.createUnique.length, 1);
 });
 
+test("generic writes cannot preclaim or mutate command receipts", async () => {
+  const reservedPlan = structuredClone(plan);
+  const receiptEntity = "wake.core/command-receipt";
+  const id = storageId(receiptEntity, "id");
+  reservedPlan.entities.push({
+    name: receiptEntity,
+    identity: {
+      cardinality: "single",
+      field: "id",
+      storageId: id,
+      subjectTemplate: subjectTemplate(receiptEntity, "id"),
+      type: "Digest",
+      valueKind: "literal",
+    },
+    fields: [
+      {
+        cardinality: "single",
+        name: "id",
+        predicateTerm: predicate(receiptEntity, "id"),
+        storageId: id,
+        type: "Digest",
+        valueKind: "literal",
+        write: "set",
+      },
+      {
+        cardinality: "single",
+        name: "command",
+        predicateTerm: predicate(receiptEntity, "command"),
+        storageId: storageId(receiptEntity, "command"),
+        type: "String",
+        valueKind: "literal",
+        write: "set",
+      },
+    ],
+  });
+  const fixture = mocks();
+  const gateway = createFramGateway(reservedPlan, fixture);
+  const receiptId = `sha256:${"d".repeat(64)}`;
+
+  await assert.rejects(
+    gateway.create(receiptEntity, { command: "publish", id: receiptId }),
+    rejectsCode("gateway/write-policy"),
+  );
+  await assert.rejects(
+    gateway.set(receiptEntity, receiptId, "command", "publish"),
+    rejectsCode("gateway/write-policy"),
+  );
+  assert.deepEqual(fixture.calls.createUnique, []);
+  assert.deepEqual(fixture.calls.updateUnique, []);
+});
+
 test("create defaults command-only lifecycle state and requires every ref", async () => {
   const { gateway, calls } = gatewayWith();
 

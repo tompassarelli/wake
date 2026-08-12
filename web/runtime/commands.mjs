@@ -846,7 +846,16 @@ function recoveredReceipt(command, receiptId, inputDigest, actor, receiptValue) 
   }
   const result = {};
   for (const field of receipt.resultFields) {
-    if (!own(row, field.field)) continue;
+    if (!own(row, field.field)) {
+      if (field.type.kind === "nullable") {
+        defineData(result, field.name, null);
+        continue;
+      }
+      fail(
+        "command/receipt-corrupt",
+        `receipt.${field.field} is missing required command result '${field.name}'`,
+      );
+    }
     defineData(
       result,
       field.name,

@@ -5,6 +5,7 @@ const PAGE_LIMIT = 128;
 const MAX_QUERY_PAGES = 32;
 const MAX_QUERY_ROWS = PAGE_LIMIT * MAX_QUERY_PAGES;
 const QUERY_TIMEOUT_MS = 5_000;
+const COMMAND_RECEIPT_ENTITY = "wake.core/command-receipt";
 const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/;
@@ -865,6 +866,16 @@ export function createFramGateway(plan, {
     return field;
   };
 
+  const genericWriteEntity = entity => {
+    if (entity.name === COMMAND_RECEIPT_ENTITY) {
+      fail(
+        "gateway/write-policy",
+        `${COMMAND_RECEIPT_ENTITY} can only be written by a domain command`,
+      );
+    }
+    return entity;
+  };
+
   const publicationNamed = name => {
     inputName(name, "publication");
     const publication = compiled.publicationsByName.get(name);
@@ -949,7 +960,7 @@ export function createFramGateway(plan, {
     },
 
     async create(entityName, values) {
-      const entity = entityNamed(entityName);
+      const entity = genericWriteEntity(entityNamed(entityName));
       if (!plainObject(values)) fail("gateway/invalid-input", "values must be a plain object");
       for (const name of Object.keys(values)) {
         const field = fieldNamed(entity, name);
@@ -984,7 +995,7 @@ export function createFramGateway(plan, {
     },
 
     async set(entityName, identityValue, fieldName, value) {
-      const entity = entityNamed(entityName);
+      const entity = genericWriteEntity(entityNamed(entityName));
       const field = fieldNamed(entity, fieldName);
       if (field.name === entity.identity.field) {
         fail("gateway/identity-mutation", `${entity.name}.${field.name} is immutable`);

@@ -266,6 +266,81 @@ test("receipt lookup precedes generated values, providers, guards, and transacti
   assert.deepEqual(fixture.calls.transactions, []);
 });
 
+test("receipt replay reconstructs null results and rejects missing required results", async () => {
+  const replayCommand = structuredClone(command);
+  replayCommand.result.push({ name: "optional", type: nullableString, value: input("expected") });
+  replayCommand.receipt.resultFields.push({
+    field: "result-optional",
+    name: "optional",
+    type: nullableString,
+  });
+  const replayPlan = { ...plan, commands: [replayCommand] };
+  const fixture = harness({}, replayPlan);
+  const commandInput = {
+    content: "new content",
+    entry: "entry-1",
+    expected: null,
+    links: [],
+  };
+  const inputDigest = `sha256:${"c".repeat(64)}`;
+  fixture.setReceipts([{
+    actor: "actor-1",
+    command: "replace-release",
+    "created-at": { epochSeconds: "100", nanos: 25 },
+    "input-digest": inputDigest,
+    "result-entry": "entry-1",
+    "result-version": "version-2",
+  }]);
+
+  const originalRead = fixture.runtime.invoke(
+    "replace-release",
+    "request-replay-null",
+    commandInput,
+    authority,
+  );
+  await assert.rejects(originalRead, rejects("command/idempotency-conflict"));
+
+  const initial = harness({}, replayPlan);
+  const written = await initial.runtime.invoke(
+    "replace-release",
+    "request-replay-null",
+    commandInput,
+    authority,
+  );
+  fixture.setReceipts([{
+    actor: "actor-1",
+    command: "replace-release",
+    "created-at": written.createdAt,
+    "input-digest": written.inputDigest,
+    "result-entry": "entry-1",
+    "result-version": "version-2",
+  }]);
+  const replay = await fixture.runtime.invoke(
+    "replace-release",
+    "request-replay-null",
+    commandInput,
+    authority,
+  );
+  assert.deepEqual(replay.result, { entry: "entry-1", optional: null, version: "version-2" });
+
+  fixture.setReceipts([{
+    actor: "actor-1",
+    command: "replace-release",
+    "created-at": written.createdAt,
+    "input-digest": written.inputDigest,
+    "result-entry": "entry-1",
+  }]);
+  await assert.rejects(
+    fixture.runtime.invoke(
+      "replace-release",
+      "request-replay-null",
+      commandInput,
+      authority,
+    ),
+    rejects("command/receipt-corrupt"),
+  );
+});
+
 test("compound command lowers mixed create, guarded updates, requirements, and receipt atomically", async () => {
   const fixture = harness();
   const result = await fixture.runtime.invoke("replace-release", "request-2", {
