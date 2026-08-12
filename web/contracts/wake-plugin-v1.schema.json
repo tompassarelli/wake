@@ -28,12 +28,12 @@
     "version": { "$ref": "#/$defs/version" },
     "pluginAbiVersion": { "const": 1 },
     "compatibleWake": { "$ref": "#/$defs/version" },
-    "entry": { "$ref": "#/$defs/path" },
+    "entry": { "$ref": "#/$defs/source-path" },
     "sources": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "$ref": "#/$defs/path" }
+      "items": { "$ref": "#/$defs/source-path" }
     },
     "dependencies": {
       "type": "array",
@@ -133,6 +133,12 @@
     "path": {
       "type": "string",
       "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\)[^/]+(?:/[^/]+)*$"
+    },
+    "source-path": {
+      "allOf": [
+        { "$ref": "#/$defs/path" },
+        { "pattern": "\\.bjs$" }
+      ]
     },
     "names": {
       "type": "array",

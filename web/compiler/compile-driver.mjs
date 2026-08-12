@@ -5,7 +5,7 @@ import {
 } from "./canonical.mjs";
 import {
   pluginContractVersions,
-  readPluginArtifact,
+  readPluginArtifactFile,
   validateWakeLock,
 } from "./plugin-package.mjs";
 import {
@@ -1411,8 +1411,11 @@ async function loadPlugin(lockDir, entry) {
   const artifactPath = join(lockDir, entry.artifact);
   const file = Bun.file(artifactPath);
   if (!(await file.exists())) fail(`locked artifact does not exist: ${entry.artifact}`);
-  const text = await file.text();
-  const artifact = readPluginArtifact(text, entry.digest, entry.artifact);
+  const artifact = await readPluginArtifactFile(
+    artifactPath,
+    entry.digest,
+    entry.artifact,
+  );
   if (artifact.manifest.packageId !== entry.packageId || artifact.manifest.version !== entry.version) {
     fail(`locked artifact identity does not match ${entry.packageId}@${entry.version}`);
   }

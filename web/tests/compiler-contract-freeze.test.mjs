@@ -33,6 +33,25 @@ describe("W0C frozen compiler contracts", () => {
       expect(schema.type).toBe("object");
       expect(schema.additionalProperties).toBe(false);
     }
+
+    const pluginSchema = await Bun.file(
+      `${webRoot}/contracts/wake-plugin-v1.schema.json`,
+    ).json();
+    expect(pluginSchema.properties.entry.$ref).toBe("#/$defs/source-path");
+    expect(pluginSchema.properties.sources.items.$ref)
+      .toBe("#/$defs/source-path");
+    expect(pluginSchema.$defs["source-path"]).toEqual({
+      allOf: [
+        { $ref: "#/$defs/path" },
+        { pattern: "\\.bjs$" },
+      ],
+    });
+    const authoredSourcePattern = new RegExp(
+      pluginSchema.$defs["source-path"].allOf[1].pattern,
+      "u",
+    );
+    expect(authoredSourcePattern.test("plugin.bjs")).toBe(true);
+    expect(authoredSourcePattern.test("plugin.wake")).toBe(false);
   });
 
   test("packs one neutral plugin into byte-identical canonical bytes", async () => {

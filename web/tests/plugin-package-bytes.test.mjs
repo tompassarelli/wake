@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  truncate,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -8,16 +14,20 @@ import {
 } from "../compiler/canonical.mjs";
 import {
   packPlugin,
+  pluginPackageLimits,
   readPluginArtifact,
+  readPluginArtifactFile,
   validatePluginManifest,
   validateWakeLock,
 } from "../compiler/plugin-package.mjs";
 
-const MAX_MANIFEST_BYTES = 256 * 1024;
-const MAX_SOURCE_BYTES = 1024 * 1024;
-const MAX_TOTAL_SOURCE_BYTES = 8 * 1024 * 1024;
-const MAX_SOURCE_COUNT = 256;
-const MAX_SOURCE_PATH_BYTES = 240;
+const {
+  manifestBytes: MAX_MANIFEST_BYTES,
+  sourceBytes: MAX_SOURCE_BYTES,
+  sourceCount: MAX_SOURCE_COUNT,
+  sourcePathBytes: MAX_SOURCE_PATH_BYTES,
+  totalSourceBytes: MAX_TOTAL_SOURCE_BYTES,
+} = pluginPackageLimits;
 const encoder = new TextEncoder();
 const validSource = "#lang beagle/js\n(ns wake.tests.plugin-bytes)\n";
 
@@ -217,5 +227,39 @@ describe("plugin package raw-byte boundary", () => {
     const wrongSuffix = structuredClone(lock);
     wrongSuffix.plugins[0].artifact = "artifacts/plugin.json";
     expect(() => validateWakeLock(wrongSuffix)).toThrow("must end in .wakepkg.json");
+  });
+
+  test("bounds production artifact files before strict raw-byte decoding", async () => {
+    await temporaryPackage(
+      canonicalDocument(manifest()),
+      { "plugin.bjs": validSource },
+      async (root) => {
+        const packed = await packPlugin(root);
+        const artifactPath = join(root, "plugin.wakepkg.json");
+        await writeFile(artifactPath, packed.bytes);
+        await expect(readPluginArtifactFile(
+          artifactPath,
+          packed.digest,
+          "plugin.wakepkg.json",
+        )).resolves.toEqual(packed.artifact);
+
+        const malformed = new Uint8Array([0xc3, 0x28]);
+        await writeFile(artifactPath, malformed);
+        await expect(readPluginArtifactFile(
+          artifactPath,
+          sha256Digest(malformed),
+          "plugin.wakepkg.json",
+        )).rejects.toThrow("must be valid UTF-8");
+
+        await truncate(artifactPath, pluginPackageLimits.artifactBytes + 1);
+        await expect(readPluginArtifactFile(
+          artifactPath,
+          packed.digest,
+          "plugin.wakepkg.json",
+        )).rejects.toThrow(
+          `exceeds ${pluginPackageLimits.artifactBytes} bytes`,
+        );
+      },
+    );
   });
 });

@@ -11,6 +11,7 @@ import {
 const PACKAGE_SCHEMA_VERSION = 1;
 const PLUGIN_ABI_VERSION = 1;
 // Package ingestion is bounded before untrusted text reaches a parser.
+const MAX_ARTIFACT_BYTES = 32 * 1024 * 1024;
 const MAX_MANIFEST_BYTES = 256 * 1024;
 const MAX_SOURCE_BYTES = 1024 * 1024;
 const MAX_TOTAL_SOURCE_BYTES = 8 * 1024 * 1024;
@@ -336,13 +337,18 @@ function isSymlink(path) {
   return result.exitCode === 0;
 }
 
-async function readFileSnapshot(file, maximumBytes, label) {
+async function readFileBytes(file, maximumBytes, label) {
   if (!(await file.exists())) fail(`${label} does not exist`);
   const stats = await file.stat();
   if (!stats.isFile()) fail(`${label} must be a regular file`);
   if (stats.size > maximumBytes) fail(`${label} exceeds ${maximumBytes} bytes`);
   const bytes = new Uint8Array(await file.slice(0, maximumBytes + 1).arrayBuffer());
   if (bytes.byteLength > maximumBytes) fail(`${label} exceeds ${maximumBytes} bytes`);
+  return bytes;
+}
+
+async function readFileSnapshot(file, maximumBytes, label) {
+  const bytes = await readFileBytes(file, maximumBytes, label);
   return { bytes, text: decodeUtf8(bytes, label) };
 }
 
@@ -391,9 +397,13 @@ export async function packPlugin(packageRoot) {
 
 export function readPluginArtifact(input, expectedDigest, label) {
   if (!SHA256.test(expectedDigest)) fail(`${label} has an invalid digest`);
-  const inputBytes = typeof input === "string"
-    ? utf8Bytes(input, label)
-    : Uint8Array.from(input);
+  const inputBytes = typeof input === "string" ? utf8Bytes(input, label) : input;
+  if (!(inputBytes instanceof Uint8Array)) {
+    fail(`${label} must be UTF-8 text or raw bytes`);
+  }
+  if (inputBytes.byteLength > MAX_ARTIFACT_BYTES) {
+    fail(`${label} exceeds ${MAX_ARTIFACT_BYTES} bytes`);
+  }
   const actualDigest = sha256Digest(inputBytes);
   if (actualDigest !== expectedDigest) {
     fail(`${label} digest mismatch: expected ${expectedDigest}, received ${actualDigest}`);
@@ -401,7 +411,21 @@ export function readPluginArtifact(input, expectedDigest, label) {
   return validatePluginArtifact(parseCanonicalDocument(decodeUtf8(inputBytes, label), label));
 }
 
+export async function readPluginArtifactFile(path, expectedDigest, label) {
+  const bytes = await readFileBytes(Bun.file(path), MAX_ARTIFACT_BYTES, label);
+  return readPluginArtifact(bytes, expectedDigest, label);
+}
+
 export const pluginContractVersions = Object.freeze({
   packageSchema: PACKAGE_SCHEMA_VERSION,
   pluginAbi: PLUGIN_ABI_VERSION,
+});
+
+export const pluginPackageLimits = Object.freeze({
+  artifactBytes: MAX_ARTIFACT_BYTES,
+  manifestBytes: MAX_MANIFEST_BYTES,
+  sourceBytes: MAX_SOURCE_BYTES,
+  sourceCount: MAX_SOURCE_COUNT,
+  sourcePathBytes: MAX_SOURCE_PATH_BYTES,
+  totalSourceBytes: MAX_TOTAL_SOURCE_BYTES,
 });
