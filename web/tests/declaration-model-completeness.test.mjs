@@ -333,6 +333,11 @@ test("internal declaration program is closed and mirrors the public model", () =
   expect(graph.reached.size).toBe(141);
   expect(graph.encountered.has("Any")).toBeFalse();
 
+  expect(fields(internalForm(program, "IrCheckedDeclarationProgram"))).toEqual([
+    ["program", prim("IrDeclarationProgram")],
+    ["declaration-provenance", vec("IrDeclarationProvenance")],
+  ]);
+
   const mirrors = [
     "EntityReferenceTarget",
     "FieldValueType",
