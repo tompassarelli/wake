@@ -76,11 +76,30 @@ async function compileSubstratePlan() {
       }],
       schemaVersion: 1,
     }));
-    return JSON.parse(run([
+    run([
       `${webRoot}/bin/wake-compile`,
-      "--fram",
+      "--all",
       `${temporary}/substrate.wake`,
-    ]));
+      `${temporary}/out`,
+    ]);
+    run([
+      "bun",
+      "build",
+      `${temporary}/out/app.js`,
+      `${temporary}/out/wake-client.js`,
+      "--outdir",
+      `${temporary}/built`,
+      "--target",
+      "browser",
+    ]);
+    return {
+      application: await Bun.file(`${temporary}/out/app.js`).text(),
+      client: await Bun.file(`${temporary}/out/wake-client.js`).text(),
+      manifest: JSON.parse(
+        await Bun.file(`${temporary}/out/app.wake.manifest.json`).text(),
+      ),
+      plan: JSON.parse(await Bun.file(`${temporary}/out/app.fram.json`).text()),
+    };
   } finally {
     run(["rm", "-rf", "--", temporary]);
   }
@@ -264,6 +283,36 @@ describe("wake-wiki K0C data contract", () => {
     expect(Object.values(manifest.configuration).every((entry) =>
       entry.required === true
     )).toBe(true);
+    expect(Object.fromEntries(
+      Object.entries(manifest.configuration)
+        .filter(([, descriptor]) => descriptor.type.declarationId !== undefined)
+        .map(([name, descriptor]) => [name, descriptor.type.declarationId]),
+    )).toEqual({
+      "author-field": "revision/author",
+      "base-field": "revision/based-on",
+      "content-source-field": "revision/content-source",
+      "created-at-field": "revision/created-at",
+      "digest-field": "revision/digest",
+      "draft-pointer": "resource/draft-revision",
+      "lifecycle-type": "RevisionLifecycle",
+      "links-field": "revision/links-to",
+      "owner-field": "revision/resource",
+      "published-pointer": "resource/published-revision",
+      "receipt-result-resource-field": "receipt-result-resource-field",
+      "receipt-result-revision-field": "receipt-result-revision-field",
+      "replaces-field": "revision/replaces-draft",
+      resource: "resource",
+      "resource-id": "resource/id",
+      revision: "revision",
+      "revision-id": "revision/id",
+      "state-field": "revision/state",
+      "summary-field": "revision/summary",
+      "title-field": "revision/title",
+    });
+    expect(manifest.configuration["actor-entity"].type.declarationId)
+      .toBeUndefined();
+    expect(manifest.configuration["content-provider"].type.declarationId)
+      .toBeUndefined();
   });
 
   test("keeps product semantics out of the reusable package", async () => {
@@ -349,7 +398,8 @@ describe("wake-wiki K0C data contract", () => {
   });
 
   test("links the delivered substrate into one checked FRAM graph", async () => {
-    const plan = await compileSubstratePlan();
+    const { application, client, manifest: applicationManifest, plan } =
+      await compileSubstratePlan();
     expect(plan.applicationId).toBe("wake-wiki-substrate-fixture");
     expect(plan.pluginClosure).toHaveLength(1);
     expect(plan.pluginClosure[0]).toMatchObject({
@@ -546,6 +596,12 @@ describe("wake-wiki K0C data contract", () => {
       }),
     ]);
     expect(plan.composition.mounts).toHaveLength(6);
+    expect(application).toContain("wakeMatchRoute(location.pathname)");
+    expect(application).toContain('path: "/library/:entry-id/review"');
+    expect(application).toContain('name: "wiki.read-published"');
+    expect(client).toContain("wiki.browse-published");
+    expect(applicationManifest.artifacts.browserClient.sha256)
+      .toBe(sha256Digest(client));
   }, 30_000);
 });
 
