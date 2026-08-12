@@ -265,6 +265,63 @@ function assertArtifactBinding({ manifestArtifact, planArtifact, receiptArtifact
   return Object.freeze({ manifestDigest, planDigest, receiptDigest });
 }
 
+function checkedProviderRegistry(plan, input) {
+  if (!plainObject(plan.composition) || !Array.isArray(plan.composition.providers)) {
+    fail("adapter/invalid-plan", "plan.composition.providers must be an array");
+  }
+
+  const names = [];
+  for (const binding of plan.composition.providers) {
+    if (!plainObject(binding) || typeof binding.name !== "string" || binding.name.length === 0) {
+      fail("adapter/invalid-plan", "plan.composition.providers contains an invalid binding");
+    }
+    if (names.includes(binding.name)) {
+      fail(
+        "adapter/invalid-plan",
+        `plan.composition.providers repeats binding '${binding.name}'`,
+      );
+    }
+    names.push(binding.name);
+  }
+
+  const registry = input === undefined ? {} : input;
+  if (!plainObject(registry)) {
+    fail("adapter/invalid-provider-registry", "providers must be an object");
+  }
+  const expected = new Set(names);
+  const actualKeys = Reflect.ownKeys(registry);
+  const missing = names.filter(name => !Object.hasOwn(registry, name));
+  const extra = actualKeys.filter(key => typeof key !== "string" || !expected.has(key));
+  if (missing.length > 0 || extra.length > 0) {
+    fail(
+      "adapter/provider-registry-mismatch",
+      "providers must exactly match the checked provider bindings",
+      Object.freeze({
+        expected: Object.freeze([...names]),
+        extra: Object.freeze(extra.map(String)),
+        missing: Object.freeze(missing),
+      }),
+    );
+  }
+
+  const checked = Object.create(null);
+  for (const name of names) {
+    const descriptor = Object.getOwnPropertyDescriptor(registry, name);
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable
+        || typeof descriptor.value !== "function") {
+      fail(
+        "adapter/invalid-provider",
+        `provider '${name}' must be an enumerable function value`,
+      );
+    }
+    Object.defineProperty(checked, name, {
+      enumerable: true,
+      value: descriptor.value,
+    });
+  }
+  return Object.freeze(checked);
+}
+
 function checkedContext(value) {
   if (!plainObject(value) || !plainObject(value.actor)
       || typeof value.traceId !== "string" || value.traceId.length === 0) {
@@ -301,6 +358,7 @@ export function createWakeBunAdapter({
   fram,
   manifest: manifestInput,
   plan: planInput,
+  providers,
   schema,
 } = {}) {
   if (!fram || typeof fram.status !== "function" || typeof fram.query !== "function") {
@@ -331,6 +389,7 @@ export function createWakeBunAdapter({
     planArtifact,
     receiptArtifact,
   });
+  const providerRegistry = checkedProviderRegistry(plan, providers);
   const browserBytes = browserJavaScript instanceof Uint8Array
     ? browserJavaScript
     : typeof browserJavaScript === "string"
@@ -345,7 +404,7 @@ export function createWakeBunAdapter({
     "adapter/artifact-mismatch",
     "browser JavaScript digest",
   );
-  const gateway = createGateway(plan, { fram, schema });
+  const gateway = createGateway(plan, { fram, providers: providerRegistry, schema });
   if (!gateway || typeof gateway !== "object") {
     fail("adapter/invalid-config", "the Wake gateway factory returned an invalid gateway");
   }

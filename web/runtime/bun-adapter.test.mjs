@@ -125,7 +125,7 @@ function realFixture({ title = "Wake" } = {}) {
   };
 }
 
-function fixture() {
+function fixture({ providerNames = [] } = {}) {
   const browserJavaScript = `// wake: checked-application ${fingerprint}\n`;
   const browserDigest = sha256Digest(browserJavaScript);
   const plugin = {
@@ -143,6 +143,17 @@ function fixture() {
   const planValue = {
     applicationId: "neutral.fixture",
     backend: "fram",
+    composition: {
+      extensions: [],
+      fills: [],
+      mounts: [],
+      providers: providerNames.map(name => ({
+        name,
+        package_id: "wake-neutral-fixture",
+        port: `fixture.${name}`,
+        port_name: "content-parser",
+      })),
+    },
     entities: [],
     pluginClosure: [plugin],
     publications: [],
@@ -247,6 +258,8 @@ test("composes only the public FRAM and Wake runtime interfaces", async () => {
   expect(adapter.semanticFingerprint).toBe(fingerprint);
   expect(input.calls.gateway).toHaveLength(1);
   expect(input.calls.gateway[0].clients.fram).toBe(input.fram);
+  expect(input.calls.gateway[0].clients.providers).toEqual({});
+  expect(Object.isFrozen(input.calls.gateway[0].clients.providers)).toBe(true);
   expect(input.calls.gateway[0].clients.schema).toBe(input.schema);
 
   const actor = Object.freeze({ capabilities: Object.freeze(["read"]), id: "principal-1" });
@@ -261,6 +274,54 @@ test("composes only the public FRAM and Wake runtime interfaces", async () => {
   expect(input.calls.authorized[0].actor).toBe(actor);
   expect(input.calls.authorized[0].traceId).toBe("trace_0001");
   expect(input.calls.authorized[0].entity).toBe("entry");
+});
+
+test("requires and freezes the exact checked provider registry before composition", () => {
+  const providerName = "greywrought-markdown";
+  const provider = () => ({ html: "<p>Greywrought</p>" });
+  const checked = fixture({ providerNames: [providerName] });
+  const input = runtime({
+    ...checked,
+    providers: { [providerName]: provider },
+  });
+  createWakeBunAdapter(input);
+
+  expect(input.calls.gateway).toHaveLength(1);
+  const registry = input.calls.gateway[0].clients.providers;
+  expect(Object.getPrototypeOf(registry)).toBeNull();
+  expect(Object.isFrozen(registry)).toBe(true);
+  expect(Reflect.ownKeys(registry)).toEqual([providerName]);
+  expect(registry[providerName]).toBe(provider);
+
+  for (const [providers, code] of [
+    [undefined, "adapter/provider-registry-mismatch"],
+    [{}, "adapter/provider-registry-mismatch"],
+    [{ [providerName]: provider, unexpected: provider }, "adapter/provider-registry-mismatch"],
+    [{ [providerName]: { parse: provider } }, "adapter/invalid-provider"],
+  ]) {
+    const rejected = runtime({ ...checked, providers });
+    expect(() => createWakeBunAdapter(rejected)).toThrow(
+      expect.objectContaining({ code }),
+    );
+    expect(rejected.calls.gateway).toHaveLength(0);
+    expect(rejected.calls.http).toHaveLength(0);
+  }
+
+  let getterCalled = false;
+  const accessorRegistry = {};
+  Object.defineProperty(accessorRegistry, providerName, {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return provider;
+    },
+  });
+  const rejectedAccessor = runtime({ ...checked, providers: accessorRegistry });
+  expect(() => createWakeBunAdapter(rejectedAccessor)).toThrow(
+    expect.objectContaining({ code: "adapter/invalid-provider" }),
+  );
+  expect(getterCalled).toBe(false);
+  expect(rejectedAccessor.calls.gateway).toHaveLength(0);
 });
 
 test("fails construction before runtime composition on plan or receipt drift", () => {
