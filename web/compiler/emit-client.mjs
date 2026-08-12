@@ -183,6 +183,12 @@ function commandValueDescriptor(source, label, active = new Set()) {
           kind: "record",
         };
       }
+      case "bounded":
+      case "literal":
+      case "enum":
+      case "tagged":
+      case "ref":
+        return structuredClone(source);
       default:
         fail(`${label} has unsupported kind '${source.kind}'`);
     }
@@ -209,16 +215,39 @@ function queryDescriptors(checked, states, entities) {
     }
     uniqueNames(query.params, `query '${query.name}' parameter`);
     uniqueNames(query.columns, `query '${query.name}' column`);
+    const publicColumns = query.columns.filter(column => column.internal !== true);
+    const resultProviders = query.result_providers ?? [];
+    if (!Array.isArray(resultProviders)) {
+      fail(`query '${query.name}' result providers must be an array`);
+    }
+    uniqueNames(resultProviders, `query '${query.name}' result provider`);
+    const publicNames = new Set(publicColumns.map(column => column.name));
+    for (const provider of resultProviders) {
+      if (publicNames.has(provider.name)) {
+        fail(`query '${query.name}' result repeats '${provider.name}'`);
+      }
+      publicNames.add(provider.name);
+    }
     if (!["one", "optional", "page"].includes(query.result_kind)) {
       fail(`query '${query.name}' has invalid result kind '${query.result_kind}'`);
     }
     const result = {
-      columns: query.columns.map((column) => queryColumnDescriptor(
-        column,
-        states,
-        entities,
-        `query '${query.name}' column '${column.name}'`,
-      )),
+      columns: [
+        ...publicColumns.map((column) => queryColumnDescriptor(
+          column,
+          states,
+          entities,
+          `query '${query.name}' column '${column.name}'`,
+        )),
+        ...resultProviders.map(provider => ({
+          cardinality: "single",
+          name: nonempty(provider.name, `query '${query.name}' result provider name`),
+          value: commandValueDescriptor(
+            provider.output_type,
+            `query '${query.name}' result provider '${provider.name}'`,
+          ),
+        })),
+      ],
       kind: query.result_kind,
     };
     if (query.result_kind === "page") {
@@ -561,6 +590,11 @@ function normalizeValue(value, descriptor, label) {
       );
     case "record":
       return normalizedRecord(value, descriptor.fields, label);
+    case "bounded":
+      return compileSafeDocumentValue(descriptor).normalize(value, {
+        code: "wake-client/type-mismatch",
+        label,
+      });
     case "reference":
       return normalizeValue(value, descriptor.value, label);
     default:

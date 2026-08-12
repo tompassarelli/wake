@@ -91,6 +91,12 @@ const checked = Object.freeze({
       value_kind: "literal",
     }, {
       cardinality: "single",
+      internal: true,
+      name: "wake$provided$0$0",
+      type: "String",
+      value_kind: "literal",
+    }, {
+      cardinality: "single",
       name: "owner",
       target_entity: "resource",
       type: "Ref",
@@ -115,6 +121,13 @@ const checked = Object.freeze({
       type: "Instant",
     }],
     result_kind: "optional",
+    result_providers: [{
+      input: { kind: "column", name: "wake$provided$0$0" },
+      input_type: { kind: "string" },
+      name: "safe-document",
+      output_type: safeDocumentDescriptor,
+      provider: "content-parser",
+    }],
   }],
   semantic_fingerprint: fingerprint,
   value_types: [{ descriptor: safeDocumentDescriptor, name: "SafeDocument" }],
@@ -211,6 +224,14 @@ describe("generated browser client artifact", () => {
       kind: "keyword",
       values: ["draft", "published"],
     });
+    expect(client.queryDescriptor("constructor").result.columns.some(
+      column => column.name === "wake$provided$0$0",
+    )).toBe(false);
+    expect(client.queryDescriptor("constructor").result.columns.at(-1)).toMatchObject({
+      cardinality: "single",
+      name: "safe-document",
+      value: { kind: "bounded" },
+    });
   });
 
   test("normalizes exact query values without returning caller-owned objects", async () => {
@@ -234,6 +255,7 @@ describe("generated browser client artifact", () => {
       ["owner", "owner-1"],
       ["phase", "published"],
       ["tags", ["one", "two"]],
+      ["safe-document", { tag: "document", blocks: [] }],
     ]);
     const result = client.normalizeQueryResult("constructor", row);
     expect(result.owner).toBe("owner-1");
@@ -241,6 +263,9 @@ describe("generated browser client artifact", () => {
     expect(result.tags).toEqual(["one", "two"]);
     expect(result.tags).not.toBe(row.tags);
     expect(Object.isFrozen(result.tags)).toBe(true);
+    expect(result["safe-document"]).toEqual({ tag: "document", blocks: [] });
+    expect(result["safe-document"]).not.toBe(row["safe-document"]);
+    expect(Object.isFrozen(result["safe-document"])).toBe(true);
     expect(client.normalizeQueryResult("constructor", null)).toBe(null);
   });
 
@@ -383,7 +408,7 @@ describe("generated browser client artifact", () => {
     expect(() => generateWakeClient(unknown)).toThrow("unsupported type 'Opaque'");
 
     const unresolved = structuredClone(checked);
-    unresolved.queries[0].columns[1].target_entity = "missing";
+    unresolved.queries[0].columns.find(column => column.name === "owner").target_entity = "missing";
     expect(() => generateWakeClient(unresolved)).toThrow("without a checked identity");
   });
 });

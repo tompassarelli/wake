@@ -78,7 +78,14 @@
    type: String
    cardinality: String
    value-kind: String
-   target-entity: String?])
+   target-entity: String?
+   internal: Bool])
+(defrecord GQueryResultProvider
+  [name: String
+   provider: String
+   input: Any
+   input-type: Any
+   output-type: Any])
 (defrecord GQueryDependency [entity: String field: String])
 (defrecord GQuery
   [name: String
@@ -87,6 +94,7 @@
    bindings: (Vec GQueryBinding)
    predicates: (Vec GQueryPredicate)
    columns: (Vec GQueryColumn)
+   result-providers: (Vec GQueryResultProvider)
    result-kind: String
    default-limit: Int?
    max-limit: Int?
@@ -99,6 +107,8 @@
    plugin-closure: (Vec Any)
    semantic-fingerprint: String?
    providers: (Vec IrProvider)
+   value-types: (Vec Any)
+   provider-ports: (Vec Any)
    extensions: (Vec IrExtend)
    fills: (Vec IrFill)
    mounts: (Vec IrMount)
@@ -986,10 +996,236 @@
             (conj unique entry)))
         [] entries))))
 
+(defn provider-named [providers: Any name: String] -> Any
+  (first (filterv (fn [provider] (= (.-name provider) name)) providers)))
+
+(defn descriptor-field [descriptor: Any name: String] -> Any
+  (first
+    (filterv
+      (fn [field] (= (get field "name") name))
+      (or (get descriptor "fields") []))))
+
+(defn provider-field-type-compatible? [field: GField descriptor: Any] -> Bool
+  (let [checked-descriptor
+        (if (= (.-cardinality field) "multi")
+          (get descriptor "items")
+          descriptor)
+        kind (if (nil? checked-descriptor) "" (get checked-descriptor "kind"))
+        scalar
+        (cond
+          (= (.-type field) "String") (= kind "string")
+          (or (= (.-type field) "Int") (= (.-type field) "Integer"))
+            (= kind "integer")
+          (or (= (.-type field) "Float")
+              (= (.-type field) "Double")
+              (= (.-type field) "Number"))
+            (= kind "number")
+          (or (= (.-type field) "Bool") (= (.-type field) "Boolean"))
+            (= kind "boolean")
+          :else (or (= kind "string") (= kind "enum")))]
+    (if (= (.-cardinality field) "multi")
+      (and (= (get descriptor "kind") "list") scalar)
+      scalar)))
+
+(defn provider-literal-compatible? [value: Any descriptor: Any] -> Bool
+  (let [kind (get descriptor "kind")]
+    (cond
+      (= kind "nullable")
+        (or (nil? value)
+            (provider-literal-compatible? value (get descriptor "value")))
+      (= kind "literal") (js/Object.is value (get descriptor "value"))
+      (= kind "enum")
+        (some?
+          (first
+            (filterv
+              (fn [candidate] (js/Object.is candidate value))
+              (or (get descriptor "values") []))))
+      (= kind "string") (string? value)
+      (= kind "integer")
+        (and (number? value)
+             (js/Number.isSafeInteger value)
+             (not (js/Object.is value -0))
+             (or (nil? (get descriptor "minimum"))
+                 (>= value (get descriptor "minimum")))
+             (or (nil? (get descriptor "maximum"))
+                 (<= value (get descriptor "maximum"))))
+      (= kind "number")
+        (and (number? value) (js/Number.isFinite value)
+             (not (js/Object.is value -0)))
+      (= kind "boolean") (boolean? value)
+      :else false)))
+
+(defn analyze-provider-input
+  [raw: Any
+   expected: Any
+   binding-entities: Any
+   provider-index: Int
+   next-column: Int
+   label: String] -> Any
+  (let [kind (get raw "kind")]
+    (cond
+      (= kind "column")
+        (let [binding (get raw "binding")
+              entity (get binding-entities binding)]
+          (if (nil? entity)
+            (graph-error (str label " names unknown binding '" binding "'"))
+            nil)
+          (let [field (query-field entity (get raw "field") label)]
+            (if (not (provider-field-type-compatible? field expected))
+              (graph-error
+                (str label " field '" (.-name entity) "." (.-name field)
+                     "' is incompatible with provider input type '"
+                     (get expected "kind") "'"))
+              nil)
+            (let [internal-name
+                  (str "wake$provided$" provider-index "$" next-column)
+                  column
+                  (->GQueryColumn
+                    internal-name binding (.-name entity) (.-name field)
+                    (.-type field) (.-cardinality field) (.-value-kind field)
+                    (.-target-entity field) true)]
+              [{"kind" "column" "name" internal-name}
+               [column]
+               (+ next-column 1)])))
+      (= kind "literal")
+        (do
+          (if (not (provider-literal-compatible? (get raw "value") expected))
+            (graph-error (str label " literal is incompatible with provider input type"))
+            nil)
+          [{"kind" "literal" "value" (get raw "value")} [] next-column])
+      (= kind "record")
+        (do
+          (if (not (= (get expected "kind") "record"))
+            (graph-error (str label " record is incompatible with provider input type"))
+            nil)
+          (let [raw-fields (or (get raw "fields") [])
+                expected-fields (or (get expected "fields") [])]
+            (doseq [field raw-fields]
+              (if (nil? (descriptor-field expected (get field "name")))
+                (graph-error
+                  (str label " contains unknown provider input field '"
+                       (get field "name") "'"))
+                nil))
+            (doseq [field expected-fields]
+              (if (and (= (get field "required") true)
+                       (nil?
+                         (first
+                           (filterv
+                             (fn [candidate]
+                               (= (get candidate "name") (get field "name")))
+                             raw-fields))))
+                (graph-error
+                  (str label " requires provider input field '"
+                       (get field "name") "'"))
+                nil))
+            (loop [remaining: Any raw-fields
+                   fields: Any []
+                   columns: Any []
+                   next: Int next-column]
+              (if (= (count remaining) 0)
+                [{"kind" "record" "fields" fields} columns next]
+                (let [field (first remaining)
+                      field-name (get field "name")
+                      checked
+                      (analyze-provider-input
+                        (get field "value")
+                        (get (descriptor-field expected field-name) "value")
+                        binding-entities provider-index next
+                        (str label "." field-name))]
+                  (recur
+                    (rest remaining)
+                    (conj fields {"name" field-name "value" (nth checked 0)})
+                    (into columns (nth checked 1))
+                    (nth checked 2)))))))
+      :else (graph-error (str label " has unknown provider input expression '" kind "'")))))
+
+(defn analyze-query-column
+  [selection: Any
+   binding-entities: Any
+   label: String
+   internal: Bool] -> GQueryColumn
+  (let [entity (get binding-entities (.-binding selection))]
+    (if (nil? entity)
+      (graph-error
+        (str label " output '" (.-name selection)
+             "' names unknown binding '" (.-binding selection) "'"))
+      nil)
+    (let [field (query-field entity (.-field selection) label)]
+      (->GQueryColumn
+        (.-name selection) (.-binding selection) (.-name entity)
+        (.-name field) (.-type field) (.-cardinality field)
+        (.-value-kind field) (.-target-entity field) internal))))
+
+(defn analyze-query-selections
+  [selections: Any
+   binding-entities: Any
+   providers: Any
+   label: String] -> Any
+  (loop [remaining: Any selections
+         provider-index: Int 0
+         columns: Any []
+         public-columns: Any []
+         result-providers: Any []
+         output-names: (Vec String) []]
+    (if (= (count remaining) 0)
+      [columns public-columns result-providers]
+      (let [selection (first remaining)
+            tag (.-_tag selection)
+            output-name (.-name selection)]
+        (if (.includes output-names output-name)
+          (graph-error (str label " output '" output-name "' is duplicated"))
+          nil)
+        (if (= tag "IrQueryProvided")
+          (let [provider-name (.-provider selection)
+                provider (provider-named providers provider-name)]
+            (if (nil? provider)
+              (graph-error
+                (str label " output '" output-name
+                     "' names unbound provider '" provider-name "'"))
+              nil)
+            (if (>= provider-index 16)
+              (graph-error (str label " supports at most 16 provider results"))
+              nil)
+            (if (not (= (get (.-output-type provider) "kind") "bounded"))
+              (graph-error
+                (str label " provider '" provider-name
+                     "' output must be a bounded checked value"))
+              nil)
+            (let [checked
+                  (analyze-provider-input
+                    (.-input selection)
+                    (.-input-type provider)
+                    binding-entities provider-index 0
+                    (str label " provider output '" output-name "' input"))
+                  internal-columns (nth checked 1)
+                  result-provider
+                  (->GQueryResultProvider
+                    output-name provider-name (nth checked 0)
+                    (.-input-type provider) (.-output-type provider))]
+              (recur
+                (rest remaining)
+                (+ provider-index 1)
+                (into columns internal-columns)
+                public-columns
+                (conj result-providers result-provider)
+                (conj output-names output-name))))
+          (if (= tag "IrQuerySelect")
+            (let [column
+                  (analyze-query-column selection binding-entities label false)]
+              (recur
+                (rest remaining)
+                provider-index
+                (conj columns column)
+                (conj public-columns column)
+                result-providers
+                (conj output-names output-name)))
+            (graph-error (str label " contains an unexpanded query projection"))))))))
+
 (defn analyze-query
   [raw: IrQuery
    entities: (Vec GEntity)
-   defstates: (Vec IrDefstate)] -> GQuery
+   defstates: (Vec IrDefstate)
+   providers: Any] -> GQuery
   (let [name (.-name raw)
         label (str "query '" name "'")
         entities-by-name
@@ -1064,27 +1300,18 @@
             (fn [binding]
               (->GQueryBinding (.-name binding) (.-entity-name binding)))
             raw-bindings)
-          columns
-          (mapv
-            (fn [selection]
-              (let [entity (get binding-entities (.-binding selection))]
-                (if (nil? entity)
-                  (graph-error
-                    (str label " output '" (.-name selection)
-                         "' names unknown binding '" (.-binding selection) "'"))
-                  nil)
-                (let [field (query-field entity (.-field selection) label)]
-                  (->GQueryColumn
-                    (.-name selection) (.-binding selection) (.-name entity)
-                    (.-name field) (.-type field) (.-cardinality field)
-                    (.-value-kind field) (.-target-entity field)))))
-            (.-selection raw))
-          output-names
-          (query-name-map columns (fn [column] (.-name column))
-                          (str label " output"))
+          analyzed-selection
+          (analyze-query-selections
+            (.-selection raw) binding-entities providers label)
+          columns (nth analyzed-selection 0)
+          public-columns (nth analyzed-selection 1)
+          result-providers (nth analyzed-selection 2)
           root-binding (first raw-bindings)
           root-entity (get binding-entities (.-name root-binding))
-          first-column (first columns)
+          first-column
+          (if (> (count public-columns) 0)
+            (first public-columns)
+            (graph-error (str label " must expose at least one ordinary field output")))
           result-kind (.-result-kind raw)
           page (.-page raw)]
       (doseq [parameter raw-params]
@@ -1124,6 +1351,9 @@
                    predicates)))
         (graph-error (str label " singular result must constrain its root identity"))
         nil)
+      (if (and (= result-kind "page") (> (count result-providers) 0))
+        (graph-error (str label " paged results cannot derive provider outputs"))
+        nil)
       (if (and (= result-kind "page")
                (some?
                  (first
@@ -1142,6 +1372,7 @@
         checked-bindings
         predicates
         columns
+        result-providers
         result-kind
         (if (some? page) (.-default-limit page) nil)
         (if (some? page) (.-max-limit page) nil)
@@ -1156,7 +1387,10 @@
       (graph-error "named queries require (backend :fram)")
       nil)
     (query-name-map queries (fn [query] (.-name query)) "query")
-    (mapv (fn [query] (analyze-query query entities defstates)) queries)))
+    (mapv
+      (fn [query]
+        (analyze-query query entities defstates (or (.-providers prog) [])))
+      queries)))
 
 (defn query-named [queries: (Vec GQuery) name: String] -> GQuery?
   (first (filterv (fn [query] (= (.-name query) name)) queries)))
@@ -1211,19 +1445,31 @@
           (let [columns
                 (reduce
                   (fn [result resolved]
-                    (reduce
-                      (fn [names column]
-                        (let [prefix (.-prefix (get resolved :reference))
-                              name
+                    (let [query (get resolved :query)
+                          public-column-names
+                          (mapv
+                            (fn [column] (.-name column))
+                            (filterv
+                              (fn [column] (not (.-internal column)))
+                              (.-columns query)))
+                          provider-result-names
+                          (mapv
+                            (fn [provider] (.-name provider))
+                            (or (.-result-providers query) []))]
+                      (reduce
+                        (fn [names output-name]
+                          (let [prefix (.-prefix (get resolved :reference))
+                              projected-name
                               (if (nil? prefix)
-                                (.-name column)
-                                (str prefix "-" (.-name column)))]
-                          (if (.includes names name)
-                            (graph-error
-                              (str label " query projections collide on '" name "'"))
-                            (conj names name))))
-                      result
-                      (.-columns (get resolved :query))))
+                                output-name
+                                (str prefix "-" output-name))]
+                            (if (.includes names projected-name)
+                              (graph-error
+                                (str label " query projections collide on '"
+                                     projected-name "'"))
+                              (conj names projected-name))))
+                        result
+                        (into public-column-names provider-result-names))))
                   [] resolved-queries)
                 missing
                 (filterv
@@ -1306,6 +1552,8 @@
       (or (.-plugin-closure prog) [])
       (.-semantic-fingerprint prog)
       (or (.-providers prog) [])
+      (or (.-value-types prog) [])
+      (or (.-provider-ports prog) [])
       (or (.-extends prog) [])
       (or (.-fills prog) [])
       (or (.-mounts prog) [])

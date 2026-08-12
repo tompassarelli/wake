@@ -154,9 +154,20 @@
          :type (.-type column)
          :cardinality (.-cardinality column)
          :valueKind (.-value-kind column)}]
-    (if (= (.-value-kind column) "ref")
-      (assoc plan :targetEntity (.-target-entity column))
-      plan)))
+    (let [checked-plan
+          (if (= (.-value-kind column) "ref")
+            (assoc plan :targetEntity (.-target-entity column))
+            plan)]
+      (if (.-internal column)
+        (assoc checked-plan :internal true)
+        checked-plan))))
+
+(defn query-result-provider-plan [provider: Any] -> Any
+  {:name (.-name provider)
+   :provider (.-provider provider)
+   :input (.-input provider)
+   :inputType (.-input-type provider)
+   :outputType (.-output-type provider)})
 
 (defn query-result-plan [query: Any] -> Any
   (if (= (.-result-kind query) "page")
@@ -183,7 +194,8 @@
      (.-bindings query))
    :where (mapv query-predicate-plan (.-predicates query))
    :select (mapv query-column-plan (.-columns query))
-   :resultProviders (or (.-result-providers query) [])
+   :resultProviders
+   (mapv query-result-provider-plan (or (.-result-providers query) []))
    :result (query-result-plan query)
    :dependencies
    (mapv
