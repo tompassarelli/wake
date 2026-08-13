@@ -144,10 +144,14 @@ function coreReceipt(program, label) {
 }
 
 function validateReceipt(program, canonical, label) {
+  const hasReceipt = program.receipt_entity !== null
+    || program.receipt_fields.length !== 0;
+  if (program.commands.length === 0 && !hasReceipt) return canonical;
   const receipt = coreReceipt(program, label);
-  if (!exactSemantic(receipt, canonical)) {
-    fail(`${label} diverges from the application command receipt core`);
+  if (canonical !== null && !exactSemantic(receipt, canonical)) {
+    fail(`${label} diverges from the linked command receipt core`);
   }
+  return canonical ?? receipt;
 }
 
 function declarationIndex(program, label) {
@@ -861,13 +865,7 @@ export function linkCheckedDeclarations({ application, plugins, compilerVersion 
   const applicationProgram = declarationProgram(
     application, "IrApplicationDeclarationRoot", "application",
   );
-  const applicationNeedsReceipt = applicationProgram.commands.length !== 0
-    || applicationProgram.root.application.plugins.length !== 0
-    || applicationProgram.receipt_entity !== null
-    || applicationProgram.receipt_fields.length !== 0;
-  const applicationReceipt = applicationNeedsReceipt
-    ? coreReceipt(applicationProgram, "application")
-    : null;
+  let canonicalReceipt = validateReceipt(applicationProgram, null, "application");
   const receiptDeclarations = new Map();
   const claimReceiptFields = (program, label) => {
     for (const field of program.receipt_fields) {
@@ -906,7 +904,9 @@ export function linkCheckedDeclarations({ application, plugins, compilerVersion 
       const pluginProgram = declarationProgram(
         suppliedPlugin.checked, "IrPluginDeclarationRoot", `${label} checked source`,
       );
-      validateReceipt(pluginProgram, applicationReceipt, `${label} checked source`);
+      canonicalReceipt = validateReceipt(
+        pluginProgram, canonicalReceipt, `${label} checked source`,
+      );
       claimReceiptFields(pluginProgram, label);
       const declared = declarationIndex(pluginProgram, label);
       prepared = {

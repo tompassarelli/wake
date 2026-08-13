@@ -182,6 +182,16 @@ function replaceFirstValueRole(state, type, value) {
   state.application.program.root.application.plugins[0].use.bindings.values[0].value = value;
 }
 
+function removeReceipt(program) {
+  program.receipt_entity = null;
+  program.receipt_fields = [];
+}
+
+function removePluginCommands(program) {
+  program.commands = [];
+  program.root.plugin.exports.commands = [];
+}
+
 function comprehensiveValue(state) {
   const program = state.plugin.program;
   const configuration = program.root.plugin.configuration;
@@ -326,6 +336,42 @@ test("rejects record, tagged, list, scalar, literal, and envelope violations", (
 test("accepts the canonical decoded macro-provenance bindings unchanged", () => {
   const linked = linkWith();
   assert.equal(linked.plugins[0].use.bindings.values.length, 2);
+});
+
+test("links receiptless commandless application and plugin programs", () => {
+  const linked = linkWith((state) => {
+    removeReceipt(state.application.program);
+    removeReceipt(state.plugin.program);
+    state.application.program.commands = [];
+    removePluginCommands(state.plugin.program);
+  });
+  assert.equal(linked._tag, "IrLinkedDeclarationProgram");
+  assert.equal(linked.plugins.length, 1);
+});
+
+test("adopts a plugin receipt core when the application has none", () => {
+  const linked = linkWith((state) => {
+    removeReceipt(state.application.program);
+    state.application.program.commands = [];
+  });
+  assert.equal(linked._tag, "IrLinkedDeclarationProgram");
+  assert.equal(linked.plugins.length, 1);
+});
+
+test("rejects a command-bearing plugin without a receipt core", () => {
+  assert.throws(
+    () => linkWith((state) => removeReceipt(state.plugin.program)),
+    /checked source lacks the sealed command receipt entity/u,
+  );
+});
+
+test("rejects a plugin receipt core that diverges from the application", () => {
+  assert.throws(
+    () => linkWith((state) => {
+      state.plugin.program.receipt_entity.storage_id = "wake/core/entity/divergent-receipt";
+    }),
+    /checked source diverges from the linked command receipt core/u,
+  );
 });
 
 test("requires exact nominal references and fails closed on unsupported constructors", () => {
