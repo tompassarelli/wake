@@ -2,6 +2,8 @@ name: ci
 
 on:
   push:
+    branches:
+      - main
   pull_request:
 
 jobs:
@@ -27,7 +29,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: tompassarelli/beagle
-          ref: 1eea5d3fd2380cb2afeedb1b9e2a08f73425d45d
+          ref: 073f23a67b7fc93d86fbf60dcc1a821343dbb137
           path: .beagle
 
       - name: Link Beagle packages
