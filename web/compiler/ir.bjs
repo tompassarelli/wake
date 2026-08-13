@@ -1,8 +1,8 @@
 #lang beagle/js
 (ns wake.ir)
 
-;; IR data structures for the Wake compiler.
-;; Produced by the reader, consumed by codegen.
+;; Typed declaration and checked graph data for the Wake compiler.
+;; Produced by Beagle source compilation and consumed by semantic lowering.
 
 (defrecord SourceSpan
   [(source-id String)
@@ -693,6 +693,30 @@
 (defrecord IrCheckedDeclarationProgram
   [(program IrDeclarationProgram)
    (declaration-provenance (Vec IrDeclarationProvenance))])
+
+;; Linking never erases checked declaration identity into a flattened program.
+;; The exact checked programs and package evidence travel together until the
+;; graph has resolved every nominal edge.
+(defrecord IrPluginArtifactEvidence
+  [(package-id String)
+   (version String)
+   (artifact-digest String)
+   (source-kind String)
+   (source-revision String)
+   (artifact-path String)
+   (entry-path String)
+   (configuration-digest String)
+   (durable-schema-version Int)
+   (migration-ordinal Int)])
+(defrecord IrLinkedPluginInstance
+  [(alias String)
+   (use IrPluginUseSpec)
+   (composition IrPluginComposition)
+   (checked IrCheckedDeclarationProgram)
+   (evidence IrPluginArtifactEvidence)])
+(defrecord IrLinkedDeclarationProgram
+  [(application IrCheckedDeclarationProgram)
+   (plugins (Vec IrLinkedPluginInstance))])
 
 (defrecord IrApplication [(id String) (span SourceSpan)])
 (defrecord IrUseConfig [(key String) (value Any)])
