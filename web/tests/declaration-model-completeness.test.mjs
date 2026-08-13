@@ -173,6 +173,7 @@ test("public declarations represent every wiki value and composition invariant",
   expect(publicForm(program, "FieldWriteMode").members).toEqual([
     "IdentityWrite",
     "CreateWrite",
+    "SetWrite",
     "CommandFieldWrite",
     "ServerWrite",
   ]);
@@ -267,7 +268,7 @@ test("public declarations represent every wiki value and composition invariant",
   });
   expect(fields(publicForm(program, "EntityFieldsPortSpec"))).toEqual([
     ["ref", prim("EntityFieldsPortRef")],
-    ["target", prim("EntityRef")],
+    ["target", prim("EntityFieldsTarget")],
     ["requirements", vec("FieldRequirement")],
     ["policy", prim("EntityFieldsPortPolicy")],
   ]);
@@ -282,6 +283,10 @@ test("public declarations represent every wiki value and composition invariant",
     ["identities", vec("IdentitySpec")],
     ["plugins", vec("PluginComposition")],
     ["default-route", optional("DefaultRouteTarget")],
+    ["theme", optional("ThemeSpec")],
+    ["publications", vec("PublicationRef")],
+    ["forms", vec("FormRef")],
+    ["list-details", vec("ListDetailRef")],
   ]);
   expect(fields(publicForm(program, "PluginSpec"))).toEqual([
     ["identity", prim("PluginIdentity")],
@@ -320,6 +325,9 @@ test("internal declaration program is closed and mirrors the public model", () =
     ["root", prim("IrDeclarationRoot")],
     ["entities", vec("IrEntityDeclarationSpec")],
     ["states", vec("IrStateDeclarationSpec")],
+    ["publications", vec("IrPublicationDeclarationSpec")],
+    ["forms", vec("IrFormDeclarationSpec")],
+    ["list-details", vec("IrListDetailDeclarationSpec")],
     ["value-types", vec("IrValueTypeDeclarationSpec")],
     ["provider-ports", vec("IrProviderPortSpec")],
     ["renderers", vec("IrRendererSpec")],
@@ -332,9 +340,11 @@ test("internal declaration program is closed and mirrors the public model", () =
     ["entity-fields-ports", vec("IrEntityFieldsPortSpec")],
     ["component-slots", vec("IrComponentSlotSpec")],
     ["route-slots", vec("IrRouteSlotSpec")],
+    ["receipt-entity", optional("IrReceiptEntitySpec")],
+    ["receipt-fields", vec("IrReceiptFieldDeclarationSpec")],
   ]);
   const graph = reachableTypes(program, "IrDeclarationProgram");
-  expect(graph.reached.size).toBe(141);
+  expect(graph.reached.size).toBe(167);
   expect(graph.encountered.has("Any")).toBeFalse();
 
   expect(fields(internalForm(program, "IrCheckedDeclarationProgram"))).toEqual([

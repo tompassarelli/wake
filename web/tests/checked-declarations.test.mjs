@@ -44,7 +44,7 @@ function checkedBundle(entrySourceId, sources) {
     cwd: repositoryRoot,
     stdin: Buffer.from(JSON.stringify({
       kind: "beagle.checked-bundle.request",
-      schemaVersion: 1,
+      schemaVersion: 2,
       entrySourceId,
       sources,
     })),
@@ -166,11 +166,11 @@ test("decodes exact plugin and application declaration graphs with source sideca
     component_slots: [{ ref: { declaration_id: "component-slot/article-card" } }],
     route_slots: [{ ref: { declaration_id: "route-slot/history" } }],
   });
-  expect(plugin.declaration_provenance).toHaveLength(28);
+  expect(plugin.declaration_provenance).toHaveLength(30);
   expect(plugin.declaration_provenance[0]).toMatchObject({
     _tag: "IrDeclarationProvenance",
-    kind: "defcapability",
-    name: "browse-published",
+    kind: "command-receipt-core",
+    name: "wake-command-receipt",
     provenance: {
       source: { source_id: sourceIds.plugin },
       span: { start_line: 5, start_column: 1 },
@@ -196,7 +196,7 @@ test("decodes exact plugin and application declaration graphs with source sideca
       }],
     },
   });
-  expect(application.declaration_provenance).toHaveLength(23);
+  expect(application.declaration_provenance).toHaveLength(30);
 });
 
 test("requires the sealed compiler-owned provider, interface, and complete closure", () => {
