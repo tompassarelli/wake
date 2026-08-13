@@ -1,25 +1,18 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://wake.invalid/contracts/wake-plugin-v1.schema.json",
-  "title": "Wake Plugin Manifest v1",
+  "title": "Wake Plugin Package Envelope v1",
+  "description": "Transport metadata for a checked Beagle plugin package. Plugin semantics live only in the checked PluginSpec declarations named by entry and sources.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "compatibleWake",
-    "configuration",
-    "contributions",
-    "dependencies",
     "durableSchemaVersion",
     "entry",
-    "exports",
-    "extensionPorts",
-    "migrations",
     "packageId",
     "pluginAbiVersion",
-    "requiredHostCapabilities",
     "schemaVersion",
     "sources",
-    "storageIds",
     "version"
   ],
   "properties": {
@@ -28,100 +21,13 @@
     "version": { "$ref": "#/$defs/version" },
     "pluginAbiVersion": { "const": 1 },
     "compatibleWake": { "$ref": "#/$defs/version" },
+    "durableSchemaVersion": { "type": "integer", "minimum": 1 },
     "entry": { "$ref": "#/$defs/source-path" },
     "sources": {
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/source-path" }
-    },
-    "dependencies": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["packageId", "version"],
-        "properties": {
-          "packageId": { "$ref": "#/$defs/name" },
-          "version": { "$ref": "#/$defs/version" }
-        }
-      }
-    },
-    "contributions": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {
-        "enum": ["schema", "query", "command", "capability", "ui", "route"]
-      }
-    },
-    "configuration": {
-      "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/configuration" }
-    },
-    "exports": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "capabilities",
-        "commands",
-        "components",
-        "entities",
-        "providerPorts",
-        "queries",
-        "routes"
-      ],
-      "properties": {
-        "capabilities": { "$ref": "#/$defs/names" },
-        "commands": { "$ref": "#/$defs/names" },
-        "components": { "$ref": "#/$defs/names" },
-        "entities": { "$ref": "#/$defs/names" },
-        "providerPorts": { "$ref": "#/$defs/names" },
-        "queries": { "$ref": "#/$defs/names" },
-        "routes": { "$ref": "#/$defs/names" },
-        "states": { "$ref": "#/$defs/names" },
-        "valueTypes": { "$ref": "#/$defs/names" }
-      }
-    },
-    "extensionPorts": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["accepts", "cardinality", "kind", "name", "target"],
-        "properties": {
-          "accepts": { "$ref": "#/$defs/names" },
-          "cardinality": { "enum": ["one", "many"] },
-          "kind": { "enum": ["entity-fields", "component-slot", "route-slot"] },
-          "name": { "$ref": "#/$defs/name" },
-          "target": { "$ref": "#/$defs/name" }
-        }
-      }
-    },
-    "requiredHostCapabilities": { "$ref": "#/$defs/names" },
-    "storageIds": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["entities", "fields"],
-      "properties": {
-        "entities": { "$ref": "#/$defs/storage-map" },
-        "fields": { "$ref": "#/$defs/storage-map" }
-      }
-    },
-    "durableSchemaVersion": { "type": "integer", "minimum": 1 },
-    "migrations": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["command", "fromVersion", "ordinal", "toVersion"],
-        "properties": {
-          "command": { "$ref": "#/$defs/name" },
-          "fromVersion": { "type": "integer", "minimum": 0 },
-          "ordinal": { "type": "integer", "minimum": 1 },
-          "toVersion": { "type": "integer", "minimum": 1 }
-        }
-      }
     }
   },
   "$defs": {
@@ -139,110 +45,6 @@
         { "$ref": "#/$defs/path" },
         { "pattern": "\\.bjs$" }
       ]
-    },
-    "names": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": { "$ref": "#/$defs/name" }
-    },
-    "configuration": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["required", "type"],
-      "properties": {
-        "required": { "type": "boolean" },
-        "type": { "$ref": "#/$defs/configuration-type" }
-      }
-    },
-    "configuration-type": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind"],
-          "properties": {
-            "kind": { "const": "string" },
-            "minLength": { "type": "integer", "minimum": 0 },
-            "maxLength": { "type": "integer", "minimum": 0 },
-            "maxBytes": { "type": "integer", "minimum": 0 }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind"],
-          "properties": {
-            "kind": { "const": "integer" },
-            "minimum": { "type": "integer" },
-            "maximum": { "type": "integer" }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kind"],
-          "properties": { "kind": { "enum": ["boolean", "keyword"] } }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["declarationKind", "kind"],
-          "allOf": [{
-            "if": { "required": ["declarationId"] },
-            "then": {
-              "properties": {
-                "declarationKind": { "enum": ["entity", "field", "state"] }
-              }
-            }
-          }],
-          "properties": {
-            "kind": { "const": "symbol" },
-            "declarationKind": {
-              "enum": [
-                "capability",
-                "command",
-                "component",
-                "entity",
-                "field",
-                "provider-port",
-                "query",
-                "route",
-                "state",
-                "value-type"
-              ]
-            },
-            "declarationId": { "$ref": "#/$defs/name" }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["closed", "fields", "kind"],
-          "properties": {
-            "kind": { "const": "record" },
-            "closed": { "const": true },
-            "fields": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["name", "required", "type"],
-                "properties": {
-                  "name": { "$ref": "#/$defs/name" },
-                  "required": { "type": "boolean" },
-                  "type": { "$ref": "#/$defs/configuration-type" }
-                }
-              }
-            }
-          }
-        }
-      ]
-    },
-    "storage-map": {
-      "type": "object",
-      "minProperties": 1,
-      "propertyNames": { "$ref": "#/$defs/name" },
-      "additionalProperties": { "$ref": "#/$defs/name" }
     }
   }
 }

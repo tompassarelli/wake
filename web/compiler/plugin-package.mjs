@@ -5,10 +5,6 @@ import {
 } from "./canonical.mjs";
 import { constants as fileConstants } from "node:fs";
 import fileSystemPromises from "node:fs/promises";
-import {
-  configurationDeclarationDescriptors,
-  validateConfigurationSchema,
-} from "./plugin-configuration.mjs";
 
 const PACKAGE_SCHEMA_VERSION = 1;
 const PLUGIN_ABI_VERSION = 1;
@@ -27,14 +23,6 @@ const FORBIDDEN_TEXT_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u
 const textDecoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 const textEncoder = new TextEncoder();
 const NO_ERROR = Symbol("no error");
-const CONTRIBUTIONS = new Set([
-  "schema",
-  "query",
-  "command",
-  "capability",
-  "ui",
-  "route",
-]);
 
 function fail(message) {
   throw new TypeError(`wake plugin: ${message}`);
@@ -136,95 +124,15 @@ function uniqueStrings(value, label) {
   return value;
 }
 
-function validateConfiguration(value) {
-  validateConfigurationSchema(value, "manifest.configuration", fail);
-}
-
-function validateConfigurationDeclarations(manifest) {
-  for (const descriptor of configurationDeclarationDescriptors(manifest.configuration)) {
-    const { declarationId, declarationKind, path } = descriptor;
-    if (declarationKind === "entity" && !(declarationId in manifest.storageIds.entities)) {
-      fail(`manifest.configuration.${path}.type.declarationId names unknown entity '${declarationId}'`);
-    }
-    if (declarationKind === "field" && !(declarationId in manifest.storageIds.fields)) {
-      fail(`manifest.configuration.${path}.type.declarationId names unknown field '${declarationId}'`);
-    }
-  }
-}
-
-function validateExports(value) {
-  if (!plainObject(value)) fail("manifest.exports must be an object");
-  const allowed = new Set([
-    "capabilities",
-    "commands",
-    "components",
-    "entities",
-    "providerPorts",
-    "queries",
-    "routes",
-    "states",
-    "valueTypes",
-  ]);
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) fail(`manifest.exports contains unknown category ${key}`);
-    uniqueStrings(value[key], `manifest.exports.${key}`);
-  }
-  for (const required of ["capabilities", "commands", "components", "entities", "providerPorts", "queries", "routes"]) {
-    if (!(required in value)) fail(`manifest.exports requires ${required}`);
-  }
-}
-
-function validateExtensionPorts(value) {
-  if (!Array.isArray(value)) fail("manifest.extensionPorts must be an array");
-  const names = new Set();
-  for (const [index, port] of value.entries()) {
-    const label = `manifest.extensionPorts[${index}]`;
-    exactKeys(port, ["accepts", "cardinality", "kind", "name", "target"], label);
-    nonempty(port.name, `${label}.name`);
-    nonempty(port.target, `${label}.target`);
-    if (names.has(port.name)) fail(`manifest.extensionPorts repeats ${port.name}`);
-    names.add(port.name);
-    uniqueStrings(port.accepts, `${label}.accepts`);
-    if (!new Set(["entity-fields", "component-slot", "route-slot"]).has(port.kind)) {
-      fail(`${label}.kind is not supported`);
-    }
-    if (!new Set(["one", "many"]).has(port.cardinality)) {
-      fail(`${label}.cardinality must be one or many`);
-    }
-  }
-}
-
-function validateStorageIds(value) {
-  exactKeys(value, ["entities", "fields"], "manifest.storageIds");
-  const all = new Set();
-  for (const [kind, entries] of Object.entries(value)) {
-    if (!plainObject(entries)) fail(`manifest.storageIds.${kind} must be an object`);
-    for (const [role, storageId] of Object.entries(entries)) {
-      nonempty(role, `manifest.storageIds.${kind} role`);
-      nonempty(storageId, `manifest.storageIds.${kind}.${role}`);
-      if (all.has(storageId)) fail(`manifest.storageIds repeats ${storageId}`);
-      all.add(storageId);
-    }
-  }
-}
-
 export function validatePluginManifest(value) {
   exactKeys(value, [
     "compatibleWake",
-    "configuration",
-    "contributions",
-    "dependencies",
     "durableSchemaVersion",
     "entry",
-    "exports",
-    "extensionPorts",
-    "migrations",
     "packageId",
     "pluginAbiVersion",
-    "requiredHostCapabilities",
     "schemaVersion",
     "sources",
-    "storageIds",
     "version",
   ], "manifest");
   if (value.schemaVersion !== PACKAGE_SCHEMA_VERSION) fail("manifest schemaVersion must be 1");
@@ -243,31 +151,9 @@ export function validatePluginManifest(value) {
     fail("manifest.sources must be in canonical path order");
   }
   if (!sources.includes(value.entry)) fail("manifest.entry must be listed in manifest.sources");
-  const contributions = uniqueStrings(value.contributions, "manifest.contributions");
-  for (const contribution of contributions) {
-    if (!CONTRIBUTIONS.has(contribution)) fail(`manifest has unknown contribution ${contribution}`);
-  }
-  if (!Array.isArray(value.dependencies)) fail("manifest.dependencies must be an array");
-  for (const [index, dependency] of value.dependencies.entries()) {
-    exactKeys(dependency, ["packageId", "version"], `manifest.dependencies[${index}]`);
-    nonempty(dependency.packageId, `manifest.dependencies[${index}].packageId`);
-    exactVersion(dependency.version, `manifest.dependencies[${index}].version`);
-  }
-  validateConfiguration(value.configuration);
-  validateExports(value.exports);
-  validateExtensionPorts(value.extensionPorts);
-  uniqueStrings(value.requiredHostCapabilities, "manifest.requiredHostCapabilities");
-  validateStorageIds(value.storageIds);
-  validateConfigurationDeclarations(value);
-  for (const entity of value.exports.entities) {
-    if (!(entity in value.storageIds.entities)) {
-      fail(`manifest.storageIds.entities is missing exported entity ${entity}`);
-    }
-  }
   if (!Number.isSafeInteger(value.durableSchemaVersion) || value.durableSchemaVersion < 1) {
     fail("manifest.durableSchemaVersion must be a positive integer");
   }
-  if (!Array.isArray(value.migrations)) fail("manifest.migrations must be an array");
   if (textEncoder.encode(canonicalDocument(value)).byteLength > MAX_MANIFEST_BYTES) {
     fail(`manifest exceeds ${MAX_MANIFEST_BYTES} UTF-8 bytes`);
   }

@@ -16,9 +16,10 @@ The application owns storage authority, actor identity, policy grants, concrete
 routes, content-provider implementation, and product-specific limits. Importing
 the plugin grants nothing and mounts nothing.
 
-`plugin.bjs` is the authored Beagle entry. `wake-plugin.json` is the package
-envelope. Storage identity is explicit and never derived from aliases, labels,
-versions, hostnames, or route paths.
+`plugin.bjs` is the authored Beagle entry and sole semantic authority.
+`wake-plugin.json` contains only package identity, compatibility, and source
+paths. Storage identity is explicit in the checked source and is never derived
+from aliases, labels, versions, hostnames, or route paths.
 
 The provider/client value contract is frozen in
 `wake:web/plugins/wiki/SAFE-DOCUMENT.md`. From this package directory, run:

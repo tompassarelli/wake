@@ -52,25 +52,30 @@ describe("W0C frozen compiler contracts", () => {
     );
     expect(authoredSourcePattern.test("plugin.bjs")).toBe(true);
     expect(authoredSourcePattern.test("plugin.wake")).toBe(false);
+    expect(pluginSchema.required).toEqual([
+      "compatibleWake",
+      "durableSchemaVersion",
+      "entry",
+      "packageId",
+      "pluginAbiVersion",
+      "schemaVersion",
+      "sources",
+      "version",
+    ]);
   });
 
   test("packs one neutral plugin into byte-identical canonical bytes", async () => {
     const manifest = (await canonicalAt(`${fixtureRoot}/wake-plugin.json`)).value;
     expect(validatePluginManifest(manifest)).toBe(manifest);
-    expect(manifest.contributions).toEqual([
-      "schema",
-      "query",
-      "command",
-      "capability",
-      "ui",
-      "route",
-    ]);
-    expect(manifest.storageIds).toEqual({
-      entities: { release: "wake-neutral-release/entity/release" },
-      fields: {
-        "release/id": "wake-neutral-release/field/release/id",
-        "release/state": "wake-neutral-release/field/release/state",
-      },
+    expect(manifest).toEqual({
+      compatibleWake: "0.1.0",
+      durableSchemaVersion: 1,
+      entry: "plugin.bjs",
+      packageId: "wake-neutral-release",
+      pluginAbiVersion: 1,
+      schemaVersion: 1,
+      sources: ["plugin.bjs"],
+      version: "0.1.0",
     });
 
     const first = await packPlugin(fixtureRoot);
@@ -91,7 +96,7 @@ describe("W0C frozen compiler contracts", () => {
     ]);
     expect(first.artifact.files[0]).toMatchObject({
       mode: "text",
-      path: "plugin.wake",
+      path: "plugin.bjs",
     });
     expect(first.artifact.files[0].sha256)
       .toBe(sha256Digest(first.artifact.files[0].content));
@@ -156,14 +161,4 @@ describe("W0C frozen compiler contracts", () => {
     expect(manifest.value.artifacts).not.toHaveProperty("manifest");
   });
 
-  test("requires fixed storage identity distinct from mutable lexical names", async () => {
-    const { value } = await canonicalAt(`${fixtureRoot}/wake-plugin.json`);
-    const changed = structuredClone(value);
-    delete changed.storageIds.entities.release;
-    expect(() => validatePluginManifest(changed))
-      .toThrow("manifest.storageIds.entities is missing exported entity release");
-    expect(value.storageIds.entities.release).not.toBe("release");
-    expect(value.storageIds.fields["release/id"])
-      .not.toBe("id");
-  });
 });

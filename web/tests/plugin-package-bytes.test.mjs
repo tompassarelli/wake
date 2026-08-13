@@ -41,28 +41,12 @@ const validSource = "#lang beagle/js\n(ns wake.tests.plugin-bytes)\n";
 function manifest(sources = ["plugin.bjs"], entry = "plugin.bjs") {
   return {
     compatibleWake: "0.1.0",
-    configuration: {},
-    contributions: [],
-    dependencies: [],
     durableSchemaVersion: 1,
     entry,
-    exports: {
-      capabilities: [],
-      commands: [],
-      components: [],
-      entities: [],
-      providerPorts: [],
-      queries: [],
-      routes: [],
-    },
-    extensionPorts: [],
-    migrations: [],
     packageId: "wake-plugin-bytes-test",
     pluginAbiVersion: 1,
-    requiredHostCapabilities: [],
     schemaVersion: 1,
     sources,
-    storageIds: { entities: {}, fields: {} },
     version: "0.1.0",
   };
 }
@@ -99,6 +83,33 @@ function sharedPrefixSources(depths) {
 }
 
 describe("plugin package raw-byte boundary", () => {
+  test("accepts only the transport envelope", () => {
+    const exact = manifest();
+    expect(Object.keys(validatePluginManifest(exact)).sort()).toEqual([
+      "compatibleWake",
+      "durableSchemaVersion",
+      "entry",
+      "packageId",
+      "pluginAbiVersion",
+      "schemaVersion",
+      "sources",
+      "version",
+    ]);
+    for (const semanticKey of [
+      "configuration",
+      "contributions",
+      "dependencies",
+      "exports",
+      "extensionPorts",
+      "migrations",
+      "requiredHostCapabilities",
+      "storageIds",
+    ]) {
+      expect(() => validatePluginManifest({ ...exact, [semanticKey]: [] }))
+        .toThrow("manifest must contain exactly");
+    }
+  });
+
   test("snapshots exact source bytes in canonical member order", async () => {
     const sourceA = `${validSource}(def label: String "界面")\n`;
     const sourceB = `${validSource}(def count: Int 2)\n`;
