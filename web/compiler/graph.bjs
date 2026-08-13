@@ -1574,8 +1574,13 @@
       false [] nil)))
 
 (defn receipt-entity
-  [(application IrDeclarationProgram) (plugins (Vec LoweredPlugin))] GEntity?
-  (let [sources
+  [(application IrDeclarationProgram)
+   (plugins (Vec LoweredPlugin))
+   (commands (Vec Any))]
+  GEntity?
+  (if (= (count commands) 0)
+    nil
+    (let [sources
         (reduce
           (fn [result plugin] (Vec Any)
             (conj result
@@ -1628,7 +1633,7 @@
               (fn [(field GField)] Bool (= (.-value-kind field) "ref"))
               fields)
             identity
-            "wake.core/command-receipts"))))))
+            "wake.core/command-receipts")))))))
 
 (defn extension-target-name
   [(port IrEntityFieldsPortSpec) (resolver DeclarationResolver)] String
@@ -4389,7 +4394,12 @@
               (lower-command
                 command program application-resolver plugin-extensions))
             (.-commands program))
-          receipt (receipt-entity program plugins)
+          combined-commands
+          (reduce
+            (fn [result plugin] (Vec Any)
+              (into result (.-commands plugin)))
+            application-commands plugins)
+          receipt (receipt-entity program plugins combined-commands)
           entities-before-extensions
           (let [declared
                 (reduce
@@ -4499,10 +4509,7 @@
                 (lower-query query program application-resolver []))
               (.-queries program))
             plugins)
-          (reduce
-            (fn [result plugin] (Vec Any)
-              (into result (.-commands plugin)))
-            application-commands plugins)
+          combined-commands
           (reduce
             (fn [result plugin] (Vec IrListDetail)
               (into result (.-list-details plugin)))
