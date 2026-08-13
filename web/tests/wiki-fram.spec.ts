@@ -3,7 +3,7 @@ import { loadBrowserFixture, readBrowserFixture } from "./browser-fixture";
 
 const js = readBrowserFixture("wiki");
 const wikiFingerprint =
-  "sha256:bcffb2300d305960b72cefd08c2f063e7337056a0b544d809c75c135b92e9b4e";
+  "sha256:a9e1387a59e1e4434ce53cc2859e06741df1a1215864c80e6e816d59d80f65ed";
 
 type Row = Record<string, unknown>;
 type WakeCreate = {
