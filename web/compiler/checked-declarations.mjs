@@ -1,9 +1,9 @@
 import { canonicalJson, sha256Digest } from "./canonical.mjs";
 
 const BUNDLE_KIND = "beagle.checked-bundle";
-const BUNDLE_SCHEMA_VERSION = 1;
+const BUNDLE_SCHEMA_VERSION = 2;
 const CHECKED_PROGRAM_KIND = "beagle.checked-program";
-const CHECKED_PROGRAM_SCHEMA_VERSION = 1;
+const CHECKED_PROGRAM_SCHEMA_VERSION = 2;
 const WAKE_CORE_NAMESPACE = "wake.core";
 const WAKE_CORE_SOURCE_ID = "web/wake/core.bjs";
 const WAKE_IR_NAMESPACE = "wake.ir";
@@ -13,9 +13,9 @@ const WAKE_IR_SOURCE_ID = "web/compiler/ir.bjs";
 // own source, rather than caller-selected schemas that happen to type-check.
 export const CHECKED_DECLARATION_MODEL = Object.freeze({
   wakeCoreSourceSha256:
-    "sha256:cd21559fc26a3baf1473d6d18cdf97d67ef410d8575809bc85810eda5f274f96",
+    "sha256:3aa0727e3b0686771b220004224ebd273e5a5f16e850e1fabc19fffa867ae641",
   wakeIrSourceSha256:
-    "sha256:690f27cdb64a292368a023e7ea414f3ceb5f87c07e5486a2c227004560c5471c",
+    "sha256:8c8b778dd41daf319c52d77e23c00506b8f0f0c5cb5d071e2c2237ea801f503e",
 });
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -31,8 +31,14 @@ const INTERNAL_TYPE_NAMES = new Map([
 const INTERNAL_CONSTRUCTOR_NAMES = new Map([
   ["StaticAttr", "IrStaticUiAttr"],
   ["BindAttr", "IrBoundUiAttr"],
+  ["ActionAttr", "IrActionAttr"],
   ["Element", "IrDeclarationElement"],
   ["WhenNode", "IrDeclarationWhen"],
+]);
+const PUBLIC_HELPER_CONSTRUCTORS = new Map([
+  ["static-attr", "StaticAttr"],
+  ["bind-attr", "BindAttr"],
+  ["element", "Element"],
 ]);
 const PUBLIC_TYPE_NAMES = new Map(
   [...INTERNAL_TYPE_NAMES].map(([publicName, internalName]) => [internalName, publicName]),
@@ -41,6 +47,10 @@ const PUBLIC_TYPE_NAMES = new Map(
 const CATEGORY_FIELDS = new Map([
   ["EntityDeclarationSpec", "entities"],
   ["StateDeclarationSpec", "states"],
+  ["PublicationDeclarationSpec", "publications"],
+  ["FormDeclarationSpec", "forms"],
+  ["ListDetailDeclarationSpec", "list_details"],
+  ["ReceiptFieldDeclarationSpec", "receipt_fields"],
   ["ValueTypeDeclarationSpec", "value_types"],
   ["ProviderPortSpec", "provider_ports"],
   ["RendererSpec", "renderers"],
@@ -61,8 +71,9 @@ const MACRO_TYPES = new Map(Object.entries({
     "StateRef", "StateValueRef", "StateValueSpec", "StateDeclarationSpec",
   ],
   "defexternal-entity-role": ["ExternalEntityRoleRef", "ExternalEntityRoleSpec"],
-  "defentity-model": [
-    "record", "EntityRef", "FieldRef", "FieldSpec", "EntityDeclarationSpec",
+  "defentity-ref": ["EntityRef"],
+  "define-entity-model": [
+    "record", "FieldRef", "FieldSpec", "DerivedFieldSpec", "EntityDeclarationSpec",
   ],
   "defvalue-type": [
     "ValueTypeRef", "ValueTypeDefinition", "ValueTypeDeclarationSpec",
@@ -72,6 +83,14 @@ const MACRO_TYPES = new Map(Object.entries({
   defcommand: ["CommandRef", "CommandSpec"],
   "defquery-model": ["QueryRef", "QueryDeclarationSpec"],
   "defcomponent-model": ["ComponentRef", "ComponentDeclarationSpec"],
+  defpublication: ["PublicationRef", "PublicationDeclarationSpec"],
+  defform: ["FormRef", "FormDeclarationSpec"],
+  "deflist-detail": ["ListDetailRef", "ListDetailDeclarationSpec"],
+  "command-receipt-core": [
+    "ReceiptEntityRef", "ReceiptEntitySpec",
+    "ReceiptFieldRef", "ReceiptFieldDeclarationSpec",
+  ],
+  "defcommand-receipt-field": ["ReceiptFieldRef", "ReceiptFieldDeclarationSpec"],
   "defview-model": ["ViewRef", "ViewDeclarationSpec"],
   "defroute-template": ["RouteTemplateRef", "RouteTemplateSpec"],
   "defentity-fields-port": ["EntityFieldsPortRef", "EntityFieldsPortSpec"],
@@ -106,7 +125,9 @@ const MACRO_TYPES = new Map(Object.entries({
   "imported-value-binding": ["ImportedValueRoleRef", "ValueBinding"],
   "defplugin-bindings": ["PluginBindings"],
   "bind-provider": ["ImportedProviderPortRef", "ProviderBindingSpec"],
-  "extend-entity-fields": ["ImportedEntityFieldsPortRef", "ExtendSpec"],
+  "extend-entity-fields": [
+    "ImportedEntityFieldsPortRef", "ExtensionFieldRef", "ExtensionFieldSpec", "ExtendSpec",
+  ],
   "fill-component-slot": ["ImportedComponentSlotRef", "FillSpec"],
   "mount-route-slot": ["ImportedRouteSlotRef", "MountSpec"],
   "use-plugin": ["PluginUseSpec", "PluginComposition"],
@@ -114,47 +135,53 @@ const MACRO_TYPES = new Map(Object.entries({
 }));
 
 const NOMINAL_PREFIXES = new Map(Object.entries({
-  EntityRef: "entity",
-  FieldRef: "field",
-  StateRef: "state",
-  StateValueRef: "state-value",
-  ValueTypeRef: "value-type",
-  ProviderPortRef: "provider-port",
-  RendererRef: "renderer",
-  CapabilityRef: "capability",
-  QueryRef: "query",
-  CommandRef: "command",
-  ComponentRef: "component",
-  ViewRef: "view",
-  RouteTemplateRef: "route-template",
-  EntityFieldsPortRef: "entity-fields-port",
-  ComponentSlotRef: "component-slot",
-  RouteSlotRef: "route-slot",
-  PluginUseRef: "plugin-use",
-  IntRoleRef: "int-role",
-  StringRoleRef: "string-role",
-  BoolRoleRef: "bool-role",
-  KeywordRoleRef: "keyword-role",
-  EntityNameRoleRef: "entity-name-role",
-  FieldNameRoleRef: "field-name-role",
-  StateNameRoleRef: "state-name-role",
-  StateValueNameRoleRef: "state-value-name-role",
-  ExternalEntityRoleRef: "external-entity-role",
-  ValueRoleRef: "value-role",
-  ImportedIntRoleRef: "imported-int",
-  ImportedStringRoleRef: "imported-string",
-  ImportedBoolRoleRef: "imported-bool",
-  ImportedKeywordRoleRef: "imported-keyword",
-  ImportedEntityNameRoleRef: "imported-entity-name",
-  ImportedFieldNameRoleRef: "imported-field-name",
-  ImportedStateNameRoleRef: "imported-state-name",
-  ImportedStateValueNameRoleRef: "imported-state-value-name",
-  ImportedExternalEntityRoleRef: "imported-external-entity",
-  ImportedValueRoleRef: "imported-value",
-  ImportedProviderPortRef: "imported-provider",
-  ImportedEntityFieldsPortRef: "imported-entity-fields",
-  ImportedComponentSlotRef: "imported-component-slot",
-  ImportedRouteSlotRef: "imported-route-slot",
+  EntityRef: ["entity-ref"],
+  FieldRef: ["field", "derived-field"],
+  StateRef: ["state"],
+  StateValueRef: ["state-value"],
+  ValueTypeRef: ["value-type"],
+  ProviderPortRef: ["provider-port"],
+  RendererRef: ["renderer"],
+  CapabilityRef: ["capability"],
+  QueryRef: ["query"],
+  CommandRef: ["command"],
+  ComponentRef: ["component"],
+  ViewRef: ["view"],
+  RouteTemplateRef: ["route-template"],
+  EntityFieldsPortRef: ["entity-fields-port"],
+  ComponentSlotRef: ["component-slot"],
+  RouteSlotRef: ["route-slot"],
+  PublicationRef: ["publication"],
+  FormRef: ["form"],
+  ListDetailRef: ["list-detail"],
+  ReceiptEntityRef: ["receipt-entity"],
+  ReceiptFieldRef: ["receipt-field"],
+  ExtensionFieldRef: ["extension-field"],
+  PluginUseRef: ["plugin-use"],
+  IntRoleRef: ["int-role"],
+  StringRoleRef: ["string-role"],
+  BoolRoleRef: ["bool-role"],
+  KeywordRoleRef: ["keyword-role"],
+  EntityNameRoleRef: ["entity-name-role"],
+  FieldNameRoleRef: ["field-name-role"],
+  StateNameRoleRef: ["state-name-role"],
+  StateValueNameRoleRef: ["state-value-name-role"],
+  ExternalEntityRoleRef: ["external-entity-role"],
+  ValueRoleRef: ["value-role"],
+  ImportedIntRoleRef: ["imported-int"],
+  ImportedStringRoleRef: ["imported-string"],
+  ImportedBoolRoleRef: ["imported-bool"],
+  ImportedKeywordRoleRef: ["imported-keyword"],
+  ImportedEntityNameRoleRef: ["imported-entity-name"],
+  ImportedFieldNameRoleRef: ["imported-field-name"],
+  ImportedStateNameRoleRef: ["imported-state-name"],
+  ImportedStateValueNameRoleRef: ["imported-state-value-name"],
+  ImportedExternalEntityRoleRef: ["imported-external-entity"],
+  ImportedValueRoleRef: ["imported-value"],
+  ImportedProviderPortRef: ["imported-provider"],
+  ImportedEntityFieldsPortRef: ["imported-entity-fields"],
+  ImportedComponentSlotRef: ["imported-component-slot"],
+  ImportedRouteSlotRef: ["imported-route-slot"],
 }));
 
 function fail(message) {
@@ -722,7 +749,9 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
 
   const consumed = new Set();
   const decoded = new Map();
+  const completed = new Set();
   const decoding = new Set();
+  const nominalByKey = new Map();
   const invocationByForm = new Map();
   const macroGroups = new Map();
 
@@ -759,6 +788,66 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
     if (form === undefined) fail(`${label} names missing definition '${name}'`);
     return form;
   };
+
+  const nominalKey = (typeName, declarationId) => `${typeName}\u0000${declarationId}`;
+
+  const nominalConstructor = (form, typeName, label) => {
+    const node = form.value;
+    const expected = `${alias}/->${typeName}`;
+    const definition = schema.publicDefinitions.get(typeName);
+    if (definition?.node !== "record") {
+      fail(`${label} names unsupported nominal model ${typeName}`);
+    }
+    if (node?.node !== "call" || node.fn?.node !== "ref" || node.fn.name !== expected
+        || node.args.length !== definition.fields.length) {
+      fail(`${label} must use the exact checked ${typeName} constructor`);
+    }
+    const literal = (fieldName) => {
+      const index = definition.fields.findIndex((field) => field.name === fieldName);
+      if (index === -1) fail(`${label} nominal model omits ${fieldName}`);
+      const argument = node.args[index];
+      if (argument?.node !== "literal" || argument.kind !== "string") {
+        fail(`${label} nominal field '${fieldName}' must be a string literal`);
+      }
+      return argument.value;
+    };
+    return {
+      definition,
+      declarationId: literal("declaration-id"),
+      name: literal("name"),
+      token: literal("provenance-token"),
+    };
+  };
+
+  // Nominal references are collected before any edges are decoded. This is
+  // what permits exact cyclic entity graphs without textual-name fallback.
+  for (const form of forms) {
+    if (form.node !== "def") continue;
+    const typeName = baseTypeName(form.ann);
+    if (!NOMINAL_PREFIXES.has(typeName)) continue;
+    const { declarationId, name, token } = nominalConstructor(
+      form, typeName, `definition '${form.name}'`,
+    );
+    nonemptyString(declarationId, `definition '${form.name}' declaration ID`);
+    nonemptyString(name, `definition '${form.name}' public name`);
+    const expectedTokens = NOMINAL_PREFIXES.get(typeName)
+      .map((prefix) => `wake:macro:${prefix}:${declarationId}`);
+    if (!expectedTokens.includes(token)) {
+      fail(`definition '${form.name}' has a nondeterministic provenance token`);
+    }
+    const key = nominalKey(typeName, declarationId);
+    if (nominalByKey.has(key)) {
+      fail(`${typeName} declaration ID '${declarationId}' is defined more than once`);
+    }
+    const value = {
+      _tag: `Ir${typeName}`,
+      declaration_id: declarationId,
+      name,
+      provenance_token: token,
+    };
+    nominalByKey.set(key, value);
+    decoded.set(form, value);
+  }
 
   const decodeType = (node, expected, label, options = {}) => {
     if (expected.kind === "union") {
@@ -828,6 +917,11 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
             && expectedDefinitionShape.members.includes(actual))) {
         fail(`${label} reference '${node.name}' has type ${actual}, expected ${expectedName}`);
       }
+      if (NOMINAL_PREFIXES.has(actual)) {
+        const value = decoded.get(target);
+        if (value === undefined) fail(`${label} names an uncollected nominal reference`);
+        return value;
+      }
       return decodeDefinition(target);
     }
     if (node.node !== "call" || node.fn?.node !== "ref") {
@@ -835,11 +929,15 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
     }
     const constructor = node.fn.name;
     const expectedPrefix = `${alias}/->`;
-    if (!constructor.startsWith(expectedPrefix)) {
+    const helperPrefix = `${alias}/`;
+    const helperConstructor = constructor.startsWith(helperPrefix)
+      ? PUBLIC_HELPER_CONSTRUCTORS.get(constructor.slice(helperPrefix.length))
+      : undefined;
+    if (!constructor.startsWith(expectedPrefix) && helperConstructor === undefined) {
       fail(`${label} must use a checked wake.core constructor`);
     }
-    const actualName = constructor.slice(expectedPrefix.length);
-    if (inferredName(node) !== actualName) {
+    const actualName = helperConstructor ?? constructor.slice(expectedPrefix.length);
+    if (inferredName(node) !== (helperConstructor === undefined ? actualName : expectedName)) {
       fail(`${label} constructor result does not match its inferred type`);
     }
     let fields;
@@ -866,7 +964,9 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
     if (node.args.length !== fields.length) {
       fail(`${label} ${actualName} constructor has wrong arity`);
     }
-    const result = { _tag: `Ir${publicTag}` };
+    const result = {
+      _tag: INTERNAL_CONSTRUCTOR_NAMES.get(publicTag) ?? `Ir${publicTag}`,
+    };
     fields.forEach((field, index) => {
       result[fieldKey(field.name)] = decodeType(
         node.args[index], field.ann, `${label} field '${field.name}'`,
@@ -878,8 +978,11 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
       const token = result.provenance_token;
       nonemptyString(declarationId, `${label} declaration ID`);
       nonemptyString(name, `${label} name`);
-      const expectedToken = `wake:macro:${NOMINAL_PREFIXES.get(publicTag)}:${declarationId}`;
-      if (token !== expectedToken) fail(`${label} has a nondeterministic provenance token`);
+      const expectedTokens = NOMINAL_PREFIXES.get(publicTag)
+        .map((prefix) => `wake:macro:${prefix}:${declarationId}`);
+      if (!expectedTokens.includes(token)) {
+        fail(`${label} has a nondeterministic provenance token`);
+      }
     }
     if (publicTag === "PluginIdentity") {
       const expectedToken = `wake:macro:plugin:${result.package_id}@${result.version}`;
@@ -891,11 +994,39 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
   };
 
   const decodeDefinition = (form) => {
-    if (decoded.has(form)) return decoded.get(form);
+    if (completed.has(form)) return decoded.get(form);
+    const typeName = baseTypeName(form.ann);
+    if (NOMINAL_PREFIXES.has(typeName)) {
+      const value = decoded.get(form);
+      if (value === undefined) fail(`definition '${form.name}' escaped nominal collection`);
+      if (macroOwner(form, typeName) === null) {
+        fail(`definition '${form.name}' directly constructs nominal ${typeName}`);
+      }
+      const { definition } = nominalConstructor(
+        form, typeName, `definition '${form.name}'`,
+      );
+      definition.fields.forEach((field, index) => {
+        const key = fieldKey(field.name);
+        const fieldValue = decodeType(
+          form.value.args[index], field.ann,
+          `definition '${form.name}' field '${field.name}'`,
+          { allowNominalConstructor: typeName },
+        );
+        if (["declaration_id", "name", "provenance_token"].includes(key)) {
+          if (value[key] !== fieldValue) {
+            fail(`definition '${form.name}' changes its predeclared nominal identity`);
+          }
+        } else {
+          value[key] = fieldValue;
+        }
+      });
+      consumed.add(form);
+      completed.add(form);
+      return value;
+    }
     if (decoding.has(form)) fail(`definition '${form.name}' forms a value cycle`);
     decoding.add(form);
     try {
-      const typeName = baseTypeName(form.ann);
       if (typeName === null || !schema.publicDefinitions.has(typeName)) {
         fail(`definition '${form.name}' has unsupported model type '${form.ann?.name ?? "missing"}'`);
       }
@@ -918,6 +1049,7 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
       );
       consumed.add(form);
       decoded.set(form, value);
+      completed.add(form);
       return value;
     } finally {
       decoding.delete(form);
@@ -933,10 +1065,41 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
   const rootType = baseTypeName(rootForm.ann);
   const rootValue = decodeDefinition(rootForm);
   const categories = Object.fromEntries([...CATEGORY_FIELDS.values()].map((field) => [field, []]));
+  let receiptEntity = null;
   for (const form of forms) {
     if (form.node !== "def") continue;
-    const category = CATEGORY_FIELDS.get(baseTypeName(form.ann));
+    const typeName = baseTypeName(form.ann);
+    const category = CATEGORY_FIELDS.get(typeName);
     if (category !== undefined) categories[category].push(decodeDefinition(form));
+    if (typeName === "ReceiptEntitySpec") {
+      if (receiptEntity !== null) fail("declaration graph repeats the receipt entity");
+      receiptEntity = decodeDefinition(form);
+    }
+  }
+  if (rootType === "PluginSpec" && [
+    categories.publications,
+    categories.forms,
+    categories.list_details,
+  ].some((values) => values.length !== 0)) {
+    fail("plugin declarations cannot contain publication, form, or list-detail declarations");
+  }
+  if (rootType === "PluginSpec") {
+    const migrations = rootValue.migrations;
+    const ordinals = new Set();
+    for (const migration of migrations) {
+      if (!Number.isSafeInteger(migration.ordinal) || migration.ordinal < 1) {
+        fail("plugin migration ordinal must be a positive safe integer");
+      }
+      if (!Number.isSafeInteger(migration.from_version)
+          || !Number.isSafeInteger(migration.to_version)
+          || migration.from_version < 1 || migration.to_version !== migration.from_version + 1) {
+        fail(`plugin migration ordinal ${migration.ordinal} must advance one schema version`);
+      }
+      if (ordinals.has(migration.ordinal)) {
+        fail(`plugin migration ordinal ${migration.ordinal} is declared more than once`);
+      }
+      ordinals.add(migration.ordinal);
+    }
   }
 
   for (const form of forms) {
@@ -945,6 +1108,245 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
     if (form.provenance?.macroExpansion !== undefined
         || NOMINAL_PREFIXES.has(typeName)) {
       decodeDefinition(form);
+    }
+  }
+
+  const pairedCategories = new Map([
+    ["EntityDeclarationSpec", "EntityRef"],
+    ["StateDeclarationSpec", "StateRef"],
+    ["ValueTypeDeclarationSpec", "ValueTypeRef"],
+    ["ProviderPortSpec", "ProviderPortRef"],
+    ["RendererSpec", "RendererRef"],
+    ["CapabilitySpec", "CapabilityRef"],
+    ["QueryDeclarationSpec", "QueryRef"],
+    ["CommandSpec", "CommandRef"],
+    ["ComponentDeclarationSpec", "ComponentRef"],
+    ["ViewDeclarationSpec", "ViewRef"],
+    ["RouteTemplateSpec", "RouteTemplateRef"],
+    ["PublicationDeclarationSpec", "PublicationRef"],
+    ["FormDeclarationSpec", "FormRef"],
+    ["ListDetailDeclarationSpec", "ListDetailRef"],
+    ["EntityFieldsPortSpec", "EntityFieldsPortRef"],
+    ["ComponentSlotSpec", "ComponentSlotRef"],
+    ["RouteSlotSpec", "RouteSlotRef"],
+    ["ReceiptEntitySpec", "ReceiptEntityRef"],
+    ["ReceiptFieldDeclarationSpec", "ReceiptFieldRef"],
+  ]);
+  const claimedNominals = new Map();
+  const claimNominal = (refType, ref, form) => {
+    if (ref?._tag !== `Ir${refType}`) {
+      fail(`declaration '${form.name}' does not carry its exact ${refType}`);
+    }
+    const key = nominalKey(refType, ref.declaration_id);
+    if (nominalByKey.get(key) !== ref) {
+      fail(`declaration '${form.name}' carries an unknown ${refType}`);
+    }
+    if (claimedNominals.has(key)) {
+      fail(`${refType} '${ref.declaration_id}' is claimed by more than one declaration`);
+    }
+    claimedNominals.set(key, form);
+  };
+  for (const form of forms) {
+    if (form.node !== "def") continue;
+    const refType = pairedCategories.get(baseTypeName(form.ann));
+    if (refType === undefined) continue;
+    const value = decoded.get(form) ?? decodeDefinition(form);
+    if (refType === "ValueTypeRef") {
+      const roots = value.definitions.filter((definition) => definition.ref === value.root);
+      if (roots.length !== 1) {
+        fail(`value type declaration '${form.name}' must define its root exactly once`);
+      }
+      value.definitions.forEach((definition) => claimNominal(refType, definition.ref, form));
+      continue;
+    }
+    const ref = value.ref ?? value.root;
+    claimNominal(refType, ref, form);
+  }
+  for (const [key, ref] of nominalByKey) {
+    const typeName = ref._tag.slice(2);
+    if (!new Set(pairedCategories.values()).has(typeName)) continue;
+    if (!claimedNominals.has(key)) {
+      fail(`${typeName} '${ref.declaration_id}' has no matching declaration`);
+    }
+  }
+
+  const expectedReceipt = Object.freeze({
+    entity: {
+      declaration_id: "wake.core/command-receipt",
+      name: "wake.core/command-receipt",
+      provenance_token: "wake:macro:receipt-entity:wake.core/command-receipt",
+      storage_id: "wake/core/entity/command-receipt",
+    },
+    fields: {
+      id: ["DigestValueType", null, "wake/core/field/command-receipt/id"],
+      actor: ["StringValueType", null, "wake/core/field/command-receipt/actor"],
+      command: ["StringValueType", null, "wake/core/field/command-receipt/command"],
+      "input-digest": [
+        "DigestValueType", null, "wake/core/field/command-receipt/input-digest",
+      ],
+      "created-at": ["InstantValueType", null, "wake/core/field/command-receipt/created-at"],
+    },
+  });
+  const receiptFields = categories.receipt_fields;
+  const commands = categories.commands;
+  if (receiptEntity === null || receiptFields.length < 5) {
+    fail("declaration graph lacks its sealed command receipt closure");
+  }
+  const receiptRef = receiptEntity.ref;
+  if (receiptRef.declaration_id !== expectedReceipt.entity.declaration_id
+      || receiptRef.name !== expectedReceipt.entity.name
+      || receiptRef.provenance_token !== expectedReceipt.entity.provenance_token
+      || receiptEntity.storage_id !== expectedReceipt.entity.storage_id) {
+    fail("command receipt entity does not match the sealed wake.core identity");
+  }
+  const receiptFieldsByName = new Map();
+  for (const field of receiptFields) {
+    if (field.owner !== receiptRef) fail("receipt field has a foreign receipt owner");
+    if (receiptFieldsByName.has(field.ref.name)) {
+      fail(`receipt field name '${field.ref.name}' is declared more than once`);
+    }
+    receiptFieldsByName.set(field.ref.name, field);
+  }
+  for (const [name, [type, target, storageId]] of Object.entries(expectedReceipt.fields)) {
+    const field = receiptFieldsByName.get(name);
+    const declarationId = `wake.core/command-receipt/${name}`;
+    if (field === undefined || field.ref.declaration_id !== declarationId
+        || field.ref.provenance_token !== `wake:macro:receipt-field:${declarationId}`
+        || field.value_type?._tag !== `Ir${type}` || field.target !== target
+        || field.storage_id !== storageId) {
+      fail(`sealed command receipt field '${name}' is missing or malformed`);
+    }
+  }
+  for (const command of commands) {
+    const resultsByName = new Map(command.result.map((result) => [result.name, result]));
+    if (resultsByName.size !== command.result.length) {
+      fail(`command '${command.ref.name}' repeats a result name`);
+    }
+    const seenReceiptFields = new Set();
+    for (const result of command.receipt.results) {
+      if (seenReceiptFields.has(result.field)) {
+        fail(`command '${command.ref.name}' repeats a receipt field`);
+      }
+      seenReceiptFields.add(result.field);
+      const declared = receiptFieldsByName.get(result.field.name);
+      if (declared?.ref !== result.field) {
+        fail(`command '${command.ref.name}' references an undeclared receipt field`);
+      }
+      const commandResult = resultsByName.get(result.name);
+      if (commandResult === undefined
+          || !sameJson(commandResult.value_type, declared.value_type)) {
+        fail(`command '${command.ref.name}' receipt result '${result.name}' has no exact typed result`);
+      }
+    }
+  }
+  for (const entity of categories.entities) {
+    for (const derived of entity.derived_fields) {
+      if (derived.owner !== entity.ref) {
+        fail(`derived field '${derived.ref.name}' has a foreign entity owner`);
+      }
+      const dependencies = [];
+      const visitDerived = (expression) => {
+        if (expression._tag === "IrFieldDerivedExpr") {
+          if (!dependencies.includes(expression.field)) dependencies.push(expression.field);
+          return;
+        }
+        if (expression._tag === "IrStringDerivedExpr") return;
+        if (expression._tag !== "IrConcatDerivedExpr") {
+          fail(`derived field '${derived.ref.name}' has an unsupported expression`);
+        }
+        expression.parts.forEach(visitDerived);
+      };
+      visitDerived(derived.expression);
+      if (dependencies.length !== derived.dependencies.length
+          || dependencies.some((dependency, index) =>
+            dependency !== derived.dependencies[index])) {
+        fail(`derived field '${derived.ref.name}' dependencies do not exactly match its expression`);
+      }
+    }
+  }
+
+  const validateUiNodes = (nodes, component) => {
+    for (const node of nodes) {
+      if (node._tag === "IrDeclarationWhen") {
+        validateUiNodes(node.children, component);
+        continue;
+      }
+      if (node._tag !== "IrDeclarationElement") {
+        fail(`component '${component.ref.name}' has an unsupported UI node`);
+      }
+      for (const [key, attribute] of Object.entries(node.attrs)) {
+        const eventKey = key.startsWith("on-");
+        if (attribute._tag === "IrActionAttr" && !eventKey) {
+          fail(`component '${component.ref.name}' places an action under non-event '${key}'`);
+        }
+        if (attribute._tag !== "IrActionAttr" && eventKey) {
+          fail(`component '${component.ref.name}' event '${key}' lacks an action`);
+        }
+      }
+      validateUiNodes(node.children, component);
+    }
+  };
+  categories.components.forEach((component) => validateUiNodes(component.body, component));
+
+  const extensionRefs = new Set();
+  const extensionSpecs = new Set();
+  for (const composition of rootType === "ApplicationRootSpec" ? rootValue.plugins : []) {
+    for (const extension of composition.extensions) {
+      for (const field of extension.fields) {
+        if (extensionSpecs.has(field)) {
+          fail(`extension field '${field.ref.name}' is reused across extension ports`);
+        }
+        if (extensionRefs.has(field.ref)) {
+          fail(`extension field reference '${field.ref.name}' is reused`);
+        }
+        extensionSpecs.add(field);
+        extensionRefs.add(field.ref);
+      }
+    }
+  }
+  for (const ref of nominalByKey.values()) {
+    if (ref._tag === "IrExtensionFieldRef" && !extensionRefs.has(ref)) {
+      fail(`extension field '${ref.name}' is outside its owning extension port`);
+    }
+  }
+
+  const extensionPorts = new Set(categories.entity_fields_ports.map((port) => port.ref));
+  for (const command of commands) {
+    for (const step of command.steps) {
+      if (!new Set(["IrCreateStep", "IrUpdateStep"]).has(step._tag)) continue;
+      for (const write of step.fields) {
+        if (write._tag === "IrFieldCommandWrite") continue;
+        if (write._tag !== "IrExtensionCommandWrite") {
+          fail(`command '${command.ref.name}' has an unsupported write specification`);
+        }
+        if (!extensionPorts.has(write.port)) {
+          fail(`command '${command.ref.name}' writes through an unknown extension port`);
+        }
+        const input = command.input.find((field) => field.name === write.input);
+        if (input === undefined || input.value_type?._tag !== "IrExtensionValueType"
+            || input.value_type.port !== write.port) {
+          fail(`command '${command.ref.name}' extension write '${write.input}' does not match its exact port input`);
+        }
+      }
+    }
+  }
+
+  if (rootType === "ApplicationRootSpec") {
+    for (const [rootField, categoryField] of [
+      ["publications", "publications"],
+      ["forms", "forms"],
+      ["list_details", "list_details"],
+    ]) {
+      const selected = rootValue[rootField];
+      const declarations = categories[categoryField];
+      if (new Set(selected).size !== selected.length) {
+        fail(`application root repeats ${rootField.replaceAll("_", "-")} references`);
+      }
+      const declared = new Set(declarations.map((declaration) => declaration.ref));
+      if (selected.length !== declared.size
+          || selected.some((ref) => !declared.has(ref))) {
+        fail(`application root must select every ${rootField.replaceAll("_", "-")} declaration exactly once`);
+      }
     }
   }
 
@@ -959,18 +1361,18 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
     const chain = record.provenance?.macroExpansion?.chain;
     const recordMacro = chain?.[0]?.name;
     if (chain?.length !== 1 || chain[0]?.depth !== 0
-        || recordMacro !== `${alias}/defentity-model`) {
-      fail(`entity record '${record.name}' is not owned by wake/defentity-model`);
+        || recordMacro !== `${alias}/define-entity-model`) {
+      fail(`entity record '${record.name}' is not owned by wake/define-entity-model`);
     }
     const invocation = exactInvocation(
-      record.provenance, alias, "defentity-model", sourceId, sourceText,
+      record.provenance, alias, "define-entity-model", sourceId, sourceText,
       `entity record '${record.name}'`,
     );
     if (!sameInvocation(invocation, owner.invocation)) {
       fail(`entity record '${record.name}' does not share its entity invocation`);
     }
     consumed.add(record);
-    const key = `${invocation.pos}:${invocation.span}:defentity-model`;
+    const key = `${invocation.pos}:${invocation.span}:define-entity-model`;
     macroGroups.get(key).forms.push(record);
   }
 
@@ -1035,6 +1437,7 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
     rootForm,
     rootType,
     rootValue,
+    receiptEntity,
   };
 }
 
@@ -1149,6 +1552,7 @@ export function checkedDeclarationProgramFromBundle(
       ? { _tag: "IrPluginDeclarationRoot", plugin: decoded.rootValue }
       : { _tag: "IrApplicationDeclarationRoot", application: decoded.rootValue },
     ...decoded.categories,
+    receipt_entity: decoded.receiptEntity,
   };
   return {
     _tag: "IrCheckedDeclarationProgram",
