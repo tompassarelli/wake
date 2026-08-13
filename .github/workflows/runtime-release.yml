@@ -80,7 +80,7 @@ jobs:
       # gate-only harnesses. Overlay their fixes from the workflow revision and
       # prove no product or release input changed.
       - name: Overlay release verification harness fixes
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag == 'v0.1.0'
         env:
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |

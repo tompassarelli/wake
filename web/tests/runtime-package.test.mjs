@@ -8,8 +8,8 @@ import {
 const webRoot = `${import.meta.dir}/..`;
 const repositoryRoot = `${webRoot}/..`;
 const packer = `${webRoot}/bin/wake-runtime-pack`;
-const archiveName = "tompassarelli-wake-runtime-0.1.0.tgz";
-const receiptName = "tompassarelli-wake-runtime-0.1.0.receipt.json";
+const archiveName = "tompassarelli-wake-runtime-0.1.1.tgz";
+const receiptName = "tompassarelli-wake-runtime-0.1.1.receipt.json";
 const releaseTagEnvironment = Object.freeze({
   ...process.env,
   GIT_COMMITTER_DATE: "2026-08-12T00:01:00Z",
@@ -91,8 +91,8 @@ function releaseSource(scratch) {
     GIT_AUTHOR_DATE: "2026-08-12T00:00:00Z",
     GIT_COMMITTER_DATE: "2026-08-12T00:00:00Z",
   };
-  run(["git", "commit", "-q", "-m", "Wake 0.1.0 runtime"], { cwd: seed, env: environment });
-  run(["git", "tag", "-a", "v0.1.0", "-m", "Wake v0.1.0"], {
+  run(["git", "commit", "-q", "-m", "Wake 0.1.1 runtime"], { cwd: seed, env: environment });
+  run(["git", "tag", "-a", "v0.1.1", "-m", "Wake v0.1.1"], {
     cwd: seed,
     env: releaseTagEnvironment,
   });
@@ -100,7 +100,7 @@ function releaseSource(scratch) {
     cwd: seed,
   })).trim();
   const releaseTagObject = new TextDecoder().decode(run([
-    "git", "rev-parse", "refs/tags/v0.1.0",
+    "git", "rev-parse", "refs/tags/v0.1.1",
   ], { cwd: seed })).trim();
 
   const first = `${scratch}/first-source`;
@@ -122,7 +122,7 @@ function pack(source, output, receipt = `${output}/${receiptName}`) {
   run([
     packer,
     "--source-root", source,
-    "--version", "v0.1.0",
+    "--version", "v0.1.1",
     "--output", output,
     "--receipt", receipt,
   ]);
@@ -173,13 +173,13 @@ describe("@tompassarelli/wake-runtime package", () => {
       });
       expect(receipt.package).toEqual({
         name: "@tompassarelli/wake-runtime",
-        version: "0.1.0",
+        version: "0.1.1",
       });
       expect(receipt.packer).toBe(`bun@${Bun.version}`);
       expect(receipt.schemaVersion).toBe(2);
       expect(receipt.source).toEqual({
         commit: source.sourceCommit,
-        releaseTag: "v0.1.0",
+        releaseTag: "v0.1.1",
         releaseTagObject: source.releaseTagObject,
         repository: "https://github.com/tompassarelli/wake.git",
       });
@@ -197,7 +197,7 @@ describe("@tompassarelli/wake-runtime package", () => {
       run([
         packer,
         "--source-root", source.first,
-        "--version", "v0.1.0",
+        "--version", "v0.1.1",
         "--output", `${scratch}/checked`,
         "--check", first.receipt,
       ]);
@@ -252,29 +252,29 @@ describe("@tompassarelli/wake-runtime package", () => {
     const scratch = temporaryDirectory("wake-runtime-package-refusal");
     try {
       const source = releaseSource(scratch);
-      run(["git", "tag", "-d", "v0.1.0"], { cwd: source.first });
+      run(["git", "tag", "-d", "v0.1.1"], { cwd: source.first });
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v0.1.0",
+        packer, "--source-root", source.first, "--version", "v0.1.1",
         "--output", `${scratch}/untagged`,
       ]).exitCode).not.toBe(0);
 
-      run(["git", "tag", "v0.1.0"], { cwd: source.first });
+      run(["git", "tag", "v0.1.1"], { cwd: source.first });
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v0.1.0",
+        packer, "--source-root", source.first, "--version", "v0.1.1",
         "--output", `${scratch}/lightweight`,
       ]).exitCode).not.toBe(0);
 
-      run(["git", "tag", "-d", "v0.1.0"], { cwd: source.first });
-      run(["git", "tag", "-a", "v0.1.0", "-m", "Wake v0.1.0"], {
-        cwd: source.first,
-        env: releaseTagEnvironment,
-      });
+      run(["git", "tag", "-d", "v0.1.1"], { cwd: source.first });
       run(["git", "tag", "-a", "v0.1.1", "-m", "Wake v0.1.1"], {
         cwd: source.first,
         env: releaseTagEnvironment,
       });
+      run(["git", "tag", "-a", "v0.1.2", "-m", "Wake v0.1.2"], {
+        cwd: source.first,
+        env: releaseTagEnvironment,
+      });
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v0.1.1",
+        packer, "--source-root", source.first, "--version", "v0.1.2",
         "--output", `${scratch}/mismatched`,
       ]).exitCode).not.toBe(0);
 
@@ -282,7 +282,7 @@ describe("@tompassarelli/wake-runtime package", () => {
         cwd: source.first,
       });
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v0.1.0",
+        packer, "--source-root", source.first, "--version", "v0.1.1",
         "--output", `${scratch}/origin`,
       ]).exitCode).not.toBe(0);
 
@@ -291,7 +291,7 @@ describe("@tompassarelli/wake-runtime package", () => {
       });
       run(["touch", `${source.first}/untracked`]);
       expect(fails([
-        packer, "--source-root", source.first, "--version", "v0.1.0",
+        packer, "--source-root", source.first, "--version", "v0.1.1",
         "--output", `${scratch}/dirty`,
       ]).exitCode).not.toBe(0);
     } finally {
