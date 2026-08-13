@@ -4166,6 +4166,12 @@
             (fn [result plugin] (Vec ResolvedPluginExtension)
               (into result (.-extensions plugin)))
             [] plugins)
+          application-commands
+          (mapv
+            (fn [(command IrCommandSpec)] Any
+              (lower-command
+                command program application-resolver plugin-extensions))
+            (.-commands program))
           receipt (receipt-entity program plugins)
           entities-before-extensions
           (let [declared
@@ -4188,9 +4194,6 @@
         nil)
       (if (> (count (.-renderers program)) 0)
         (graph-error "application renderers await checked renderer lowering")
-        nil)
-      (if (> (count (.-commands program)) 0)
-        (graph-error "application commands await checked command lowering")
         nil)
       (if (> (count (.-provider-ports program)) 0)
         (graph-error "application provider ports await checked provider lowering")
@@ -4285,7 +4288,7 @@
           (reduce
             (fn [result plugin] (Vec Any)
               (into result (.-commands plugin)))
-            [] plugins)
+            application-commands plugins)
           (reduce
             (fn [result plugin] (Vec IrListDetail)
               (into result (.-list-details plugin)))
