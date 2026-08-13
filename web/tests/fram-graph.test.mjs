@@ -146,7 +146,32 @@ beforeAll(async () => {
     join(buildDir, "graph.js"),
     `${compiled}\nexport { check_resolved_declaration_program };\n`,
   );
-  writeFileSync(join(buildDir, "ir.js"), "export {};\n");
+  writeFileSync(join(buildDir, "ir.js"), `
+export function IrView(
+  name,
+  entity_name,
+  component,
+  add_fields,
+  title,
+  select_component,
+  tabs,
+  filters,
+  date_filters,
+) {
+  return {
+    _tag: "IrView",
+    name,
+    entity_name,
+    component,
+    add_fields,
+    title,
+    select_component,
+    tabs,
+    filters,
+    date_filters,
+  };
+}
+`);
   writeFileSync(join(buildDir, "package.json"), '{"type":"module"}\n');
   mkdirSync(join(buildDir, "beagle"));
   copyFileSync(
