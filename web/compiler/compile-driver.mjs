@@ -119,7 +119,7 @@ function semanticValue(value, active = new Set()) {
     if (Array.isArray(value)) return value.map((item) => semanticValue(item, active));
     const result = {};
     for (const key of Object.keys(value).sort()) {
-      if (key === "_tag" || key === "semantic_fingerprint") continue;
+      if (["_tag", "linked_declarations", "semantic_fingerprint"].includes(key)) continue;
       result[key] = semanticValue(value[key], active);
     }
     if (typeof value._tag === "string") result.tag = value._tag;
