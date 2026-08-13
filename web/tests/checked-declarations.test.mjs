@@ -225,6 +225,25 @@ test("requires the sealed compiler-owned provider, interface, and complete closu
   );
 });
 
+test("requires the sealed command receipt closure only for command-bearing programs", () => {
+  const withoutReceipt = sourceText.plugin.replace(
+    "(wake/command-receipt-core)\n\n",
+    "",
+  );
+  const bundle = checkedBundle(sourceIds.plugin, [
+    suppliedSource(sourceIds.plugin, withoutReceipt, "package"),
+    suppliedSource(sourceIds.wakeCore, sourceText.wakeCore, "trusted"),
+  ]);
+  const sourceTexts = sourcesFor(bundle);
+  sourceTexts[sourceIds.plugin] = withoutReceipt;
+  expect(() => checkedDeclarationProgramFromBundle(bundle, {
+    compilerVersion: "0.1.0",
+    sourceTexts,
+    wakeCoreModelBundle,
+    wakeIrModelBundle,
+  })).toThrow("declaration graph lacks its sealed command receipt closure");
+});
+
 test("rejects stale checked models and a valid-looking raw AST bypass", () => {
   const staleIrText = `${sourceText.wakeIr}\n; stale model bytes\n`;
   const staleIrBundle = checkedBundle(sourceIds.wakeIr, [

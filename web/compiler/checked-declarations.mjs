@@ -1189,32 +1189,34 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
   });
   const receiptFields = categories.receipt_fields;
   const commands = categories.commands;
-  if (receiptEntity === null || receiptFields.length < 5) {
-    fail("declaration graph lacks its sealed command receipt closure");
-  }
-  const receiptRef = receiptEntity.ref;
-  if (receiptRef.declaration_id !== expectedReceipt.entity.declaration_id
-      || receiptRef.name !== expectedReceipt.entity.name
-      || receiptRef.provenance_token !== expectedReceipt.entity.provenance_token
-      || receiptEntity.storage_id !== expectedReceipt.entity.storage_id) {
-    fail("command receipt entity does not match the sealed wake.core identity");
-  }
   const receiptFieldsByName = new Map();
-  for (const field of receiptFields) {
-    if (field.owner !== receiptRef) fail("receipt field has a foreign receipt owner");
-    if (receiptFieldsByName.has(field.ref.name)) {
-      fail(`receipt field name '${field.ref.name}' is declared more than once`);
+  if (commands.length !== 0 || receiptEntity !== null || receiptFields.length !== 0) {
+    if (receiptEntity === null || receiptFields.length < 5) {
+      fail("declaration graph lacks its sealed command receipt closure");
     }
-    receiptFieldsByName.set(field.ref.name, field);
-  }
-  for (const [name, [type, target, storageId]] of Object.entries(expectedReceipt.fields)) {
-    const field = receiptFieldsByName.get(name);
-    const declarationId = `wake.core/command-receipt/${name}`;
-    if (field === undefined || field.ref.declaration_id !== declarationId
-        || field.ref.provenance_token !== `wake:macro:receipt-field:${declarationId}`
-        || field.value_type?._tag !== `Ir${type}` || field.target !== target
-        || field.storage_id !== storageId) {
-      fail(`sealed command receipt field '${name}' is missing or malformed`);
+    const receiptRef = receiptEntity.ref;
+    if (receiptRef.declaration_id !== expectedReceipt.entity.declaration_id
+        || receiptRef.name !== expectedReceipt.entity.name
+        || receiptRef.provenance_token !== expectedReceipt.entity.provenance_token
+        || receiptEntity.storage_id !== expectedReceipt.entity.storage_id) {
+      fail("command receipt entity does not match the sealed wake.core identity");
+    }
+    for (const field of receiptFields) {
+      if (field.owner !== receiptRef) fail("receipt field has a foreign receipt owner");
+      if (receiptFieldsByName.has(field.ref.name)) {
+        fail(`receipt field name '${field.ref.name}' is declared more than once`);
+      }
+      receiptFieldsByName.set(field.ref.name, field);
+    }
+    for (const [name, [type, target, storageId]] of Object.entries(expectedReceipt.fields)) {
+      const field = receiptFieldsByName.get(name);
+      const declarationId = `wake.core/command-receipt/${name}`;
+      if (field === undefined || field.ref.declaration_id !== declarationId
+          || field.ref.provenance_token !== `wake:macro:receipt-field:${declarationId}`
+          || field.value_type?._tag !== `Ir${type}` || field.target !== target
+          || field.storage_id !== storageId) {
+        fail(`sealed command receipt field '${name}' is missing or malformed`);
+      }
     }
   }
   for (const command of commands) {

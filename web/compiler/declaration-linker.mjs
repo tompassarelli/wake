@@ -861,7 +861,13 @@ export function linkCheckedDeclarations({ application, plugins, compilerVersion 
   const applicationProgram = declarationProgram(
     application, "IrApplicationDeclarationRoot", "application",
   );
-  const applicationReceipt = coreReceipt(applicationProgram, "application");
+  const applicationNeedsReceipt = applicationProgram.commands.length !== 0
+    || applicationProgram.root.application.plugins.length !== 0
+    || applicationProgram.receipt_entity !== null
+    || applicationProgram.receipt_fields.length !== 0;
+  const applicationReceipt = applicationNeedsReceipt
+    ? coreReceipt(applicationProgram, "application")
+    : null;
   const receiptDeclarations = new Map();
   const claimReceiptFields = (program, label) => {
     for (const field of program.receipt_fields) {

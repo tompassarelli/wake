@@ -296,7 +296,12 @@ test("compiler rejects list-detail declarations it cannot all generate", () => {
   const source = readFileSync(
     join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.bjs"),
     "utf8",
-  );
+  )
+    .replace(
+      /\n\(wake\/defform[\s\S]*?\(wake\/->ClearFormSuccess nil\)\)\n/u,
+      "\n",
+    )
+    .replace("  [add-blog-post-ref]\n", "  []\n");
   const secondListDetail = `(wake/deflist-detail
   blog-note-detail
   "blog-note"
