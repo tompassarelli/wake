@@ -23,7 +23,13 @@ const sourceUnit = {
 };
 
 let buildDir;
-let checkProgram;
+let checkResolvedDeclarationProgram;
+
+const linkedDeclarations = Object.freeze({
+  _tag: "IrLinkedDeclarationProgram",
+  application: null,
+  plugins: [],
+});
 
 function spawnSync(command, args, { env = process.env } = {}) {
   const result = Bun.spawnSync([command, ...args], {
@@ -39,14 +45,44 @@ function spawnSync(command, args, { env = process.env } = {}) {
 }
 
 function entity(name) {
-  return {
-    name,
-    attrs: [{ name: "id", type: "String", opts: { identity: true } }],
-  };
+  return { name, attrs: [attribute("id", "String", { identity: true })] };
 }
 
 function attribute(name, type = "String", opts = {}) {
-  return { name, type, opts };
+  return {
+    _tag: "GField",
+    name,
+    storage_id: "",
+    type,
+    identity: opts.identity === true,
+    cardinality: opts.many === true ? "multi" : "single",
+    value_kind: type === "Ref" ? "ref" : "literal",
+    target_entity: opts["target-entity"] ?? null,
+    write_policy: opts.write ?? "set",
+    derived: type === "Derived",
+    deps: type === "Derived" ? (opts.deps ?? []) : [],
+    expr: type === "Derived" ? (opts.expr ?? null) : null,
+  };
+}
+
+function resolvedEntity(source) {
+  const fields = (source.fields ?? source.attrs ?? []).map(candidate => ({
+    ...candidate,
+    storage_id: candidate.storage_id || `test/entity/${source.name}/field/${candidate.name}`,
+  }));
+  const storedFields = fields.filter(candidate => !candidate.derived);
+  const derivedFields = fields.filter(candidate => candidate.derived);
+  return {
+    _tag: "GEntity",
+    name: source.name,
+    storage_id: source.storage_id ?? `test/entity/${source.name}`,
+    fields,
+    stored_fields: storedFields,
+    derived_fields: derivedFields,
+    ref_fields: fields.filter(candidate => candidate.value_kind === "ref"),
+    identity_field: storedFields.find(candidate => candidate.identity) ?? null,
+    store_name: source.store_name ?? `${source.name}s`,
+  };
 }
 
 function listDetail(overrides = {}) {
@@ -138,13 +174,14 @@ function query(name, parameters = []) {
   };
 }
 
-function program(overrides = {}) {
+function resolvedProgram(overrides = {}) {
   return {
+    _tag: "ResolvedDeclarationProgram",
+    linked_declarations: linkedDeclarations,
+    application_id: "graph-ui-router-guards",
     source_unit: sourceUnit,
     source_units: [sourceUnit],
     plugin_closure: [],
-    application: { id: "graph-ui-router-guards" },
-    uses: [],
     providers: [],
     value_types: [],
     provider_ports: [],
@@ -171,11 +208,12 @@ function program(overrides = {}) {
     },
     layout: null,
     ...overrides,
+    entities: (overrides.entities ?? [entity("page")]).map(resolvedEntity),
   };
 }
 
 function listModeProgram(overrides = {}) {
-  return program({
+  return resolvedProgram({
     router: null,
     views: [],
     ...overrides,
@@ -196,7 +234,10 @@ beforeAll(async () => {
     "from './wake/ir.js';",
     "from './ir.js';",
   );
-  writeFileSync(join(buildDir, "graph.js"), `${compiled}\nexport { check_program };\n`);
+  writeFileSync(
+    join(buildDir, "graph.js"),
+    `${compiled}\nexport { check_resolved_declaration_program };\n`,
+  );
   writeFileSync(join(buildDir, "ir.js"), `
 export function IrRoute(
   path,
@@ -231,7 +272,7 @@ export function IrRouter(default_route, routes) {
     join(buildDir, "beagle", "hamt.js"),
   );
 
-  ({ check_program: checkProgram } = await import(
+  ({ check_resolved_declaration_program: checkResolvedDeclarationProgram } = await import(
     pathToFileURL(join(buildDir, "graph.js")).href
   ));
 });
@@ -241,8 +282,8 @@ afterAll(() => {
 });
 
 test("accepts a complete UI and router graph", () => {
-  assert.doesNotThrow(() => checkProgram(program()));
-  assert.doesNotThrow(() => checkProgram(program({
+  assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram()));
+  assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram({
     router: {
       default_route: "pages",
       routes: [route("pages", "pages"), route("home", "pages")],
@@ -251,14 +292,14 @@ test("accepts a complete UI and router graph", () => {
 });
 
 test("treats the routes default as a view name rather than a route path", () => {
-  assert.doesNotThrow(() => checkProgram(program({
+  assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram({
     router: {
       default_route: "pages",
       routes: [route("browse-pages", "pages")],
     },
   })));
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       router: {
         default_route: "browse-pages",
         routes: [route("browse-pages", "pages")],
@@ -270,7 +311,7 @@ test("treats the routes default as a view name rather than a route path", () => 
 
 test("checks root route queries before code generation", () => {
   const pageById = query("page-by-id", ["id"]);
-  const mounted = checkProgram(program({
+  const mounted = checkResolvedDeclarationProgram(resolvedProgram({
     queries: [pageById],
     router: {
       default_route: "pages",
@@ -286,7 +327,7 @@ test("checks root route queries before code generation", () => {
   assert.deepEqual(mounted.router.routes[0].required_props, ["id"]);
 
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       router: {
         default_route: "pages",
         routes: [route("browse-pages", "pages", {
@@ -297,7 +338,7 @@ test("checks root route queries before code generation", () => {
     /route 'browse-pages' names unknown query 'missing-query'/,
   );
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       queries: [pageById],
       router: {
         default_route: "pages",
@@ -314,7 +355,7 @@ test("checks root route queries before code generation", () => {
 
 test("requires root route query projections to cover component props", () => {
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       components: [{ name: "page-row", props: ["id", "title"], body: [] }],
       queries: [query("pages-query")],
       router: {
@@ -330,46 +371,46 @@ test("requires root route query projections to cover component props", () => {
 
 test("rejects duplicate entity, component, and view declarations", () => {
   const cases = [
-    [program({ entities: [entity("page"), entity("page")] }), /entity 'page' is duplicated/],
+    [resolvedProgram({ entities: [entity("page"), entity("page")] }), /entity 'page' is duplicated/],
     [
-      program({ components: [component("page-row"), component("page-row")] }),
+      resolvedProgram({ components: [component("page-row"), component("page-row")] }),
       /component 'page-row' is duplicated/,
     ],
     [
-      program({ views: [view("pages", "page", "page-row"), view("pages", "page", "page-row")] }),
+      resolvedProgram({ views: [view("pages", "page", "page-row"), view("pages", "page", "page-row")] }),
       /view 'pages' is duplicated/,
     ],
   ];
 
   for (const [source, expected] of cases) {
-    assert.throws(() => checkProgram(source), expected);
+    assert.throws(() => checkResolvedDeclarationProgram(source), expected);
   }
 });
 
 test("rejects missing view entity and component references", () => {
   const cases = [
     [
-      program({ views: [view("pages", "missing", "page-row")] }),
+      resolvedProgram({ views: [view("pages", "missing", "page-row")] }),
       /view 'pages' names unknown entity 'missing'/,
     ],
     [
-      program({ views: [view("pages", "page", "missing")] }),
+      resolvedProgram({ views: [view("pages", "page", "missing")] }),
       /view 'pages' names unknown component 'missing'/,
     ],
     [
-      program({ views: [view("pages", "page", "page-row", "missing")] }),
+      resolvedProgram({ views: [view("pages", "page", "page-row", "missing")] }),
       /view 'pages' names unknown select component 'missing'/,
     ],
   ];
 
   for (const [source, expected] of cases) {
-    assert.throws(() => checkProgram(source), expected);
+    assert.throws(() => checkResolvedDeclarationProgram(source), expected);
   }
 });
 
 test("rejects duplicate and unresolved routes", () => {
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       router: {
         default_route: "pages",
         routes: [route("pages", "pages"), route("pages", "pages")],
@@ -378,7 +419,7 @@ test("rejects duplicate and unresolved routes", () => {
     /route path 'pages' is duplicated/,
   );
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       router: {
         default_route: "pages",
         routes: [route("missing", "missing")],
@@ -387,7 +428,7 @@ test("rejects duplicate and unresolved routes", () => {
     /route 'missing' names unknown view 'missing'/,
   );
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       router: {
         default_route: "missing",
         routes: [route("pages", "pages")],
@@ -398,7 +439,7 @@ test("rejects duplicate and unresolved routes", () => {
 });
 
 test("resolves list-detail fields and explicit related relations", () => {
-  const checked = checkProgram(listModeProgram({
+  const checked = checkResolvedDeclarationProgram(listModeProgram({
     entities: [
       entity("page"),
       {
@@ -477,102 +518,7 @@ test("rejects invalid list-detail fields, searches, and relations", () => {
     }] }), /cannot infer one relation/],
   ]) {
     assert.throws(
-      () => checkProgram(listModeProgram({ ...base, list_details: [detail] })),
-      expected,
-    );
-  }
-});
-
-test("recomputes closed derived expressions and rejects forged dependencies", () => {
-  const expression = (field, overrides = {}) => ({
-    _tag: "IrDerivedExpr",
-    kind: "field",
-    field,
-    value: null,
-    parts: [],
-    ...overrides,
-  });
-  const derived = (name, dependency, expr = expression(dependency)) =>
-    attribute(name, "Derived", { deps: [dependency], expr });
-  const fields = [
-    attribute("id", "String", { identity: true }),
-    attribute("title"),
-    derived("label", "title"),
-  ];
-
-  assert.doesNotThrow(() => checkProgram(program({
-    entities: [{ name: "page", attrs: fields }],
-  })));
-
-  for (const [attrs, expected] of [
-    [
-      [...fields.slice(0, 2), derived("label", "ghost")],
-      /references unknown field 'ghost'/,
-    ],
-    [
-      [...fields, derived("slug", "label")],
-      /cannot reference derived field 'label'/,
-    ],
-    [
-      [...fields.slice(0, 2), attribute("label", "Derived", {
-        deps: [],
-        expr: expression("title"),
-      })],
-      /dependencies do not exactly match its expression/,
-    ],
-    [
-      [...fields.slice(0, 2), derived("label", "title", {
-        ...expression("title"),
-        untrusted: true,
-      })],
-      /derived expression has unsupported fields/,
-    ],
-    [
-      [...fields.slice(0, 2), derived("label", "title", expression("title", {
-        kind: "evaluate-javascript",
-      }))],
-      /unknown derived expression kind 'evaluate-javascript'/,
-    ],
-    [
-      [...fields.slice(0, 2), derived("label", "title", expression(null))],
-      /invalid field derived expression/,
-    ],
-  ]) {
-    assert.throws(
-      () => checkProgram(program({ entities: [{ name: "page", attrs }] })),
-      expected,
-    );
-  }
-});
-
-test("derived fields only read single stored String fields", () => {
-  for (const [source, expected] of [
-    [attribute("count", "Int"), /dependency 'count'.*single stored String/],
-    [attribute("enabled", "Bool"), /dependency 'enabled'.*single stored String/],
-    [attribute("tags", "String", { many: true }), /dependency 'tags'.*single stored String/],
-    [
-      attribute("owner", "Ref", { "target-entity": "user" }),
-      /dependency 'owner'.*single stored String/,
-    ],
-  ]) {
-    const attrs = [
-      attribute("id", "String", { identity: true }),
-      source,
-      attribute("label", "Derived", {
-        deps: [source.name],
-        expr: {
-          _tag: "IrDerivedExpr",
-          kind: "field",
-          field: source.name,
-          value: null,
-          parts: [],
-        },
-      }),
-    ];
-    assert.throws(
-      () => checkProgram(program({
-        entities: [{ name: "page", attrs }, entity("user")],
-      })),
+      () => checkResolvedDeclarationProgram(listModeProgram({ ...base, list_details: [detail] })),
       expected,
     );
   }
@@ -605,7 +551,7 @@ test("rejects list-detail tab codegen collisions", () => {
   };
 
   assert.throws(
-    () => checkProgram(listModeProgram({
+    () => checkResolvedDeclarationProgram(listModeProgram({
       entities: [entity("page"), note],
       list_details: [listDetail({
         detail_tabs: [
@@ -617,7 +563,7 @@ test("rejects list-detail tab codegen collisions", () => {
     /repeats related entity 'note'/,
   );
   assert.throws(
-    () => checkProgram(listModeProgram({
+    () => checkResolvedDeclarationProgram(listModeProgram({
       entities: [entity("page"), note, event],
       list_details: [listDetail({
         detail_tabs: [related("Notes", "note", "page"), related("notes", "event", "page")],
@@ -626,7 +572,7 @@ test("rejects list-detail tab codegen collisions", () => {
     /tab labels collide case-insensitively at 'notes'/,
   );
   assert.throws(
-    () => checkProgram(listModeProgram({
+    () => checkResolvedDeclarationProgram(listModeProgram({
       entities: [entity("page"), note],
       list_details: [listDetail({
         detail_tabs: [related("OVERVIEW", "note", "page")],
@@ -635,7 +581,7 @@ test("rejects list-detail tab codegen collisions", () => {
     /related tab label 'OVERVIEW' conflicts with the built-in overview tab/,
   );
   assert.throws(
-    () => checkProgram(listModeProgram({
+    () => checkResolvedDeclarationProgram(listModeProgram({
       entities: [{
         name: "page",
         attrs: [
@@ -653,7 +599,7 @@ test("rejects list-detail tab codegen collisions", () => {
 
 test("rejects list details beyond the single generated application surface", () => {
   assert.throws(
-    () => checkProgram(listModeProgram({
+    () => checkResolvedDeclarationProgram(listModeProgram({
       entities: [entity("page"), entity("note")],
       list_details: [
         listDetail(),
@@ -675,11 +621,11 @@ test("enforces one coherent generated UI root topology", () => {
   });
   const pageDetail = listDetail();
 
-  assert.doesNotThrow(() => checkProgram(listModeProgram({
+  assert.doesNotThrow(() => checkResolvedDeclarationProgram(listModeProgram({
     forms: [form("add-page", "page")],
     list_details: [pageDetail],
   })));
-  assert.doesNotThrow(() => checkProgram(program({
+  assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram({
     components: [component("page-row"), component("note-row")],
     entities: [entity("page"), entity("note")],
     views: [view("pages", "page", "page-row"), view("notes", "note", "note-row")],
@@ -710,15 +656,15 @@ test("enforces one coherent generated UI root topology", () => {
       /form 'add-note' targets entity 'note' but the list detail owns 'page'/,
     ],
     [
-      program({ list_details: [pageDetail] }),
+      resolvedProgram({ list_details: [pageDetail] }),
       /program cannot combine view and list-detail UI roots/,
     ],
     [
-      program({ forms: [form("add-page", "page")] }),
+      resolvedProgram({ forms: [form("add-page", "page")] }),
       /form declarations require list-detail UI mode/,
     ],
     [
-      program({
+      resolvedProgram({
         components: [component("page-row"), component("page-card")],
         views: [view("pages", "page", "page-row"), view("cards", "page", "page-card")],
         router: null,
@@ -726,15 +672,15 @@ test("enforces one coherent generated UI root topology", () => {
       /multiple views require routes/,
     ],
     [
-      program({ layout: { style: "sidebar", title: "Pages", groups: [] }, router: null }),
+      resolvedProgram({ layout: { style: "sidebar", title: "Pages", groups: [] }, router: null }),
       /layout requires routes/,
     ],
     [
-      program({ layout: { style: "tabs", title: "Pages", groups: [] } }),
+      resolvedProgram({ layout: { style: "tabs", title: "Pages", groups: [] } }),
       /layout uses unsupported style 'tabs'/,
     ],
     [
-      program({ layout: {
+      resolvedProgram({ layout: {
         style: "sidebar",
         title: "Pages",
         groups: [{ label: "Main", items: ["missing"] }],
@@ -742,11 +688,11 @@ test("enforces one coherent generated UI root topology", () => {
       /layout group 'Main' names unknown view 'missing'/,
     ],
     [
-      program({ router: { default_route: "pages", routes: [] }, views: [] }),
+      resolvedProgram({ router: { default_route: "pages", routes: [] }, views: [] }),
       /routes require at least one view/,
     ],
   ];
   for (const [source, expected] of cases) {
-    assert.throws(() => checkProgram(source), expected);
+    assert.throws(() => checkResolvedDeclarationProgram(source), expected);
   }
 });

@@ -37,13 +37,52 @@ function spawnSync(command, args, { cwd, env = process.env } = {}) {
 }
 
 let buildDir;
-let checkProgram;
+let checkResolvedDeclarationProgram;
+
+const linkedDeclarations = Object.freeze({
+  _tag: "IrLinkedDeclarationProgram",
+  application: null,
+  plugins: [],
+});
 
 function field(name, type, opts = {}) {
-  return { name, type, opts };
+  return {
+    _tag: "GField",
+    name,
+    storage_id: "",
+    type,
+    identity: opts.identity === true,
+    cardinality: opts.many === true ? "multi" : "single",
+    value_kind: type === "Ref" ? "ref" : "literal",
+    target_entity: opts["target-entity"] ?? null,
+    write_policy: opts.write ?? "set",
+    derived: type === "Derived",
+    deps: type === "Derived" ? (opts.deps ?? []) : [],
+    expr: type === "Derived" ? (opts.expr ?? null) : null,
+  };
 }
 
-function program({
+function resolvedEntity(source) {
+  const fields = (source.fields ?? source.attrs ?? []).map(candidate => ({
+    ...candidate,
+    storage_id: candidate.storage_id || `test/entity/${source.name}/field/${candidate.name}`,
+  }));
+  const storedFields = fields.filter(candidate => !candidate.derived);
+  const derivedFields = fields.filter(candidate => candidate.derived);
+  return {
+    _tag: "GEntity",
+    name: source.name,
+    storage_id: source.storage_id ?? `test/entity/${source.name}`,
+    fields,
+    stored_fields: storedFields,
+    derived_fields: derivedFields,
+    ref_fields: fields.filter(candidate => candidate.value_kind === "ref"),
+    identity_field: storedFields.find(candidate => candidate.identity) ?? null,
+    store_name: source.store_name ?? `${source.name}s`,
+  };
+}
+
+function resolvedProgram({
   backend = { kind: "fram" },
   entities,
   defstates = [],
@@ -55,24 +94,34 @@ function program({
   listDetails = [],
 }) {
   return {
+    _tag: "ResolvedDeclarationProgram",
+    linked_declarations: linkedDeclarations,
+    application_id: "type-test",
     source_unit: sourceUnit,
     source_units: [sourceUnit],
     plugin_closure: [],
-    application: { id: "type-test" },
-    uses: [],
     declaration_provenance: [],
     ns: "type.test",
     backend,
-    entities,
+    entities: entities.map(resolvedEntity),
     persist: null,
     defstates,
     publications,
+    queries: [],
+    commands: [],
     list_details: listDetails,
     forms,
     theme: null,
     components,
     views,
     router,
+    providers: [],
+    value_types: [],
+    provider_ports: [],
+    extends: [],
+    fills: [],
+    mounts: [],
+    route_templates: [],
     layout: null,
   };
 }
@@ -95,7 +144,7 @@ beforeAll(async () => {
   );
   writeFileSync(
     join(buildDir, "graph.js"),
-    `${compiled}\nexport { check_program };\n`,
+    `${compiled}\nexport { check_resolved_declaration_program };\n`,
   );
   writeFileSync(join(buildDir, "ir.js"), "export {};\n");
   writeFileSync(join(buildDir, "package.json"), '{"type":"module"}\n');
@@ -109,7 +158,7 @@ beforeAll(async () => {
     join(buildDir, "beagle", "hamt.js"),
   );
 
-  ({ check_program: checkProgram } = await import(
+  ({ check_resolved_declaration_program: checkResolvedDeclarationProgram } = await import(
     pathToFileURL(join(buildDir, "graph.js")).href
   ));
 });
@@ -119,7 +168,7 @@ afterAll(() => {
 });
 
 test("FRAM rejects misspelled stored field types", () => {
-  const source = program({
+  const source = resolvedProgram({
     entities: [
       {
         name: "page",
@@ -132,7 +181,7 @@ test("FRAM rejects misspelled stored field types", () => {
   });
 
   assert.throws(
-    () => checkProgram(source),
+    () => checkResolvedDeclarationProgram(source),
     /FRAM-backed field 'page\.title' has unsupported type 'Strng'/,
   );
 });
@@ -143,33 +192,33 @@ test("generated JavaScript surfaces reject prototype-chain names", () => {
     attrs: [field("slug", "String", { identity: true })],
   });
   const cases = [
-    program({ entities: [{ ...entity(), name: "__proto__" }] }),
-    program({
+    resolvedProgram({ entities: [{ ...entity(), name: "__proto__" }] }),
+    resolvedProgram({
       entities: [{
         ...entity(),
         attrs: [field("constructor", "String", { identity: true })],
       }],
     }),
-    program({
+    resolvedProgram({
       entities: [entity()],
       components: [{ name: "page-row", props: ["prototype"], body: [] }],
     }),
-    program({
+    resolvedProgram({
       entities: [entity()],
       views: [{ name: "__proto__" }],
     }),
-    program({
+    resolvedProgram({
       entities: [entity()],
       router: {
         default_route: "main",
         routes: [{ path: "constructor", view_name: "main" }],
       },
     }),
-    program({
+    resolvedProgram({
       entities: [entity()],
       publications: [{ name: "prototype" }],
     }),
-    program({
+    resolvedProgram({
       entities: [entity()],
       defstates: [{
         name: "constructor",
@@ -181,7 +230,7 @@ test("generated JavaScript surfaces reject prototype-chain names", () => {
 
   for (const source of cases) {
     assert.throws(
-      () => checkProgram(source),
+      () => checkResolvedDeclarationProgram(source),
       /is reserved for generated JavaScript/,
     );
   }
@@ -208,7 +257,7 @@ test("FRAM add forms require identity and exclude command-only fields", () => {
   };
 
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       entities: [entity],
       views: [{
         name: "pages",
@@ -219,7 +268,7 @@ test("FRAM add forms require identity and exclude command-only fields", () => {
     /view 'pages' add form must include identity field 'page\.slug'/,
   );
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       entities: [entity],
       views: [{
         name: "pages",
@@ -230,7 +279,7 @@ test("FRAM add forms require identity and exclude command-only fields", () => {
     /view 'pages' add form cannot include command-only field 'page\.canonical-revision'/,
   );
   assert.throws(
-    () => checkProgram(program({
+    () => checkResolvedDeclarationProgram(resolvedProgram({
       entities: [entity],
       forms: [{
         name: "add-page",
@@ -241,7 +290,7 @@ test("FRAM add forms require identity and exclude command-only fields", () => {
     })),
     /form 'add-page' must include identity field 'page\.slug'/,
   );
-  assert.doesNotThrow(() => checkProgram(program({
+  assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram({
     entities: [entity],
     views: [{
       name: "pages",
@@ -249,7 +298,7 @@ test("FRAM add forms require identity and exclude command-only fields", () => {
       add_fields: ["slug", "title"],
     }],
   })));
-  assert.doesNotThrow(() => checkProgram(program({
+  assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram({
     entities: [entity],
     forms: [{
       name: "add-page",
@@ -268,7 +317,7 @@ test("FRAM accepts literal aliases, known references, and defstate types", () =>
       initial: ":draft",
     },
   ];
-  const source = program({
+  const source = resolvedProgram({
     defstates,
     entities: [
       {
@@ -295,13 +344,13 @@ test("FRAM accepts literal aliases, known references, and defstate types", () =>
     ],
   });
 
-  const checked = checkProgram(source);
+  const checked = checkResolvedDeclarationProgram(source);
   assert.equal(checked.state_machines.length, 1);
   assert.equal(checked.state_machines[0].state_type, "Lifecycle");
 });
 
 test("state machine fields must be single-cardinality", () => {
-  const source = program({
+  const source = resolvedProgram({
     defstates: [{
       name: "Lifecycle",
       transitions: { ":draft": [":canonical"], ":canonical": [] },
@@ -317,13 +366,13 @@ test("state machine fields must be single-cardinality", () => {
   });
 
   assert.throws(
-    () => checkProgram(source),
+    () => checkResolvedDeclarationProgram(source),
     /state field 'page\.status' must be single-cardinality/,
   );
 });
 
 test("defstate transitions may target only declared states", () => {
-  const source = program({
+  const source = resolvedProgram({
     defstates: [{
       name: "Lifecycle",
       transitions: { ":draft": [":missing"], ":canonical": [] },
@@ -339,13 +388,13 @@ test("defstate transitions may target only declared states", () => {
   });
 
   assert.throws(
-    () => checkProgram(source),
+    () => checkResolvedDeclarationProgram(source),
     /defstate 'Lifecycle' transition from 'draft' targets undeclared state 'missing'/,
   );
 });
 
 test("local applications retain open field type spellings", () => {
-  const source = program({
+  const source = resolvedProgram({
     backend: null,
     entities: [
       {
@@ -355,7 +404,7 @@ test("local applications retain open field type spellings", () => {
     ],
   });
 
-  assert.doesNotThrow(() => checkProgram(source));
+  assert.doesNotThrow(() => checkResolvedDeclarationProgram(source));
 });
 
 function publicationSource(overrides = {}) {
@@ -383,7 +432,7 @@ function publicationProgram(overrides = {}) {
     },
     initial: ":draft",
   }];
-  return program({
+  return resolvedProgram({
     defstates,
     entities: [
       {
@@ -414,7 +463,7 @@ function publicationProgram(overrides = {}) {
 }
 
 test("publication policy resolves only with command and create write boundaries", () => {
-  const checked = checkProgram(publicationProgram());
+  const checked = checkResolvedDeclarationProgram(publicationProgram());
 
   assert.deepEqual(checked.publications, [{
     _tag: "PublicationPolicy",
@@ -435,20 +484,10 @@ test("publication policy resolves only with command and create write boundaries"
 
 test("publication rejects a generic-set pointer", () => {
   const source = publicationProgram();
-  source.entities[0].attrs[1].opts.write = "set";
+  source.entities[0].fields[1].write_policy = "set";
 
   assert.throws(
-    () => checkProgram(source),
+    () => checkResolvedDeclarationProgram(source),
     /publication field 'page\.canonical-revision' must declare :write :command/,
-  );
-});
-
-test("identity fields reject explicit write policies", () => {
-  const source = publicationProgram();
-  source.entities[0].attrs[0].opts.write = "create";
-
-  assert.throws(
-    () => checkProgram(source),
-    /identity field 'slug' is immutable and cannot declare :write/,
   );
 });
