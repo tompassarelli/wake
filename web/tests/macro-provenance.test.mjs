@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { beforeAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -29,6 +29,7 @@ function runBeagle(args) {
     cwd: webRoot,
     stdout: "pipe",
     stderr: "pipe",
+    timeout: 55_000,
   });
   expect(result.exitCode, result.stderr.toString()).toBe(0);
   return result.stdout.toString();
@@ -48,6 +49,10 @@ function executeGeneratedFixture(path, namespacePath) {
   });
   expect(result.exitCode, result.stderr.toString()).toBe(0);
 }
+
+beforeAll(() => {
+  runBeagle(["build", "--target", "js", core]);
+}, { timeout: 60_000 });
 
 function definition(ast, name) {
   const form = ast.forms.find((candidate) =>

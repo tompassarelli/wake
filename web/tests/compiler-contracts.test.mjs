@@ -357,13 +357,23 @@ test("list-detail mode omits creation UI when no form is declared", async () => 
   }
 }, COMPILER_TEST_TIMEOUT_MS);
 
-test("schema-only programs remain valid while browser generation needs a UI root", () => {
-  const temporary = mkdtempSync(join(tmpdir(), "wake-schema-only-"));
+test("schema-only FRAM programs remain valid", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-schema-only-fram-"));
   const sourcePath = join(temporary, "schema-only.bjs");
   writeFileSync(sourcePath, schemaOnlyProgram);
   try {
     const fram = compileFram(sourcePath);
     assert.equal(fram.status, 0, `${fram.stdout}\n${fram.stderr}`);
+  } finally {
+    rmSync(temporary, { force: true, recursive: true });
+  }
+}, COMPILER_TEST_TIMEOUT_MS);
+
+test("browser generation rejects schema-only programs without a UI root", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-schema-only-browser-"));
+  const sourcePath = join(temporary, "schema-only.bjs");
+  writeFileSync(sourcePath, schemaOnlyProgram);
+  try {
     const browser = spawnSync(compile, [sourcePath, "-"], { cwd: webRoot });
     assert.notEqual(browser.status, 0);
     assert.match(
@@ -375,8 +385,7 @@ test("schema-only programs remain valid while browser generation needs a UI root
   }
 }, COMPILER_TEST_TIMEOUT_MS);
 
-test("compiler rejects ambiguous or mismatched UI root declarations", () => {
-  const temporary = mkdtempSync(join(tmpdir(), "wake-ui-root-topology-"));
+const uiRootTopologyCases = (() => {
   const base = readFileSync(
     join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.bjs"),
     "utf8",
@@ -404,47 +413,52 @@ test("compiler rejects ambiguous or mismatched UI root declarations", () => {
   nil)
 
 `;
-  try {
-    for (const [name, source, expected] of [
-      [
-        "multiple-forms",
-        base
-          .replace("(wake/application-root", `${secondForm}(wake/application-root`)
-          .replace(
-            "  [add-blog-post-ref]\n",
-            "  [add-blog-post-ref add-blog-post-again-ref]\n",
-          ),
-        /program may declare at most one list-detail form/,
-      ],
-      [
-        "wrong-form-owner",
-        base.replace(
-          `(wake/defform
+  return [
+    [
+      "multiple forms",
+      base
+        .replace("(wake/application-root", `${secondForm}(wake/application-root`)
+        .replace(
+          "  [add-blog-post-ref]\n",
+          "  [add-blog-post-ref add-blog-post-again-ref]\n",
+        ),
+      /program may declare at most one list-detail form/,
+    ],
+    [
+      "a mismatched form owner",
+      base.replace(
+        `(wake/defform
   add-blog-post
   "add-blog-post"
   "add-blog-post"
   blog-post-ref`,
-          `(wake/defform
+        `(wake/defform
   add-blog-post
   "add-blog-post"
   "add-blog-post"
   blog-note-ref`,
-        ),
-        /targets entity 'blog-note' but the list detail owns 'blog-post'/,
-      ],
-      [
-        "view-and-list",
-        base.replace("(wake/application-root", `${view}(wake/application-root`),
-        /program cannot combine view and list-detail UI roots/,
-      ],
-    ]) {
-      const sourcePath = join(temporary, `${name}.bjs`);
-      writeFileSync(sourcePath, source);
+      ),
+      /targets entity 'blog-note' but the list detail owns 'blog-post'/,
+    ],
+    [
+      "combined view and list roots",
+      base.replace("(wake/application-root", `${view}(wake/application-root`),
+      /program cannot combine view and list-detail UI roots/,
+    ],
+  ];
+})();
+
+for (const [name, source, expected] of uiRootTopologyCases) {
+  test(`compiler rejects ${name}`, () => {
+    const temporary = mkdtempSync(join(tmpdir(), "wake-ui-root-topology-"));
+    const sourcePath = join(temporary, "application.bjs");
+    writeFileSync(sourcePath, source);
+    try {
       const result = compileFram(sourcePath);
       assert.notEqual(result.status, 0);
       assert.match(`${result.stdout}\n${result.stderr}`, expected);
+    } finally {
+      rmSync(temporary, { force: true, recursive: true });
     }
-  } finally {
-    rmSync(temporary, { force: true, recursive: true });
-  }
-}, 45_000);
+  }, COMPILER_TEST_TIMEOUT_MS);
+}

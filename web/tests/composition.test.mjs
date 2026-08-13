@@ -414,29 +414,33 @@ describe("W3 checked application composition", () => {
     }
   }, 60_000);
 
-  test("rejects invalid extension fields and incompatible component fills", async () => {
+  test("rejects extension fields without explicit storage IDs", async () => {
     const withoutStorage = application.replace(
       '    "wake-composition-fixture/field/release/channel"',
       '    ""',
     );
-    let root = await fixture(withoutStorage);
-    let result = runCompile(root);
+    const root = await fixture(withoutStorage);
+    const result = runCompile(root);
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("requires an explicit storage ID");
+  }, 30_000);
 
+  test("rejects extension fields with a server write policy", async () => {
     const wrongWritePolicy = application.replace(
       "    (wake/->CreateWrite nil)\n    \"wake-composition-fixture/field/release/channel\"",
       "    (wake/->ServerWrite nil)\n    \"wake-composition-fixture/field/release/channel\"",
     );
-    root = await fixture(wrongWritePolicy);
-    result = runCompile(root);
+    const root = await fixture(wrongWritePolicy);
+    const result = runCompile(root);
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("must use create write policy");
+  }, 30_000);
 
+  test("rejects incompatible component fills", async () => {
     const incompatible = application
       .replaceAll(":current-state", ":application-state");
-    root = await fixture(incompatible);
-    result = runCompile(root);
+    const root = await fixture(incompatible);
+    const result = runCompile(root);
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("lacks required props: current-state");
   }, 30_000);

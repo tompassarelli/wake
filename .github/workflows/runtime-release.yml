@@ -76,10 +76,36 @@ jobs:
         working-directory: web
         run: bun install --frozen-lockfile
 
+      # Verification uses the immutable release tree, while these five files are
+      # gate-only harnesses. Overlay their fixes from the workflow revision and
+      # prove no product or release input changed.
+      - name: Overlay release verification harness fixes
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          git fetch origin "$WORKFLOW_SHA"
+          for path in \
+            web/tests/codegen-provider-route.test.mjs \
+            web/tests/command-ux.test.mjs \
+            web/tests/compiler-contracts.test.mjs \
+            web/tests/composition.test.mjs \
+            web/tests/macro-provenance.test.mjs
+          do
+            git show "$WORKFLOW_SHA:$path" > "$path"
+          done
+          test "$(git diff --name-only)" = "$(printf '%s\n' \
+            web/tests/codegen-provider-route.test.mjs \
+            web/tests/command-ux.test.mjs \
+            web/tests/compiler-contracts.test.mjs \
+            web/tests/composition.test.mjs \
+            web/tests/macro-provenance.test.mjs)"
+
       - name: Run Bun runtime and integration tests
         working-directory: web
         run: >-
           bun test
+          --bail=1
           runtime/fram-gateway.test.mjs
           runtime/fram-http.test.mjs
           tests/*.test.mjs

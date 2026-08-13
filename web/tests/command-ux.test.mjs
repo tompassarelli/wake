@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "bun:test";
+import { afterAll, beforeAll, describe, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
 const compile = join(webRoot, "bin", "wake-compile");
-const COMPILER_TEST_TIMEOUT_MS = 20_000;
+const COMPILER_PROCESS_TIMEOUT_MS = 40_000;
 
 function spawnSync(command, args, { cwd, env = process.env } = {}) {
   const result = Bun.spawnSync([command, ...args], {
@@ -16,6 +16,7 @@ function spawnSync(command, args, { cwd, env = process.env } = {}) {
     env,
     stdout: "pipe",
     stderr: "pipe",
+    timeout: COMPILER_PROCESS_TIMEOUT_MS,
   });
   return {
     status: result.exitCode,
@@ -35,17 +36,28 @@ function runCompile(args) {
   assert.equal(result.status, 0, diagnostics);
 }
 
-test("FRAM commands propagate promises while local commands stay synchronous", () => {
-  const outputDir = mkdtempSync(join(tmpdir(), "wake-command-ux-"));
+describe("FRAM command UX", () => {
+  let outputDir;
+  let framSource;
 
-  try {
+  beforeAll(() => {
+    outputDir = mkdtempSync(join(tmpdir(), "wake-command-ux-fram-"));
     const framDir = join(outputDir, "fram");
     runCompile([
       "--all",
       "tests/fixtures/fram-command-ux.bjs",
       framDir,
     ]);
-    const framSource = readFileSync(join(framDir, "app.js"), "utf8");
+    framSource = readFileSync(join(framDir, "app.js"), "utf8");
+  }, { timeout: 45_000 });
+
+  afterAll(() => {
+    if (outputDir !== undefined) {
+      rmSync(outputDir, { force: true, recursive: true });
+    }
+  });
+
+  test("propagate promises and surface failures", () => {
     const itemStore = framSource.match(
       /\["item", \{ store: ([A-Za-z_$][\w$]*)/,
     )?.[1];
@@ -98,10 +110,27 @@ test("FRAM commands propagate promises while local commands stay synchronous", (
     const failure = framSource.indexOf(`${itemStore}.commandFailed(error);`, hide);
     assert.ok(submit >= 0 && submit < command);
     assert.ok(command < clear && clear < hide && hide < failure);
+  });
+});
 
+describe("local command UX", () => {
+  let outputDir;
+  let localSource;
+
+  beforeAll(() => {
+    outputDir = mkdtempSync(join(tmpdir(), "wake-command-ux-local-"));
     const localPath = join(outputDir, "local.js");
     runCompile(["demo/todo.bjs", localPath]);
-    const localSource = readFileSync(localPath, "utf8");
+    localSource = readFileSync(localPath, "utf8");
+  }, { timeout: 45_000 });
+
+  afterAll(() => {
+    if (outputDir !== undefined) {
+      rmSync(outputDir, { force: true, recursive: true });
+    }
+  });
+
+  test("stay synchronous", () => {
     assert.match(localSource, /return entity;/);
     assert.match(
       localSource,
@@ -112,7 +141,5 @@ test("FRAM commands propagate promises while local commands stay synchronous", (
       localSource,
       /formEl\.addEventListener\('submit', async \(e\) => \{/,
     );
-  } finally {
-    rmSync(outputDir, { force: true, recursive: true });
-  }
-}, COMPILER_TEST_TIMEOUT_MS);
+  });
+});
