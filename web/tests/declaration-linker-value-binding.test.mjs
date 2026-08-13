@@ -13,6 +13,8 @@ const beagleRoot = process.env.BEAGLE_PROJECTION_ROOT
   ?? process.env.BEAGLE_ROOT
   ?? join(homedir(), "code", "beagle", "main");
 const beagle = join(beagleRoot, "bin", "beagle");
+const BEAGLE_PROCESS_TIMEOUT_MS = 40_000;
+const BUNDLE_SETUP_TIMEOUT_MS = 60_000;
 const sourceIds = Object.freeze({
   application: "web/tests/fixtures/macro-provenance/application.bjs",
   plugin: "web/tests/fixtures/macro-provenance/plugin.bjs",
@@ -38,6 +40,7 @@ function checkedBundle(entrySourceId, sources) {
     })),
     stdout: "pipe",
     stderr: "pipe",
+    timeout: BEAGLE_PROCESS_TIMEOUT_MS,
   });
   assert.equal(result.exitCode, 0, result.stderr.toString());
   return JSON.parse(result.stdout.toString());
@@ -144,7 +147,7 @@ beforeAll(() => {
   };
   baseApplication = decode("application");
   basePlugin = decode("plugin");
-});
+}, { timeout: BUNDLE_SETUP_TIMEOUT_MS });
 
 function linkWith(change = () => {}) {
   const state = structuredClone({ application: baseApplication, plugin: basePlugin });

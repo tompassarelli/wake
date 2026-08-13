@@ -13,11 +13,30 @@ const stateSchemaDigest = `sha256:${"5".repeat(64)}`;
 const storageProjectionDigest = `sha256:${"6".repeat(64)}`;
 
 function artifacts() {
-  const plugin = {
+  const manifestPlugin = {
     alias: "fixture",
+    allowedContributions: ["schema"],
     artifactDigest: `sha256:${"7".repeat(64)}`,
+    configuration: {},
+    configurationDigest: `sha256:${"8".repeat(64)}`,
+    durableSchemaVersion: 1,
+    migrationOrdinal: 0,
     packageId: "neutral-plugin",
+    source: { commit: "a".repeat(40), kind: "git" },
     version: "0.1.0",
+  };
+  const planPlugin = {
+    alias: manifestPlugin.alias,
+    artifact_digest: manifestPlugin.artifactDigest,
+    artifact_path: "artifacts/neutral-plugin-0.1.0.wakepkg.json",
+    configuration_digest: manifestPlugin.configurationDigest,
+    durable_schema_version: manifestPlugin.durableSchemaVersion,
+    entry_path: "plugin.bjs",
+    migration_ordinal: manifestPlugin.migrationOrdinal,
+    package_id: manifestPlugin.packageId,
+    source_kind: manifestPlugin.source.kind,
+    source_revision: manifestPlugin.source.commit,
+    version: manifestPlugin.version,
   };
   const planValue = {
     applicationId,
@@ -37,7 +56,7 @@ function artifacts() {
       name: "Item",
       storageId: "neutral/entity/item",
     }],
-    pluginClosure: [plugin],
+    pluginClosure: [planPlugin],
     publications: [],
     queries: [],
     routes: [],
@@ -61,7 +80,7 @@ function artifacts() {
       storageProjection: storageProjectionDigest,
     },
     hostCapabilities: [],
-    plugins: [plugin],
+    plugins: [manifestPlugin],
     protocols: {
       framPlanSchemaVersion: 2,
       httpOperationProtocolVersion: 2,

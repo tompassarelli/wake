@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { loadApplicationReceipt } from "./application-receipt.mjs";
+import {
+  loadApplicationReceipt,
+  prepareApplicationReceipt,
+} from "./application-receipt.mjs";
 import { canonicalDocument, sha256Digest } from "./canonical.mjs";
 
 const applicationId = "neutral.receipt.fixture";
@@ -16,17 +19,36 @@ const protocols = Object.freeze({
 });
 
 function artifacts() {
-  const plugin = {
+  const manifestPlugin = {
     alias: "fixture",
+    allowedContributions: ["schema"],
     artifactDigest: `sha256:${"5".repeat(64)}`,
+    configuration: {},
+    configurationDigest: `sha256:${"8".repeat(64)}`,
+    durableSchemaVersion: 1,
+    migrationOrdinal: 0,
     packageId: "neutral-plugin",
+    source: { commit: "a".repeat(40), kind: "git" },
     version: "0.1.0",
+  };
+  const planPlugin = {
+    alias: manifestPlugin.alias,
+    artifact_digest: manifestPlugin.artifactDigest,
+    artifact_path: "artifacts/neutral-plugin-0.1.0.wakepkg.json",
+    configuration_digest: manifestPlugin.configurationDigest,
+    durable_schema_version: manifestPlugin.durableSchemaVersion,
+    entry_path: "plugin.bjs",
+    migration_ordinal: manifestPlugin.migrationOrdinal,
+    package_id: manifestPlugin.packageId,
+    source_kind: manifestPlugin.source.kind,
+    source_revision: manifestPlugin.source.commit,
+    version: manifestPlugin.version,
   };
   const planValue = {
     applicationId,
     backend: "fram",
     entities: [],
-    pluginClosure: [plugin],
+    pluginClosure: [planPlugin],
     publications: [],
     queries: [],
     schemaVersion: 2,
@@ -49,7 +71,7 @@ function artifacts() {
       storageProjection: storageDigest,
     },
     hostCapabilities: [],
-    plugins: [plugin],
+    plugins: [manifestPlugin],
     protocols: { ...protocols },
     schemaVersion: 1,
   };
@@ -72,6 +94,16 @@ function artifacts() {
     storageProjectionDigest: storageDigest,
   });
   return { deploymentReceipt, manifest, plan, receipt };
+}
+
+function mutateArtifact(name, mutate) {
+  const checked = artifacts();
+  const value = JSON.parse(checked[name]);
+  mutate(value);
+  checked[name] = name === "manifest"
+    ? canonicalDocument(value)
+    : `${JSON.stringify(value, null, 2)}\n`;
+  return checked;
 }
 
 const keyword = value => ["keyword", value];
@@ -126,6 +158,34 @@ function runtime(replies) {
 }
 
 describe("durable application receipt loader", () => {
+  test("binds the rich manifest plugin to the slim plan closure and rejects schema drift", () => {
+    const checked = artifacts();
+    expect(prepareApplicationReceipt({ applicationId, ...checked }).applicationReceipt)
+      .toEqual(checked.receipt);
+
+    for (const [changed, code] of [
+      [mutateArtifact("manifest", value => { delete value.plugins[0].configuration; }),
+        "receipt/invalid-artifact"],
+      [mutateArtifact("manifest", value => { value.plugins[0].unexpected = true; }),
+        "receipt/invalid-artifact"],
+      [mutateArtifact("plan", value => { delete value.pluginClosure[0].entry_path; }),
+        "receipt/invalid-artifact"],
+      [mutateArtifact("plan", value => { value.pluginClosure[0].unexpected = true; }),
+        "receipt/invalid-artifact"],
+      [mutateArtifact("manifest", value => { value.plugins.push(value.plugins[0]); }),
+        "receipt/invalid-artifact"],
+      [mutateArtifact("plan", value => { value.pluginClosure.push(value.pluginClosure[0]); }),
+        "receipt/invalid-artifact"],
+      [mutateArtifact("manifest", value => {
+        value.plugins[0].artifactDigest = `sha256:${"9".repeat(64)}`;
+      }), "receipt/artifact-mismatch"],
+    ]) {
+      expect(() => prepareApplicationReceipt({ applicationId, ...changed })).toThrow(
+        expect.objectContaining({ code }),
+      );
+    }
+  });
+
   test("reads one closed receipt through the fixed application-scoped query", async () => {
     const { calls, checked, input } = runtime();
     const receipt = await loadApplicationReceipt(input);

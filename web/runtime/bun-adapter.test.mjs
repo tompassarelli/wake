@@ -173,6 +173,19 @@ function fixture({ providerNames = [] } = {}) {
     source: { commit: "a".repeat(40), kind: "git" },
     version: "0.1.0",
   };
+  const planPlugin = {
+    alias: plugin.alias,
+    artifact_digest: plugin.artifactDigest,
+    artifact_path: "artifacts/wake-neutral-fixture-0.1.0.wakepkg.json",
+    configuration_digest: plugin.configurationDigest,
+    durable_schema_version: plugin.durableSchemaVersion,
+    entry_path: "plugin.bjs",
+    migration_ordinal: plugin.migrationOrdinal,
+    package_id: plugin.packageId,
+    source_kind: plugin.source.kind,
+    source_revision: plugin.source.commit,
+    version: plugin.version,
+  };
   const planValue = {
     applicationId: "neutral.fixture",
     backend: "fram",
@@ -189,7 +202,7 @@ function fixture({ providerNames = [] } = {}) {
     },
     commands: [],
     entities: [],
-    pluginClosure: [plugin],
+    pluginClosure: [planPlugin],
     publications: [],
     queries: [],
     schemaVersion: 2,
@@ -244,6 +257,16 @@ function fixture({ providerNames = [] } = {}) {
     manifest,
     plan,
   };
+}
+
+function mutatePluginArtifact(name, mutate) {
+  const checked = fixture();
+  const value = JSON.parse(checked[name]);
+  mutate(value);
+  checked[name] = name === "manifest"
+    ? canonicalDocument(value)
+    : `${JSON.stringify(value, null, 2)}\n`;
+  return checked;
 }
 
 function runtime(overrides = {}) {
@@ -331,6 +354,36 @@ test("composes only the public FRAM and Wake runtime interfaces", async () => {
   expect(Object.isFrozen(input.calls.authorized[0].actor)).toBe(true);
   expect(input.calls.authorized[0].traceId).toBe("trace_0001");
   expect(input.calls.authorized[0].entity).toBe("entry");
+});
+
+test("binds distinct compiler plugin schemas and rejects closure drift", () => {
+  const accepted = runtime();
+  createWakeBunAdapter(accepted);
+  expect(accepted.calls.gateway).toHaveLength(1);
+
+  for (const [changed, code] of [
+    [mutatePluginArtifact("manifest", value => { delete value.plugins[0].configuration; }),
+      "adapter/invalid-manifest"],
+    [mutatePluginArtifact("manifest", value => { value.plugins[0].unexpected = true; }),
+      "adapter/invalid-manifest"],
+    [mutatePluginArtifact("plan", value => { delete value.pluginClosure[0].entry_path; }),
+      "adapter/invalid-plan"],
+    [mutatePluginArtifact("plan", value => { value.pluginClosure[0].unexpected = true; }),
+      "adapter/invalid-plan"],
+    [mutatePluginArtifact("manifest", value => { value.plugins.push(value.plugins[0]); }),
+      "adapter/invalid-manifest"],
+    [mutatePluginArtifact("plan", value => { value.pluginClosure.push(value.pluginClosure[0]); }),
+      "adapter/invalid-plan"],
+    [mutatePluginArtifact("manifest", value => {
+      value.plugins[0].artifactDigest = `sha256:${"8".repeat(64)}`;
+    }), "adapter/plan-mismatch"],
+  ]) {
+    const rejected = runtime(changed);
+    expect(() => createWakeBunAdapter(rejected)).toThrow(
+      expect.objectContaining({ code }),
+    );
+    expect(rejected.calls.gateway).toHaveLength(0);
+  }
 });
 
 test("requires and freezes the exact checked provider registry before composition", () => {

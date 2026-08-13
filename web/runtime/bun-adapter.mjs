@@ -7,6 +7,16 @@ import { createFramGateway } from "./fram-gateway.mjs";
 import { createWakeHttpHandler } from "./fram-http.mjs";
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
+const COMMIT = /^[0-9a-f]{40}$/;
+const VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/;
+const PLUGIN_CONTRIBUTIONS = new Set([
+  "capability",
+  "command",
+  "query",
+  "route",
+  "schema",
+  "ui",
+]);
 const EXPECTED_PROTOCOLS = Object.freeze({
   framPlanSchemaVersion: 2,
   httpOperationProtocolVersion: 2,
@@ -32,25 +42,152 @@ function plainObject(value) {
   return prototype === Object.prototype || prototype === null;
 }
 
-function exactKeys(value, keys, label) {
+function exactKeys(value, keys, label, code = "adapter/invalid-config") {
   if (!plainObject(value) || Object.keys(value).length !== keys.length
       || keys.some(key => !Object.hasOwn(value, key))) {
-    fail("adapter/invalid-config", `${label} has an invalid shape`);
+    fail(code, `${label} has an invalid shape`);
   }
 }
 
-function nonempty(value, label) {
+function nonempty(value, label, code = "adapter/invalid-config") {
   if (typeof value !== "string" || value.length === 0) {
-    fail("adapter/invalid-config", `${label} must be a nonempty string`);
+    fail(code, `${label} must be a nonempty string`);
   }
   return value;
 }
 
-function digest(value, label) {
+function digest(value, label, code = "adapter/invalid-config") {
   if (typeof value !== "string" || !SHA256.test(value)) {
-    fail("adapter/invalid-config", `${label} must be a sha256 digest`);
+    fail(code, `${label} must be a sha256 digest`);
   }
   return value;
+}
+
+function exactVersion(value, label, code) {
+  if (typeof value !== "string" || !VERSION.test(value)) {
+    fail(code, `${label} must be an exact major.minor.patch version`);
+  }
+  return value;
+}
+
+function relativePath(value, label, suffix) {
+  nonempty(value, label, "adapter/invalid-plan");
+  const pieces = value.split("/");
+  if (value.startsWith("/") || value.includes("\\") || /^[A-Za-z]:\//.test(value)
+      || pieces.some(piece => piece === "" || piece === "." || piece === "..")
+      || !value.endsWith(suffix)) {
+    fail("adapter/invalid-plan", `${label} must be a package-relative ${suffix} path`);
+  }
+  return value;
+}
+
+function pluginEvidence({
+  alias,
+  artifactDigest,
+  configurationDigest,
+  durableSchemaVersion,
+  migrationOrdinal,
+  packageId,
+  sourceKind,
+  sourceRevision,
+  version,
+}, label, code) {
+  nonempty(alias, `${label}.alias`, code);
+  if (alias.includes(".")) fail(code, `${label}.alias must not contain '.'`);
+  digest(artifactDigest, `${label}.artifact digest`, code);
+  digest(configurationDigest, `${label}.configuration digest`, code);
+  if (!Number.isSafeInteger(durableSchemaVersion) || durableSchemaVersion < 1) {
+    fail(code, `${label}.durable schema version must be positive`);
+  }
+  if (!Number.isSafeInteger(migrationOrdinal) || migrationOrdinal < 0) {
+    fail(code, `${label}.migration ordinal must be nonnegative`);
+  }
+  nonempty(packageId, `${label}.package id`, code);
+  if (sourceKind !== "git" || typeof sourceRevision !== "string"
+      || !COMMIT.test(sourceRevision)) {
+    fail(code, `${label}.source must identify one Git commit`);
+  }
+  exactVersion(version, `${label}.version`, code);
+  return Object.freeze({
+    alias,
+    artifact_digest: artifactDigest,
+    configuration_digest: configurationDigest,
+    durable_schema_version: durableSchemaVersion,
+    migration_ordinal: migrationOrdinal,
+    package_id: packageId,
+    source_kind: sourceKind,
+    source_revision: sourceRevision,
+    version,
+  });
+}
+
+function checkedManifestPlugin(value, index) {
+  const label = `manifest.plugins[${index}]`;
+  const code = "adapter/invalid-manifest";
+  exactKeys(value, [
+    "alias",
+    "allowedContributions",
+    "artifactDigest",
+    "configuration",
+    "configurationDigest",
+    "durableSchemaVersion",
+    "migrationOrdinal",
+    "packageId",
+    "source",
+    "version",
+  ], label, code);
+  if (!Array.isArray(value.allowedContributions)
+      || value.allowedContributions.some(contribution =>
+        typeof contribution !== "string" || !PLUGIN_CONTRIBUTIONS.has(contribution))
+      || new Set(value.allowedContributions).size !== value.allowedContributions.length) {
+    fail(code, `${label}.allowedContributions is invalid`);
+  }
+  if (!plainObject(value.configuration)) {
+    fail(code, `${label}.configuration must be an object`);
+  }
+  exactKeys(value.source, ["commit", "kind"], `${label}.source`, code);
+  return pluginEvidence({
+    alias: value.alias,
+    artifactDigest: value.artifactDigest,
+    configurationDigest: value.configurationDigest,
+    durableSchemaVersion: value.durableSchemaVersion,
+    migrationOrdinal: value.migrationOrdinal,
+    packageId: value.packageId,
+    sourceKind: value.source.kind,
+    sourceRevision: value.source.commit,
+    version: value.version,
+  }, label, code);
+}
+
+function checkedPlanPlugin(value, index) {
+  const label = `plan.pluginClosure[${index}]`;
+  const code = "adapter/invalid-plan";
+  exactKeys(value, [
+    "alias",
+    "artifact_digest",
+    "artifact_path",
+    "configuration_digest",
+    "durable_schema_version",
+    "entry_path",
+    "migration_ordinal",
+    "package_id",
+    "source_kind",
+    "source_revision",
+    "version",
+  ], label, code);
+  relativePath(value.artifact_path, `${label}.artifact_path`, ".wakepkg.json");
+  relativePath(value.entry_path, `${label}.entry_path`, ".bjs");
+  return pluginEvidence({
+    alias: value.alias,
+    artifactDigest: value.artifact_digest,
+    configurationDigest: value.configuration_digest,
+    durableSchemaVersion: value.durable_schema_version,
+    migrationOrdinal: value.migration_ordinal,
+    packageId: value.package_id,
+    sourceKind: value.source_kind,
+    sourceRevision: value.source_revision,
+    version: value.version,
+  }, label, code);
 }
 
 function documentArtifact(input, label, { canonical = false } = {}) {
@@ -118,7 +255,11 @@ function applicationManifest(input) {
         || capability.length === 0)) {
     fail("adapter/invalid-manifest", "manifest.hostCapabilities must contain names");
   }
-  return Object.freeze({ ...artifact, value: structuredClone(value) });
+  const plugins = Object.freeze(value.plugins.map(checkedManifestPlugin));
+  if (new Set(plugins.map(plugin => plugin.alias)).size !== plugins.length) {
+    fail("adapter/invalid-manifest", "manifest.plugins repeats an alias");
+  }
+  return Object.freeze({ ...artifact, plugins, value: structuredClone(value) });
 }
 
 function framPlan(input) {
@@ -131,7 +272,11 @@ function framPlan(input) {
   }
   nonempty(value.applicationId, "plan.applicationId");
   digest(value.semanticFingerprint, "plan.semanticFingerprint");
-  return Object.freeze({ ...artifact, value: structuredClone(value) });
+  const pluginClosure = Object.freeze(value.pluginClosure.map(checkedPlanPlugin));
+  if (new Set(pluginClosure.map(plugin => plugin.alias)).size !== pluginClosure.length) {
+    fail("adapter/invalid-plan", "plan.pluginClosure repeats an alias");
+  }
+  return Object.freeze({ ...artifact, pluginClosure, value: structuredClone(value) });
 }
 
 function deploymentReceipt(input) {
@@ -219,8 +364,8 @@ function assertArtifactBinding({ manifestArtifact, planArtifact, receiptArtifact
     "plan artifact digest",
   );
   assertSame(
-    canonicalDocument(plan.pluginClosure),
-    canonicalDocument(manifest.plugins),
+    canonicalDocument(planArtifact.pluginClosure),
+    canonicalDocument(manifestArtifact.plugins),
     "adapter/plan-mismatch",
     "plan plugin closure",
   );

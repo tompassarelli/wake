@@ -2,6 +2,16 @@ import { canonicalDocument, sha256Digest } from "./canonical.mjs";
 
 const QUERY_TIMEOUT_MS = 5_000;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
+const COMMIT = /^[0-9a-f]{40}$/u;
+const VERSION = /^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u;
+const PLUGIN_CONTRIBUTIONS = new Set([
+  "capability",
+  "command",
+  "query",
+  "route",
+  "schema",
+  "ui",
+]);
 const EXPECTED_PROTOCOLS = Object.freeze({
   framPlanSchemaVersion: 2,
   httpOperationProtocolVersion: 2,
@@ -47,6 +57,133 @@ function digest(value, label, code = "receipt/invalid-artifact") {
     fail(code, `${label} must be a sha256 digest`);
   }
   return value;
+}
+
+function exactVersion(value, label) {
+  if (typeof value !== "string" || !VERSION.test(value)) {
+    fail("receipt/invalid-artifact", `${label} must be an exact major.minor.patch version`);
+  }
+  return value;
+}
+
+function relativePath(value, label, suffix) {
+  nonempty(value, label);
+  const pieces = value.split("/");
+  if (value.startsWith("/") || value.includes("\\") || /^[A-Za-z]:\//u.test(value)
+      || pieces.some(piece => piece === "" || piece === "." || piece === "..")
+      || !value.endsWith(suffix)) {
+    fail("receipt/invalid-artifact", `${label} must be a package-relative ${suffix} path`);
+  }
+  return value;
+}
+
+function pluginEvidence({
+  alias,
+  artifactDigest,
+  configurationDigest,
+  durableSchemaVersion,
+  migrationOrdinal,
+  packageId,
+  sourceKind,
+  sourceRevision,
+  version,
+}, label) {
+  nonempty(alias, `${label}.alias`);
+  if (alias.includes(".")) {
+    fail("receipt/invalid-artifact", `${label}.alias must not contain '.'`);
+  }
+  digest(artifactDigest, `${label}.artifact digest`);
+  digest(configurationDigest, `${label}.configuration digest`);
+  if (!Number.isSafeInteger(durableSchemaVersion) || durableSchemaVersion < 1) {
+    fail("receipt/invalid-artifact", `${label}.durable schema version must be positive`);
+  }
+  if (!Number.isSafeInteger(migrationOrdinal) || migrationOrdinal < 0) {
+    fail("receipt/invalid-artifact", `${label}.migration ordinal must be nonnegative`);
+  }
+  nonempty(packageId, `${label}.package id`);
+  if (sourceKind !== "git" || typeof sourceRevision !== "string"
+      || !COMMIT.test(sourceRevision)) {
+    fail("receipt/invalid-artifact", `${label}.source must identify one Git commit`);
+  }
+  exactVersion(version, `${label}.version`);
+  return Object.freeze({
+    alias,
+    artifact_digest: artifactDigest,
+    configuration_digest: configurationDigest,
+    durable_schema_version: durableSchemaVersion,
+    migration_ordinal: migrationOrdinal,
+    package_id: packageId,
+    source_kind: sourceKind,
+    source_revision: sourceRevision,
+    version,
+  });
+}
+
+function checkedManifestPlugin(value, index) {
+  const label = `manifest.plugins[${index}]`;
+  exactKeys(value, [
+    "alias",
+    "allowedContributions",
+    "artifactDigest",
+    "configuration",
+    "configurationDigest",
+    "durableSchemaVersion",
+    "migrationOrdinal",
+    "packageId",
+    "source",
+    "version",
+  ], label);
+  if (!Array.isArray(value.allowedContributions)
+      || value.allowedContributions.some(contribution =>
+        typeof contribution !== "string" || !PLUGIN_CONTRIBUTIONS.has(contribution))
+      || new Set(value.allowedContributions).size !== value.allowedContributions.length) {
+    fail("receipt/invalid-artifact", `${label}.allowedContributions is invalid`);
+  }
+  if (!plainObject(value.configuration)) {
+    fail("receipt/invalid-artifact", `${label}.configuration must be an object`);
+  }
+  exactKeys(value.source, ["commit", "kind"], `${label}.source`);
+  return pluginEvidence({
+    alias: value.alias,
+    artifactDigest: value.artifactDigest,
+    configurationDigest: value.configurationDigest,
+    durableSchemaVersion: value.durableSchemaVersion,
+    migrationOrdinal: value.migrationOrdinal,
+    packageId: value.packageId,
+    sourceKind: value.source.kind,
+    sourceRevision: value.source.commit,
+    version: value.version,
+  }, label);
+}
+
+function checkedPlanPlugin(value, index) {
+  const label = `plan.pluginClosure[${index}]`;
+  exactKeys(value, [
+    "alias",
+    "artifact_digest",
+    "artifact_path",
+    "configuration_digest",
+    "durable_schema_version",
+    "entry_path",
+    "migration_ordinal",
+    "package_id",
+    "source_kind",
+    "source_revision",
+    "version",
+  ], label);
+  relativePath(value.artifact_path, `${label}.artifact_path`, ".wakepkg.json");
+  relativePath(value.entry_path, `${label}.entry_path`, ".bjs");
+  return pluginEvidence({
+    alias: value.alias,
+    artifactDigest: value.artifact_digest,
+    configurationDigest: value.configuration_digest,
+    durableSchemaVersion: value.durable_schema_version,
+    migrationOrdinal: value.migration_ordinal,
+    packageId: value.package_id,
+    sourceKind: value.source_kind,
+    sourceRevision: value.source_revision,
+    version: value.version,
+  }, label);
 }
 
 function artifactDocument(input, label, { canonical = false } = {}) {
@@ -126,15 +263,19 @@ function checkedManifest(input) {
   for (const name of ["operationSurface", "stateSchema", "storageProjection"]) {
     digest(value.digests[name], `manifest.digests.${name}`);
   }
-  if (!Array.isArray(value.plugins) || value.plugins.some(plugin => !plainObject(plugin))) {
-    fail("receipt/invalid-artifact", "manifest.plugins must be an array of objects");
+  if (!Array.isArray(value.plugins)) {
+    fail("receipt/invalid-artifact", "manifest.plugins must be an array");
   }
   if (!Array.isArray(value.hostCapabilities)
       || value.hostCapabilities.some(capability => typeof capability !== "string"
         || capability.length === 0)) {
     fail("receipt/invalid-artifact", "manifest.hostCapabilities must contain names");
   }
-  return Object.freeze({ ...artifact, value });
+  const plugins = Object.freeze(value.plugins.map(checkedManifestPlugin));
+  if (new Set(plugins.map(plugin => plugin.alias)).size !== plugins.length) {
+    fail("receipt/invalid-artifact", "manifest.plugins repeats an alias");
+  }
+  return Object.freeze({ ...artifact, plugins, value });
 }
 
 function checkedPlan(input) {
@@ -146,7 +287,11 @@ function checkedPlan(input) {
   }
   nonempty(value.applicationId, "plan.applicationId");
   digest(value.semanticFingerprint, "plan.semanticFingerprint");
-  return Object.freeze({ ...artifact, value });
+  const pluginClosure = Object.freeze(value.pluginClosure.map(checkedPlanPlugin));
+  if (new Set(pluginClosure.map(plugin => plugin.alias)).size !== pluginClosure.length) {
+    fail("receipt/invalid-artifact", "plan.pluginClosure repeats an alias");
+  }
+  return Object.freeze({ ...artifact, pluginClosure, value });
 }
 
 function checkedDeploymentReceipt(input) {
@@ -194,8 +339,8 @@ function expectedReceipt(applicationId, manifestArtifact, planArtifact, deployme
     "plan semantic fingerprint",
   );
   same(
-    canonicalDocument(plan.pluginClosure),
-    canonicalDocument(manifest.plugins),
+    canonicalDocument(planArtifact.pluginClosure),
+    canonicalDocument(manifestArtifact.plugins),
     "plan plugin closure",
   );
   same(

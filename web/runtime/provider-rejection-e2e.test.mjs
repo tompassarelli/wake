@@ -76,7 +76,7 @@ function checkedArtifacts() {
   const browserJavaScript = `// wake: checked-application ${fingerprint}\n`;
   const plugin = {
     alias: "fixture",
-    allowedContributions: ["providers", "schema"],
+    allowedContributions: ["capability", "schema"],
     artifactDigest: `sha256:${"4".repeat(64)}`,
     configuration: {},
     configurationDigest: `sha256:${"5".repeat(64)}`,
@@ -85,6 +85,19 @@ function checkedArtifacts() {
     packageId: "wake-neutral-fixture",
     source: { commit: "a".repeat(40), kind: "git" },
     version: "0.1.0",
+  };
+  const planPlugin = {
+    alias: plugin.alias,
+    artifact_digest: plugin.artifactDigest,
+    artifact_path: "artifacts/wake-neutral-fixture-0.1.0.wakepkg.json",
+    configuration_digest: plugin.configurationDigest,
+    durable_schema_version: plugin.durableSchemaVersion,
+    entry_path: "plugin.bjs",
+    migration_ordinal: plugin.migrationOrdinal,
+    package_id: plugin.packageId,
+    source_kind: plugin.source.kind,
+    source_revision: plugin.source.commit,
+    version: plugin.version,
   };
   const receipt = {
     entity: "command-receipt",
@@ -129,7 +142,7 @@ function checkedArtifacts() {
       receipt,
     }],
     entities: [receiptEntity()],
-    pluginClosure: [plugin],
+    pluginClosure: [planPlugin],
     publications: [],
     queries: [],
     schemaVersion: 2,
