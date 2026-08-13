@@ -1,41 +1,62 @@
 import { expect, test } from "bun:test";
-import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { programFromCheckedAst } from "../compiler/checked-beagle.mjs";
+import {
+  checkedDeclarationProgramFromBundle,
+} from "../compiler/checked-declarations.mjs";
 import { canonicalJson, sha256Digest } from "../compiler/canonical.mjs";
 
 const webRoot = `${import.meta.dir}/..`;
-const wakeCompile = join(webRoot, "bin", "wake-compile");
-const core = join(webRoot, "wake", "core.bjs");
-const fixture = join(webRoot, "tests", "fixtures", "query-api", "results.bjs");
-const derivedStringFixture = join(
-  webRoot,
-  "tests",
-  "fixtures",
-  "query-api",
-  "derived-string.bjs",
-);
-const wrongResultFixture = join(
-  webRoot,
-  "tests",
-  "fixtures",
-  "query-api",
-  "wrong-result-type.bjs",
-);
-const wrongDerivedFixture = join(
-  webRoot,
-  "tests",
-  "fixtures",
-  "query-api",
-  "wrong-derived-expression.bjs",
-);
+const repositoryRoot = join(webRoot, "..");
 const beagleRoot = process.env.BEAGLE_PROJECTION_ROOT
   ?? process.env.BEAGLE_ROOT
   ?? join(homedir(), "code", "beagle", "main");
 const beagle = join(beagleRoot, "bin", "beagle");
+const sourcePaths = Object.freeze({
+  derivedString: join(
+    webRoot,
+    "tests",
+    "fixtures",
+    "query-api",
+    "derived-string.bjs",
+  ),
+  results: join(webRoot, "tests", "fixtures", "query-api", "results.bjs"),
+  wakeCore: join(webRoot, "wake", "core.bjs"),
+  wakeIr: join(webRoot, "compiler", "ir.bjs"),
+  wrongDerived: join(
+    webRoot,
+    "tests",
+    "fixtures",
+    "query-api",
+    "wrong-derived-expression.bjs",
+  ),
+  wrongResult: join(
+    webRoot,
+    "tests",
+    "fixtures",
+    "query-api",
+    "wrong-result-type.bjs",
+  ),
+});
+const sourceIds = Object.freeze({
+  derivedString: "web/tests/fixtures/query-api/derived-string.bjs",
+  results: "web/tests/fixtures/query-api/results.bjs",
+  wakeCore: "web/wake/core.bjs",
+  wakeIr: "web/compiler/ir.bjs",
+});
+const sourceText = Object.freeze(Object.fromEntries(
+  Object.entries(sourcePaths).map(([name, path]) => [name, readFileSync(path, "utf8")]),
+));
+
+function suppliedSource(sourceId, text, authority) {
+  return {
+    sourceId,
+    bytesBase64: Buffer.from(text).toString("base64"),
+    authority,
+  };
+}
 
 function runBeagle(args) {
   const result = Bun.spawnSync([beagle, ...args], {
@@ -57,552 +78,272 @@ function failedBeagle(args) {
   return `${result.stdout}${result.stderr}`;
 }
 
-function checkedAst(path) {
-  return JSON.parse(runBeagle(["ast", path]));
+function checkedBundle(entrySourceId, sources) {
+  const result = Bun.spawnSync([beagle, "ast-bundle"], {
+    cwd: repositoryRoot,
+    stdin: Buffer.from(JSON.stringify({
+      kind: "beagle.checked-bundle.request",
+      schemaVersion: 2,
+      entrySourceId,
+      sources,
+    })),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(result.exitCode, result.stderr.toString()).toBe(0);
+  return JSON.parse(result.stdout.toString());
 }
 
-function reseal(ast) {
-  const projection = { ...ast };
-  delete projection.projectionSha256;
-  ast.projectionSha256 = sha256Digest(canonicalJson(projection));
+const wakeCoreModelBundle = checkedBundle(sourceIds.wakeCore, [
+  suppliedSource(sourceIds.wakeCore, sourceText.wakeCore, "trusted"),
+]);
+const wakeIrModelBundle = checkedBundle(sourceIds.wakeIr, [
+  suppliedSource(sourceIds.wakeIr, sourceText.wakeIr, "trusted"),
+]);
+const resultsBundle = checkedBundle(sourceIds.results, [
+  suppliedSource(sourceIds.results, sourceText.results, "package"),
+  suppliedSource(sourceIds.wakeCore, sourceText.wakeCore, "trusted"),
+]);
+const derivedStringBundle = checkedBundle(sourceIds.derivedString, [
+  suppliedSource(sourceIds.derivedString, sourceText.derivedString, "package"),
+  suppliedSource(sourceIds.wakeCore, sourceText.wakeCore, "trusted"),
+]);
+
+function sourcesFor(bundle) {
+  const available = {
+    [sourceIds.derivedString]: sourceText.derivedString,
+    [sourceIds.results]: sourceText.results,
+    [sourceIds.wakeCore]: sourceText.wakeCore,
+    [sourceIds.wakeIr]: sourceText.wakeIr,
+  };
+  const ids = new Set([
+    ...bundle.modules.map((module) => module.sourceId),
+    ...wakeCoreModelBundle.modules.map((module) => module.sourceId),
+    ...wakeIrModelBundle.modules.map((module) => module.sourceId),
+  ]);
+  return Object.fromEntries([...ids].map((sourceId) => [sourceId, available[sourceId]]));
 }
 
-function decodeFixture(ast) {
-  return programFromCheckedAst(ast, {
+function decode(bundle) {
+  return checkedDeclarationProgramFromBundle(bundle, {
     compilerVersion: "0.1.0",
-    expectedSourceId: ast.sourceId,
-    sourcePath: fixture,
-    sourceText: readFileSync(fixture, "utf8"),
+    sourceTexts: sourcesFor(bundle),
+    wakeCoreModelBundle,
+    wakeIrModelBundle,
   });
 }
 
-function exportedForm(ast, name) {
-  const wrapper = ast.forms.find((candidate) =>
-    candidate.node === "js-export" && candidate.form?.name === name);
-  expect(wrapper, `missing exported ${name}`).toBeDefined();
-  return wrapper.form;
+function reseal(bundle) {
+  const projection = { ...bundle.entryProjection };
+  delete projection.projectionSha256;
+  bundle.entryProjection.projectionSha256 = sha256Digest(canonicalJson(projection));
+  bundle.sourceClosureSha256 = sha256Digest(canonicalJson({
+    entrySourceId: bundle.entrySourceId,
+    modules: bundle.modules,
+  }));
+  const response = { ...bundle };
+  delete response.checkedBundleSha256;
+  bundle.checkedBundleSha256 = sha256Digest(canonicalJson(response));
+  return bundle;
 }
 
-function recordForm(ast, name) {
-  const record = ast.forms.find((candidate) =>
-    candidate.node === "record" && candidate.name === name);
-  expect(record, `missing record ${name}`).toBeDefined();
-  return record;
-}
-
-function definition(ast, name) {
-  const value = ast.forms.find((candidate) =>
+function definition(bundle, name) {
+  const value = bundle.entryProjection.forms.find((candidate) =>
     candidate.node === "def" && candidate.name === name);
   expect(value, `missing definition ${name}`).toBeDefined();
   return value;
 }
 
-function extern(ast, name) {
-  const value = ast.externs.find((candidate) => candidate.name === `wake/${name}`);
-  expect(value, `missing extern wake/${name}`).toBeDefined();
-  return value;
+function mutate(bundle, change) {
+  const changed = structuredClone(bundle);
+  change(changed);
+  return reseal(changed);
 }
 
-function type(name) {
-  return { kind: "prim", name };
+function declarationByName(declarations, name) {
+  const declaration = declarations.find((candidate) => candidate.ref.name === name);
+  expect(declaration, `missing declaration ${name}`).toBeDefined();
+  return declaration;
 }
 
-function appType(name, ...args) {
-  return { kind: "app", name, args };
-}
-
-function values(vector) {
-  expect(vector.node).toBe("vec");
-  return vector.items.map((item) => item.value);
-}
-
-test("wake.core exposes closed query, derived, and list-detail descriptors", () => {
-  runBeagle(["check", "--agent", core, fixture, derivedStringFixture]);
-
-  for (const path of [core, fixture, derivedStringFixture]) {
-    const source = readFileSync(path, "utf8");
-    expect(source).not.toMatch(/\bAny\b/u);
-    expect(source).not.toMatch(/\braw\b/u);
+test("query declarations decode through the sealed checked-bundle boundary", () => {
+  for (const key of ["results", "derivedString"]) {
+    expect(sourceText[key]).not.toMatch(/\bAny\b/u);
+    expect(sourceText[key]).not.toMatch(/\braw\b/u);
   }
 
-  const ast = checkedAst(core);
-  expect(ast.namespace).toBe("wake.core");
-
-  const removedExports = [
-    "Derived",
-    "UntargetedRef",
-    "Opaque",
-    "RelatedQuery",
-    "RelatedQueryTerm",
-  ];
-  expect(ast.forms.some((candidate) =>
-    candidate.node === "js-export"
-      && removedExports.includes(candidate.form?.name))).toBeFalse();
-  expect(ast.forms.some((candidate) =>
-    candidate.node === "js-export"
-      && candidate.form?.name?.startsWith("related-query"))).toBeFalse();
-
-  expect(exportedForm(ast, "DerivedExpr")).toEqual({
-    node: "defunion",
-    name: "DerivedExpr",
-    "type-params": [],
-    members: ["FieldExpr", "StringExpr", "ConcatExpr"],
-    "member-fields": {
-      FieldExpr: [{ name: "name", ann: type("Keyword") }],
-      StringExpr: [{ name: "value", ann: type("String") }],
-      ConcatExpr: [{
-        name: "parts",
-        ann: appType("Vec", type("DerivedExpr")),
-      }],
+  const checked = decode(resultsBundle);
+  expect(checked._tag).toBe("IrCheckedDeclarationProgram");
+  expect(checked.program).toMatchObject({
+    _tag: "IrDeclarationProgram",
+    ns: "wake.fixtures.query-results",
+    root: {
+      _tag: "IrApplicationDeclarationRoot",
+      application: {
+        id: "wake-query-api-fixture",
+        authority: {
+          _tag: "IrLocalStorageAuthority",
+          namespace: "wake-query-api-fixture",
+        },
+      },
     },
   });
-  expect(exportedForm(ast, "DerivedFieldSpec").fields).toEqual([
-    { name: "name", ann: type("Keyword") },
-    { name: "expression", ann: type("DerivedExpr") },
-  ]);
-
-  const entity = exportedForm(ast, "EntitySpec");
-  expect(entity.fields.map((field) => field.name)).toEqual([
-    "name",
-    "record-name",
-    "identity",
-    "writes",
-    "storage-id",
-    "derived-fields",
-  ]);
-  expect(entity.fields.at(-1).ann).toEqual(
-    appType("Vec", type("DerivedFieldSpec")),
-  );
-
-  expect(exportedForm(ast, "QueryPage").fields).toEqual([
-    { name: "default-limit", ann: type("Int") },
-    { name: "max-limit", ann: type("Int") },
-  ]);
-  const result = exportedForm(ast, "QueryResult");
-  expect(result.members).toEqual(["PageResult", "OptionalResult", "OneResult"]);
-  expect(result["member-fields"].PageResult).toEqual([
-    { name: "page", ann: type("QueryPage") },
-  ]);
-  for (const member of ["OptionalResult", "OneResult"]) {
-    expect(result["member-fields"][member]).toEqual([{
-      name: "unit",
-      ann: type("Nil"),
-    }]);
-  }
-
-  const query = exportedForm(ast, "QuerySpec");
-  expect(query.fields.map((field) => field.name)).toEqual([
-    "name",
-    "params-record",
-    "bindings-record",
-    "capabilities",
-    "predicates",
-    "selection",
-    "result",
-  ]);
-  expect(query.fields.at(-1).ann).toEqual(type("QueryResult"));
-
-  expect(exportedForm(ast, "RelatedRelation")).toEqual({
-    node: "defunion",
-    name: "RelatedRelation",
-    "type-params": [],
-    members: ["InferRelated", "RelatedBy"],
-    "member-fields": {
-      InferRelated: [{ name: "unit", ann: type("Nil") }],
-      RelatedBy: [{ name: "field", ann: type("Keyword") }],
-    },
+  expect(checked.program.receipt_entity).toMatchObject({
+    ref: { declaration_id: "wake.core/command-receipt" },
   });
-  const content = exportedForm(ast, "DetailContent");
-  expect(content.members).toEqual(["DetailFields", "DetailRelated"]);
-  expect(content["member-fields"].DetailRelated).toEqual([
-    { name: "entity", ann: type("Keyword") },
-    { name: "relation", ann: type("RelatedRelation") },
-    { name: "display", ann: appType("Vec", type("Keyword")) },
-  ]);
-  expect(exportedForm(ast, "ListDetailSpec").fields).toEqual([
-    { name: "entity", ann: type("Keyword") },
-    { name: "title", ann: type("String") },
-    { name: "columns", ann: appType("Vec", type("Keyword")) },
-    { name: "search", ann: appType("Vec", type("Keyword")) },
-    { name: "detail-tabs", ann: appType("Vec", type("DetailTab")) },
-  ]);
+  expect(checked.program.receipt_fields).toHaveLength(5);
 
-  const signatures = new Map([
-    ["derived-ref", [[type("Keyword")], type("DerivedExpr")]],
-    ["derived-string", [[type("String")], type("DerivedExpr")]],
-    ["concat-derived", [[appType("Vec", type("DerivedExpr"))], type("DerivedExpr")]],
-    ["derived-field", [[type("Keyword"), type("DerivedExpr")], type("DerivedFieldSpec")]],
-    ["page-result", [[type("Int"), type("Int")], type("QueryResult")]],
-    ["optional-result", [[], type("QueryResult")]],
-    ["one-result", [[], type("QueryResult")]],
-    ["detail-fields", [[appType("Vec", type("Keyword"))], type("DetailContent")]],
-    ["infer-related", [[], type("RelatedRelation")]],
-    ["related-by", [[type("Keyword")], type("RelatedRelation")]],
-    ["detail-related", [[
-      type("Keyword"),
-      type("RelatedRelation"),
-      appType("Vec", type("Keyword")),
-    ], type("DetailContent")]],
-    ["detail-tab", [[type("String"), type("DetailContent")], type("DetailTab")]],
-  ]);
-  for (const [name, [params, returnType]] of signatures) {
-    const helper = exportedForm(ast, name);
-    expect(helper.node).toBe("defn");
-    expect(helper.params.map((param) => param.ann)).toEqual(params);
-    expect(helper.ret).toEqual(returnType);
-  }
-}, 30_000);
-
-test("consumer projection keeps exact derived, query, and list-detail values", () => {
-  const firstProjection = runBeagle(["ast", fixture]);
-  expect(runBeagle(["ast", fixture])).toBe(firstProjection);
-  const ast = JSON.parse(firstProjection);
-
-  expect(ast.requires).toContainEqual({
-    alias: "wake",
-    ns: "wake.core",
-    refer: false,
-  });
-  expect(recordForm(ast, "Release").fields.at(-1)).toEqual({
-    name: "label",
-    ann: type("String"),
-  });
-  expect(recordForm(ast, "ReleaseNote").fields[1]).toEqual({
-    name: "release",
-    ann: appType("wake/Ref", type("Release")),
-  });
-
-  const release = definition(ast, "release");
-  expect(release.ann).toEqual(type("wake/EntitySpec"));
-  expect(release.value.fn.name).toBe("wake/->EntitySpec");
-  expect(release.value.inferredType).toEqual(type("EntitySpec"));
-  expect(release.value.args).toHaveLength(6);
-  expect(release.value.args.slice(0, 3).map((arg) => arg.value)).toEqual([
+  expect(checked.program.entities.map((entity) => entity.ref.name)).toEqual([
     "release",
-    "Release",
-    "id",
+    "release-note",
   ]);
-  expect(release.value.args[3].pairs.map((pair) => pair.key.value)).toEqual([
+  const release = declarationByName(checked.program.entities, "release");
+  expect(release).toMatchObject({
+    record_name: "Release",
+    storage_id: "wake-query-api/entity/release",
+  });
+  expect(release.fields.map((field) => field.ref.name)).toEqual([
+    "id",
     "title",
     "aliases",
   ]);
-  const derivedFields = release.value.args[5];
-  expect(derivedFields.inferredType).toEqual(
-    appType("Vec", type("DerivedFieldSpec")),
-  );
-  expect(derivedFields.items).toHaveLength(1);
-  const derivedField = derivedFields.items[0];
-  expect(derivedField.fn.name).toBe("wake/derived-field");
-  expect(derivedField.inferredType).toEqual(type("DerivedFieldSpec"));
-  expect(derivedField.provenance.macroExpansion.chain).toEqual([
-    { depth: 0, name: "wake/defentity" },
-  ]);
-  expect(derivedField.args[0].value).toBe("label");
-  const expression = derivedField.args[1];
-  expect(expression.fn.name).toBe("wake/concat-derived");
-  expect(expression.inferredType).toEqual(type("DerivedExpr"));
-  expect(expression.provenance.macroExpansion.chain).toEqual([
-    { depth: 0, name: "wake/defentity" },
-  ]);
-  expect(expression.args[0].inferredType).toEqual(
-    appType("Vec", type("DerivedExpr")),
-  );
-  expect(expression.args[0].items).toHaveLength(1);
-  expect(expression.args[0].items[0].fn.name).toBe("wake/derived-ref");
-  expect(expression.args[0].items[0].args[0].value).toBe("title");
-  expect(expression.args[0].items[0].provenance.macroExpansion.chain).toEqual([
-    { depth: 0, name: "wake/defentity" },
-  ]);
+  expect(release.derived_fields).toHaveLength(1);
+  expect(release.derived_fields[0]).toMatchObject({
+    ref: { declaration_id: "entity/release/field/label", name: "label" },
+    owner: { declaration_id: "entity/release", name: "release" },
+    expression: {
+      _tag: "IrConcatDerivedExpr",
+      parts: [{
+        _tag: "IrFieldDerivedExpr",
+        field: { declaration_id: "entity/release/field/title", name: "title" },
+      }],
+    },
+    dependencies: [{
+      declaration_id: "entity/release/field/title",
+      name: "title",
+    }],
+  });
 
-  const expectedResults = new Map([
-    ["release-page", { fn: "wake/page-result", values: [20, 64] }],
-    ["release-optional", { fn: "wake/optional-result", values: [] }],
-    ["release-one", { fn: "wake/one-result", values: [] }],
+  expect(checked.program.queries.map((query) => query.ref.name)).toEqual([
+    "release-page",
+    "release-optional",
+    "release-one",
   ]);
-  const queries = ast.forms.filter((form) =>
-    form.node === "def" && form.ann?.name === "wake/QuerySpec");
-  expect(queries.map((queryValue) => queryValue.name)).toEqual([
-    ...expectedResults.keys(),
-  ]);
-  for (const queryValue of queries) {
-    expect(queryValue.value.fn.name).toBe("wake/->QuerySpec");
-    expect(queryValue.value.inferredType).toEqual(type("QuerySpec"));
-    expect(queryValue.value.args).toHaveLength(7);
-    expect(queryValue.provenance.macroExpansion.chain).toEqual([
-      { depth: 0, name: "wake/defquery" },
-    ]);
-    const capability = queryValue.value.args[3];
-    expect(capability.node).toBe("vec");
-    expect(capability.inferredType).toEqual(appType("Vec", type("String")));
-    const expected = expectedResults.get(queryValue.name);
-    const queryResult = queryValue.value.args[6];
-    expect(queryResult.fn.name).toBe(expected.fn);
-    expect(queryResult.inferredType).toEqual(type("QueryResult"));
-    expect(queryResult.args.map((arg) => arg.value)).toEqual(expected.values);
-  }
-
-  const listDetail = definition(ast, "release-list");
-  expect(listDetail.ann).toEqual(type("wake/ListDetailSpec"));
-  expect(listDetail.value.fn.name).toBe("wake/->ListDetailSpec");
-  expect(listDetail.value.inferredType).toEqual(type("ListDetailSpec"));
-  expect(listDetail.value.args).toHaveLength(5);
-  expect(listDetail.provenance.macroExpansion.chain).toEqual([
-    { depth: 0, name: "wake/list-detail" },
-  ]);
-  expect(listDetail.value.args.slice(0, 2).map((arg) => arg.value)).toEqual([
-    "release",
-    "Releases",
-  ]);
-  expect(values(listDetail.value.args[2])).toEqual(["id", "title"]);
-  expect(values(listDetail.value.args[3])).toEqual(["title"]);
-  const tabs = listDetail.value.args[4].items;
-  expect(tabs).toHaveLength(2);
-  expect(tabs.map((tab) => tab.fn.name)).toEqual([
-    "wake/detail-tab",
-    "wake/detail-tab",
-  ]);
-  expect(tabs.map((tab) => tab.args[0].value)).toEqual(["Overview", "Notes"]);
-  expect(tabs[0].args[1].fn.name).toBe("wake/detail-fields");
-  expect(values(tabs[0].args[1].args[0])).toEqual(["id", "title", "label"]);
-  const related = tabs[1].args[1];
-  expect(related.fn.name).toBe("wake/detail-related");
-  expect(related.inferredType).toEqual(type("DetailContent"));
-  expect(related.args[0].value).toBe("release-note");
-  expect(related.args[1].fn.name).toBe("wake/related-by");
-  expect(related.args[1].inferredType).toEqual(type("RelatedRelation"));
-  expect(related.args[1].provenance.macroExpansion.chain).toEqual([
-    { depth: 0, name: "wake/list-detail" },
-  ]);
-  expect(related.args[1].args[0].value).toBe("release");
-  expect(values(related.args[2])).toEqual(["id", "summary"]);
-
-  expect(firstProjection).not.toContain('"node":"raw"');
-  expect(createHash("sha256").update(firstProjection).digest("hex")).toBe(
-    "582dccc33fe1b948ffa9cdc24e8c1721a85e32f1f443f9f047efa8d2be8e9842",
-  );
-}, 30_000);
-
-test("checked decoder lowers derived fields and list details to closed IR", () => {
-  const ast = checkedAst(fixture);
-  const program = decodeFixture(ast);
-  expect(program.entities[0].attrs.at(-1)).toMatchObject({
-    name: "label",
-    type: "Derived",
-    opts: {
-      deps: ["title"],
-      expr: {
-        _tag: "IrDerivedExpr",
-        kind: "concat",
-        parts: [{ kind: "field", field: "title" }],
-      },
+  const page = declarationByName(checked.program.queries, "release-page");
+  expect(page).toMatchObject({
+    capabilities: [{ declaration_id: "capability/read-release" }],
+    bindings: [{
+      name: "release",
+      entity: { declaration_id: "entity/release" },
+    }],
+    result: {
+      _tag: "IrQueryPageResult",
+      default_limit: { _tag: "IrLiteralBound", value: 20 },
+      max_limit: { _tag: "IrLiteralBound", value: 64 },
     },
   });
-  expect(program.list_details).toEqual([{
-    _tag: "IrListDetail",
-    entity_name: "release",
-    title: "Releases",
-    columns: ["id", "title"],
-    search_cols: ["title"],
-    detail_tabs: [
-      {
-        _tag: "IrDetailTab",
-        label: "Overview",
-        content_type: "fields",
-        fields: ["id", "title", "label"],
-        entity_name: null,
-        relation_field: null,
-        infer_relation: false,
-        display_fields: [],
-      },
-      {
-        _tag: "IrDetailTab",
-        label: "Notes",
-        content_type: "related",
-        fields: [],
-        entity_name: "release-note",
-        relation_field: "release",
-        infer_relation: false,
-        display_fields: ["id", "summary"],
-      },
-    ],
+  const optional = declarationByName(checked.program.queries, "release-optional");
+  expect(optional.parameters).toMatchObject([{
+    name: "release-id",
+    value_type: { _tag: "IrStringValueType" },
   }]);
-}, 30_000);
+  expect(optional.result._tag).toBe("IrQueryOptionalResult");
+  expect(declarationByName(checked.program.queries, "release-one").result._tag)
+    .toBe("IrQueryOneResult");
 
-test("checked decoder rejects invalid derived declarations", () => {
-  const cases = [
-    ["unknown target", (ast) => {
-      definition(ast, "release").value.args[5].items[0].args[0].value = "ghost";
-    }, "derived field names unknown field 'ghost'"],
-    ["identity target", (ast) => {
-      definition(ast, "release").value.args[5].items[0].args[0].value = "id";
-    }, "derived field 'release.id' cannot be the entity identity"],
-    ["non-String target", (ast) => {
-      definition(ast, "release").value.args[5].items[0].args[0].value = "aliases";
-    }, "derived field 'release.aliases' must target a concrete String field"],
-    ["writable target", (ast) => {
-      const release = definition(ast, "release").value;
-      const pair = structuredClone(release.args[3].pairs[0]);
-      pair.key.value = "label";
-      release.args[3].pairs.push(pair);
-    }, "derived field 'release.label' cannot declare a write policy"],
-    ["missing dependency", (ast) => {
-      definition(ast, "release").value.args[5].items[0]
-        .args[1].args[0].items[0].args[0].value = "ghost";
-    }, "references unknown field 'ghost'"],
-    ["derived dependency", (ast) => {
-      definition(ast, "release").value.args[5].items[0]
-        .args[1].args[0].items[0].args[0].value = "label";
-    }, "cannot reference derived field 'label'"],
-    ["duplicate spec", (ast) => {
-      const specs = definition(ast, "release").value.args[5].items;
-      specs.push(structuredClone(specs[0]));
-    }, "derived field repeats 'label'"],
-    ["empty concatenation", (ast) => {
-      definition(ast, "release").value.args[5].items[0]
-        .args[1].args[0].items = [];
-    }, "must concatenate at least one part"],
-  ];
-  for (const [label, mutate, message] of cases) {
-    const ast = checkedAst(fixture);
-    mutate(ast);
-    reseal(ast);
-    expect(() => decodeFixture(ast), label).toThrow(message);
-  }
-}, 30_000);
-
-test("checked decoder pins wake.core ABI against coordinated projection forgery", () => {
-  const cases = [
-    ["derived-ref literal", (ast) => {
-      extern(ast, "derived-ref").type.params[0] = type("Any");
-    }, "checked extern 'wake/derived-ref'"],
-    ["concat container", (ast) => {
-      extern(ast, "concat-derived").type.params[0] = appType("Vec", type("Any"));
-      definition(ast, "release").value.args[5].items[0]
-        .args[1].args[0].inferredType = appType("Vec", type("Any"));
-    }, "checked extern 'wake/concat-derived'"],
-    ["list-detail entity literal", (ast) => {
-      extern(ast, "->ListDetailSpec").type.params[0] = type("Any");
-    }, "checked extern 'wake/->ListDetailSpec'"],
-    ["list-detail title literal", (ast) => {
-      extern(ast, "->ListDetailSpec").type.params[1] = type("Any");
-    }, "checked extern 'wake/->ListDetailSpec'"],
-    ["detail-tab label literal", (ast) => {
-      extern(ast, "detail-tab").type.params[0] = type("Any");
-    }, "checked extern 'wake/detail-tab'"],
-  ];
-  for (const [label, mutate, message] of cases) {
-    const ast = checkedAst(fixture);
-    mutate(ast);
-    reseal(ast);
-    expect(() => decodeFixture(ast), label).toThrow(message);
-  }
-}, 30_000);
-
-test("checked derived references require single stored String dependencies", () => {
-  for (const [label, annotation] of [
-    ["Int", type("Int")],
-    ["Bool", type("Bool")],
-    ["Vec", appType("Vec", type("String"))],
-    ["Ref", appType("wake/Ref", type("ReleaseNote"))],
-  ]) {
-    const ast = checkedAst(fixture);
-    recordForm(ast, "Release").fields.find((field) => field.name === "title").ann = annotation;
-    reseal(ast);
-    expect(() => decodeFixture(ast), label).toThrow(
-      "derived field 'release.label' dependency 'title' must be a single stored String field",
-    );
-  }
-}, 30_000);
-
-test("checked Ref annotations have exactly one entity record argument", () => {
-  for (const args of [[], [type("Release"), type("ReleaseNote")]]) {
-    const ast = checkedAst(fixture);
-    recordForm(ast, "ReleaseNote").fields[1].ann.args = args;
-    reseal(ast);
-    expect(() => decodeFixture(ast)).toThrow(
-      "wake/Ref must name one entity record type",
-    );
-  }
-}, 30_000);
-
-test("checked decoder rejects forged list-detail helpers and provenance", () => {
-  const cases = [
-    ["local helper", (ast) => {
-      definition(ast, "release-list").value.args[4].items[0].fn.name = "detail-tab";
-    }, "must use a checked wake/* binding"],
-    ["wrong descriptor constructor", (ast) => {
-      definition(ast, "release-list").value.fn.name = "wake/->ApplicationSpec";
-    }, "does not match checked extern 'wake/->ApplicationSpec'"],
-    ["wrong macro provenance", (ast) => {
-      definition(ast, "release-list").value.args[4].items[0]
-        .provenance.macroExpansion.chain[0].name = "wake/defentity";
-    }, "must come directly from wake/list-detail"],
-  ];
-  for (const [label, mutate, message] of cases) {
-    const ast = checkedAst(fixture);
-    mutate(ast);
-    reseal(ast);
-    expect(() => decodeFixture(ast), label).toThrow(message);
-  }
-}, 30_000);
-
-test("checked derived detail fields produce bundleable browser JavaScript", async () => {
-  const output = mkdtempSync(join(tmpdir(), "wake-query-api-bundle-"));
-  try {
-    const compiled = Bun.spawnSync(
-      [wakeCompile, "--all", fixture, output],
-      {
-        cwd: webRoot,
-        env: { ...process.env, BEAGLE_ROOT: beagleRoot },
-        stderr: "pipe",
-        stdout: "pipe",
-      },
-    );
-    expect(compiled.exitCode, compiled.stderr.toString()).toBe(0);
-    const browser = await Bun.build({
-      entrypoints: [join(output, "app.js")],
-      outdir: join(output, "bundle"),
-      target: "browser",
-    });
-    expect(browser.success, browser.logs.join("\n")).toBeTrue();
-  } finally {
-    rmSync(output, { force: true, recursive: true });
-  }
-}, 30_000);
-
-test("derived expressions preserve ordered string concatenation", () => {
-  const ast = checkedAst(derivedStringFixture);
-  const contact = definition(ast, "contact");
-  const expression = contact.value.args[5].items[0].args[1];
-  expect(expression.fn.name).toBe("wake/concat-derived");
-  expect(expression.inferredType).toEqual(type("DerivedExpr"));
-
-  const parts = expression.args[0];
-  expect(parts.inferredType).toEqual(appType("Vec", type("DerivedExpr")));
-  expect(parts.items.map((part) => part.fn.name)).toEqual([
-    "wake/derived-ref",
-    "wake/derived-string",
-    "wake/derived-ref",
+  expect(checked.program.list_details).toHaveLength(1);
+  const detail = checked.program.list_details[0];
+  expect(detail).toMatchObject({
+    ref: { declaration_id: "list-detail/release", name: "release-list" },
+    entity: { declaration_id: "entity/release", name: "release" },
+    title: "Releases",
+  });
+  expect(detail.columns.map((field) => field.name)).toEqual(["id", "title"]);
+  expect(detail.search.map((field) => field.name)).toEqual(["title"]);
+  expect(detail.detail_tabs).toMatchObject([
+    {
+      _tag: "IrFieldsDetailTab",
+      label: "Overview",
+      fields: [{ name: "id" }, { name: "title" }, { name: "label" }],
+    },
+    {
+      _tag: "IrRelatedDetailTab",
+      label: "Notes",
+      entity: { declaration_id: "entity/release-note" },
+      relation: { declaration_id: "entity/release-note/field/release" },
+      display: [{ name: "id" }, { name: "summary" }],
+    },
   ]);
-  expect(parts.items.map((part) => part.args[0].value)).toEqual([
+  expect(checked.program.root.application.list_details).toMatchObject([
+    { declaration_id: "list-detail/release", name: "release-list" },
+  ]);
+}, 60_000);
+
+test("derived expressions preserve ordered nominal dependencies", () => {
+  const checked = decode(derivedStringBundle);
+  const contact = declarationByName(checked.program.entities, "contact");
+  expect(contact.derived_fields).toHaveLength(1);
+  const derived = contact.derived_fields[0];
+  expect(derived.expression.parts.map((part) => part._tag)).toEqual([
+    "IrFieldDerivedExpr",
+    "IrStringDerivedExpr",
+    "IrFieldDerivedExpr",
+  ]);
+  expect(derived.expression.parts.map((part) => part.field?.name ?? part.value)).toEqual([
     "name",
     " @ ",
     "company",
   ]);
-  for (const part of parts.items) {
-    expect(part.inferredType).toEqual(type("DerivedExpr"));
-    expect(part.provenance.macroExpansion.chain).toEqual([
-      { depth: 0, name: "wake/defentity" },
-    ]);
-  }
-}, 30_000);
+  expect(derived.dependencies.map((field) => field.name)).toEqual(["name", "company"]);
+}, 60_000);
 
-test("defquery rejects the retired keyword result surface", () => {
-  const output = failedBeagle(["check", "--agent", wrongResultFixture]);
-  expect(output).toContain("expected QueryResult, got Keyword");
-}, 30_000);
+test("checked declarations reject forged ownership, dependency, and root closure", () => {
+  const foreignOwner = mutate(resultsBundle, (bundle) => {
+    definition(bundle, "release-label-spec").value.args[1].name = "release-note-ref";
+  });
+  expect(() => decode(foreignOwner)).toThrow(
+    "derived field 'label' has a foreign entity owner",
+  );
 
-test("derived-field rejects expressions outside the closed union", () => {
-  const output = failedBeagle(["check", "--agent", wrongDerivedFixture]);
-  expect(output).toContain("expected DerivedExpr, got String");
-}, 30_000);
+  const missingDependency = mutate(resultsBundle, (bundle) => {
+    definition(bundle, "release-label-spec").value.args[3].items = [];
+  });
+  expect(() => decode(missingDependency)).toThrow(
+    "derived field 'label' dependencies do not exactly match its expression",
+  );
+
+  const missingListDetail = mutate(resultsBundle, (bundle) => {
+    definition(bundle, "application").value.args[9].items = [];
+  });
+  expect(() => decode(missingListDetail)).toThrow(
+    "application root must select every list-details declaration exactly once",
+  );
+}, 60_000);
+
+test("query results and derived expressions remain closed typed unions", () => {
+  const wrongResult = failedBeagle([
+    "check",
+    "--agent",
+    sourcePaths.wakeCore,
+    sourcePaths.wrongResult,
+  ]);
+  expect(wrongResult).toContain("expected QueryResultSpec, got Keyword");
+
+  const wrongDerived = failedBeagle([
+    "check",
+    "--agent",
+    sourcePaths.wakeCore,
+    sourcePaths.wrongDerived,
+  ]);
+  expect(wrongDerived).toContain("expected DerivedExpr, got String");
+}, 60_000);
+
+test("query fixtures stay accepted by the candidate Beagle compiler", () => {
+  runBeagle([
+    "check",
+    "--agent",
+    sourcePaths.wakeCore,
+    sourcePaths.results,
+    sourcePaths.derivedString,
+  ]);
+}, 60_000);

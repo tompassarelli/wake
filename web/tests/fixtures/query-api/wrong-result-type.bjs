@@ -2,16 +2,49 @@
 (ns wake.fixtures.wrong-query-result
   (:require [wake.core :as wake]))
 
-(wake/defentity release Release
-  [id: String]
-  :id
-  {}
+(wake/command-receipt-core)
+(wake/defcapability
+  read-release
+  "capability/read-release"
+  "read-release"
   [])
+(wake/defentity-ref release "entity/release" "release")
 
-(wake/defquery invalid-result
+(wake/define-entity-model
+  release
+  Release
+  "entity/release"
+  [[id "entity/release/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-query-api/field/release/id"
+    true]]
   []
-  [release: Release]
-  "wake-tests/cap/read-release"
+  "wake-query-api/entity/release")
+
+(wake/defquery-model
+  invalid-result
+  "query/invalid-result"
+  "invalid-result"
+  [read-release-ref]
   []
-  [(wake/select :id (wake/field :release :id))]
+  [(wake/->QueryBindingSpec :release release-ref)]
+  []
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))]
   :page)
+
+(wake/application-root
+  application
+  "wake-wrong-result-fixture"
+  (wake/->LocalStorageAuthority "wake-wrong-result-fixture")
+  [(wake/->StorageSpec release-ref "wake-query-api/entity/release")]
+  [(wake/->IdentitySpec release-ref release-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [])

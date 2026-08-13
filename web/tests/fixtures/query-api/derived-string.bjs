@@ -2,17 +2,50 @@
 (ns wake.fixtures.derived-string
   (:require [wake.core :as wake]))
 
-(wake/defentity contact Contact
-  [id: String
-   name: String
-   company: String
-   display-name: String]
-  :id
-  {:name :create
-   :company :create}
-  [(wake/derived-field
-    :display-name
-    (wake/concat-derived
-     [(wake/derived-ref :name)
-      (wake/derived-string " @ ")
-      (wake/derived-ref :company)]))])
+(wake/command-receipt-core)
+(wake/defentity-ref contact "entity/contact" "contact")
+
+(wake/define-entity-model
+  contact
+  Contact
+  "entity/contact"
+  [[id "entity/contact/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-query-api/field/contact/id"
+    true]
+   [name "entity/contact/field/name" "name" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-query-api/field/contact/name"
+    true]
+   [company "entity/contact/field/company" "company" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-query-api/field/contact/company"
+    true]]
+  [[display-name
+    "entity/contact/field/display-name"
+    "display-name"
+    (wake/->ConcatDerivedExpr
+      [(wake/->FieldDerivedExpr contact-name-ref)
+       (wake/->StringDerivedExpr " @ ")
+       (wake/->FieldDerivedExpr contact-company-ref)])
+    [contact-name-ref contact-company-ref]]]
+  "wake-query-api/entity/contact")
+
+(wake/application-root
+  application
+  "wake-derived-string-fixture"
+  (wake/->LocalStorageAuthority "wake-derived-string-fixture")
+  [(wake/->StorageSpec contact-ref "wake-query-api/entity/contact")]
+  [(wake/->IdentitySpec contact-ref contact-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [])

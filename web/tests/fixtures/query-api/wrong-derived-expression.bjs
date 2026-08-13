@@ -2,10 +2,41 @@
 (ns wake.fixtures.wrong-derived-expression
   (:require [wake.core :as wake]))
 
-(wake/defentity release Release
-  [id: String
-   title: String
-   label: String]
-  :id
-  {:title :create}
-  [(wake/derived-field :label "title")])
+(wake/command-receipt-core)
+(wake/defentity-ref release "entity/release" "release")
+
+(wake/define-entity-model
+  release
+  Release
+  "entity/release"
+  [[id "entity/release/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-query-api/field/release/id"
+    true]
+   [title "entity/release/field/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-query-api/field/release/title"
+    true]]
+  [[label
+    "entity/release/field/label"
+    "label"
+    "title"
+    [release-title-ref]]]
+  "wake-query-api/entity/release")
+
+(wake/application-root
+  application
+  "wake-wrong-derived-expression-fixture"
+  (wake/->LocalStorageAuthority "wake-wrong-derived-expression-fixture")
+  [(wake/->StorageSpec release-ref "wake-query-api/entity/release")]
+  [(wake/->IdentitySpec release-ref release-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [])

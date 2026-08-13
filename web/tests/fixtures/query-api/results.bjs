@@ -2,69 +2,154 @@
 (ns wake.fixtures.query-results
   (:require [wake.core :as wake]))
 
-(wake/application application "wake-query-api-fixture")
-(wake/backend backend :fram)
-
-(wake/defentity release Release
-  [id: String
-   title: String
-   aliases: (Vec String)
-   label: String]
-  :id
-  {:title :create
-   :aliases :create}
-  [(wake/derived-field
-    :label
-    (wake/concat-derived [(wake/derived-ref :title)]))])
-
-(wake/defentity release-note ReleaseNote
-  [id: String
-   release: (wake/Ref Release)
-   summary: String]
-  :id
-  {:release :create
-   :summary :create}
+(wake/command-receipt-core)
+(wake/defcapability
+  read-release
+  "capability/read-release"
+  "read-release"
   [])
 
-(wake/defquery release-page
+(wake/defentity-ref release "entity/release" "release")
+(wake/defentity-ref release-note "entity/release-note" "release-note")
+
+(wake/define-entity-model
+  release
+  Release
+  "entity/release"
+  [[id "entity/release/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-query-api/field/release/id"
+    true]
+   [title "entity/release/field/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-query-api/field/release/title"
+    true]
+   [aliases "entity/release/field/aliases" "aliases" (Vec String)
+    (wake/->StringField nil)
+    (wake/->ManyField nil)
+    (wake/->CreateWrite nil)
+    "wake-query-api/field/release/aliases"
+    false]]
+  [[label
+    "entity/release/field/label"
+    "label"
+    (wake/->ConcatDerivedExpr
+      [(wake/->FieldDerivedExpr release-title-ref)])
+    [release-title-ref]]]
+  "wake-query-api/entity/release")
+
+(wake/define-entity-model
+  release-note
+  ReleaseNote
+  "entity/release-note"
+  [[id "entity/release-note/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-query-api/field/release-note/id"
+    true]
+   [release "entity/release-note/field/release" "release" (wake/Ref Release)
+    (wake/->RefField (wake/->DeclaredEntityTarget release-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-query-api/field/release-note/release"
+    true]
+   [summary "entity/release-note/field/summary" "summary" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-query-api/field/release-note/summary"
+    true]]
   []
-  [release: Release]
-  "wake-tests/cap/read-release"
+  "wake-query-api/entity/release-note")
+
+(wake/defquery-model
+  release-page
+  "query/release-page"
+  "release-page"
+  [read-release-ref]
   []
-  [(wake/select :id (wake/field :release :id))]
-  (wake/page-result 20 64))
+  [(wake/->QueryBindingSpec :release release-ref)]
+  []
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))]
+  (wake/->QueryPageResult
+    (wake/->LiteralBound 20)
+    (wake/->LiteralBound 64)))
 
-(wake/defquery release-optional
-  [release-id: String]
-  [release: Release]
-  ["wake-tests/cap/read-release"]
-  [(wake/eq
-    (wake/field :release :id)
-    (wake/parameter :release-id))]
-  [(wake/select :id (wake/field :release :id))
-   (wake/select :aliases (wake/field :release :aliases))]
-  (wake/optional-result))
+(wake/defquery-model
+  release-optional
+  "query/release-optional"
+  "release-optional"
+  [read-release-ref]
+  [(wake/->QueryParameterSpec
+     :release-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :release release-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :release release-id-ref)
+     (wake/->QueryParameterValue :release-id))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))
+   (wake/->QueryValueSelection
+     :aliases
+     (wake/->QueryFieldValue :release release-aliases-ref))]
+  (wake/->QueryOptionalResult nil))
 
-(wake/defquery release-one
-  [release-id: String]
-  [release: Release]
-  ["wake-tests/cap/read-release"]
-  [(wake/eq
-    (wake/field :release :id)
-    (wake/parameter :release-id))]
-  [(wake/select :id (wake/field :release :id))
-   (wake/select :title (wake/field :release :title))]
-  (wake/one-result))
+(wake/defquery-model
+  release-one
+  "query/release-one"
+  "release-one"
+  [read-release-ref]
+  [(wake/->QueryParameterSpec
+     :release-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :release release-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :release release-id-ref)
+     (wake/->QueryParameterValue :release-id))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))
+   (wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :release release-title-ref))]
+  (wake/->QueryOneResult nil))
 
-(wake/list-detail release-list
-  :release
+(wake/deflist-detail
+  release-list
+  "list-detail/release"
+  "release-list"
+  release-ref
   "Releases"
-  [:id :title]
-  [:title]
-  [(wake/detail-tab "Overview" (wake/detail-fields [:id :title :label]))
-   (wake/detail-tab
-    "Notes"
-    (wake/detail-related
-      :release-note
-      (wake/related-by :release)
-      [:id :summary]))])
+  [release-id-ref release-title-ref]
+  [release-title-ref]
+  [(wake/->FieldsDetailTab
+     "Overview"
+     [release-id-ref release-title-ref release-label-ref])
+   (wake/->RelatedDetailTab
+     "Notes"
+     release-note-ref
+     release-note-release-ref
+     [release-note-id-ref release-note-summary-ref])])
+
+(wake/application-root
+  application
+  "wake-query-api-fixture"
+  (wake/->LocalStorageAuthority "wake-query-api-fixture")
+  [(wake/->StorageSpec release-ref "wake-query-api/entity/release")
+   (wake/->StorageSpec release-note-ref "wake-query-api/entity/release-note")]
+  [(wake/->IdentitySpec release-ref release-id-ref)
+   (wake/->IdentitySpec release-note-ref release-note-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [release-list-ref])
