@@ -13,7 +13,7 @@ const WAKE_IR_SOURCE_ID = "web/compiler/ir.bjs";
 // own source, rather than caller-selected schemas that happen to type-check.
 export const CHECKED_DECLARATION_MODEL = Object.freeze({
   wakeCoreSourceSha256:
-    "sha256:3aa0727e3b0686771b220004224ebd273e5a5f16e850e1fabc19fffa867ae641",
+    "sha256:5bc715518679d8150644d3f09670f8e41b5039479282c5d6d2bb3c593ba3263c",
   wakeIrSourceSha256:
     "sha256:8c8b778dd41daf319c52d77e23c00506b8f0f0c5cb5d071e2c2237ea801f503e",
 });
