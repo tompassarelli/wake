@@ -314,7 +314,9 @@ function contributionNames(entries, label) {
 
 function pluginConfiguration(bindings) {
   const result = {};
-  for (const values of Object.values(bindings)) {
+  for (const [field, values] of Object.entries(bindings)) {
+    if (field === "_tag") continue;
+    if (!Array.isArray(values)) fail(`plugin bindings '${field}' must be a vector`);
     for (const binding of values) {
       const name = binding.role.name;
       if (Object.hasOwn(result, name)) fail(`plugin configuration repeats '${name}'`);
