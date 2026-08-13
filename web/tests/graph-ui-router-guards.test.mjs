@@ -284,6 +284,9 @@ afterAll(() => {
 test("accepts a complete UI and router graph", () => {
   assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram()));
   assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram({
+    route_templates: [route("pages", "pages")],
+  })));
+  assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram({
     router: {
       default_route: "pages",
       routes: [route("pages", "pages"), route("home", "pages")],
@@ -628,6 +631,7 @@ test("enforces one coherent generated UI root topology", () => {
   assert.doesNotThrow(() => checkResolvedDeclarationProgram(resolvedProgram({
     components: [component("page-row"), component("note-row")],
     entities: [entity("page"), entity("note")],
+    forms: [form("add-page", "page"), form("add-note", "note")],
     views: [view("pages", "page", "page-row"), view("notes", "note", "note-row")],
     router: {
       default_route: "pages",
@@ -658,10 +662,6 @@ test("enforces one coherent generated UI root topology", () => {
     [
       resolvedProgram({ list_details: [pageDetail] }),
       /program cannot combine view and list-detail UI roots/,
-    ],
-    [
-      resolvedProgram({ forms: [form("add-page", "page")] }),
-      /form declarations require list-detail UI mode/,
     ],
     [
       resolvedProgram({

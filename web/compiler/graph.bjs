@@ -2932,14 +2932,11 @@
         forms (or (.-forms prog) [])
         router (.-router prog)
         layout (.-layout prog)]
-    (if (> (count forms) 1)
+    (if (and (= (count views) 0) (> (count forms) 1))
       (graph-error "program may declare at most one list-detail form")
       nil)
     (if (and (> (count views) 0) (> (count details) 0))
       (graph-error "program cannot combine view and list-detail UI roots")
-      nil)
-    (if (and (> (count views) 0) (> (count forms) 0))
-      (graph-error "form declarations require list-detail UI mode")
       nil)
     (if (and (> (count views) 1) (nil? router))
       (graph-error "multiple views require routes")
@@ -2978,7 +2975,7 @@
           []
           groups))
       nil)
-    (if (> (count forms) 0)
+    (if (and (= (count views) 0) (> (count forms) 0))
       (do
         (if (not (= (count details) 1))
           (graph-error "a form requires exactly one list detail")
@@ -3988,8 +3985,10 @@
 (defn checked-route-templates [(prog Any) (queries (Vec GQuery))] (Vec IrRoute)
   (mapv
     (fn [route] IrRoute
-      (checked-query-route
-        prog queries route (str "route template '" (.-path route) "'")))
+      (if (> (count (or (.-queries route) [])) 0)
+        (checked-query-route
+          prog queries route (str "route template '" (.-path route) "'"))
+        route))
     (or (.-route-templates prog) [])))
 
 (defn checked-router [(prog Any) (queries (Vec GQuery))] IrRouter?
