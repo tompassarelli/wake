@@ -15,7 +15,10 @@
   "value-type/Opaque"
   (wake/->RecordValueType [])
   []
-  nil)
+  (wake/->ValueEnvelopeSpec
+    (wake/->LiteralBound 1)
+    (wake/->LiteralBound 1)
+    (wake/->LiteralBound 1)))
 
 (wake/defentity-ref release "entity/release" "release")
 

@@ -104,6 +104,11 @@ function linkedApplication({ titleValueTypeTag = "IrStringField" } = {}) {
   const pageRef = ref("IrEntityRef", "test/entity/page", "page");
   const idRef = ref("IrFieldRef", "test/entity/page/field/id", "id");
   const titleRef = ref("IrFieldRef", "test/entity/page/field/title", "title");
+  const documentRef = ref(
+    "IrValueTypeRef",
+    "test/value-type/document",
+    "Document",
+  );
   const receipt = receiptCore();
   const application = {
     _tag: "IrCheckedDeclarationProgram",
@@ -168,7 +173,34 @@ function linkedApplication({ titleValueTypeTag = "IrStringField" } = {}) {
       publications: [],
       forms: [],
       list_details: [],
-      value_types: [],
+      value_types: [{
+        _tag: "IrValueTypeDeclarationSpec",
+        root: documentRef,
+        definitions: [{
+          _tag: "IrValueTypeDefinition",
+          ref: documentRef,
+          spec: {
+            _tag: "IrRecordValueType",
+            fields: [{
+              _tag: "IrValueRecordField",
+              name: "title",
+              value_type: {
+                _tag: "IrStringValueType",
+                minimum_scalars: null,
+                maximum_scalars: null,
+                maximum_bytes: null,
+              },
+              required: true,
+            }],
+          },
+        }],
+        envelope: {
+          _tag: "IrValueEnvelopeSpec",
+          maximum_bytes: { _tag: "IrLiteralBound", value: 1024 },
+          maximum_depth: { _tag: "IrLiteralBound", value: 4 },
+          maximum_nodes: { _tag: "IrLiteralBound", value: 16 },
+        },
+      }],
       provider_ports: [],
       renderers: [],
       capabilities: [],
@@ -245,6 +277,27 @@ test("lowers an exact linked declaration program without erasing its typed sidec
   assert.strictEqual(checked.linked_declarations, linked);
   assert.deepEqual(checked.source_units, [sourceUnit]);
   assert.equal(checked.backend.kind, "fram");
+  assert.deepEqual(checked.value_types, [{
+    name: "Document",
+    descriptor: {
+      kind: "bounded",
+      definitions: [{
+        name: "Document",
+        value: {
+          kind: "record",
+          fields: [{
+            name: "title",
+            required: true,
+            value: { kind: "string" },
+          }],
+        },
+      }],
+      maxBytes: 1024,
+      maxDepth: 4,
+      maxNodes: 16,
+      value: { kind: "ref", name: "Document" },
+    },
+  }]);
 
   const page = checked.entities.find((entity) => entity.name === "page");
   assert.ok(page, "direct lowering must retain the typed page entity");

@@ -35,6 +35,7 @@ test("links commands through the checked graph and generated artifacts", async (
     expect(plan.commands).toHaveLength(1);
     const command = plan.commands[0];
     expect(command.name).toBe("create-entry");
+    expect(command.capabilities[0].capability).toBe("app/cap/create-entry");
     expect(command.input[1].type).toEqual({
       items: { kind: "string" },
       kind: "list",

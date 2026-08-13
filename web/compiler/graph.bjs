@@ -302,6 +302,12 @@
       name
       (str (.-prefix resolver) "." name))))
 
+(defn resolved-capability-name
+  [(resolver DeclarationResolver) (ref IrCapabilityRef)] String
+  (if (= (.-prefix resolver) "")
+    (.-name ref)
+    (str (.-package-id resolver) "/cap/" (.-name ref))))
+
 (defn binding-for-role [(items Any) (role Any) (label String)] Any
   (let [matches
         (filterv
@@ -1195,6 +1201,8 @@
       (= tag "IrKeywordValueType") "Keyword"
       (= tag "IrStateValueType")
         (resolved-name resolver "state" (.-state value-type))
+      (= tag "IrNamedValueType")
+        (resolved-name resolver "value-type" (.-value-type value-type))
       :else
         (graph-error
           (str label " uses unsupported query value type '" tag "'")))))
@@ -1390,7 +1398,7 @@
       name
       (mapv
         (fn [(capability IrCapabilityRef)] String
-          (str (.-package-id resolver) "/cap/" (.-name capability)))
+          (resolved-capability-name resolver capability))
         (.-capabilities source))
       params bindings predicates selection result-kind page)))
 
@@ -2359,7 +2367,7 @@
        (fn [(ref IrCapabilityRef)] Any
          (let [capability
                (declaration-with-ref (.-capabilities program) ref label)]
-           {"capability" (str (.-package-id resolver) "/cap/" (.-name ref))
+           {"capability" (resolved-capability-name resolver ref)
             "guards"
             (mapv
               (fn [(guard IrCommandGuardSpec)] Any
@@ -4407,9 +4415,6 @@
       (if (> (count (.-provider-ports program)) 0)
         (graph-error "application provider ports await checked provider lowering")
         nil)
-      (if (> (count (.-value-types program)) 0)
-        (graph-error "application value types await checked descriptor lowering")
-        nil)
       (let [default-target (.-default-route root)
             router
             (if (nil? default-target)
@@ -4523,7 +4528,12 @@
           (reduce
             (fn [result plugin] (Vec Any)
               (into result (.-value-types plugin)))
-            [] plugins)
+            (mapv
+              (fn [(value-type IrValueTypeDeclarationSpec)] Any
+                (lower-value-type-declaration
+                  value-type program application-resolver))
+              (.-value-types program))
+            plugins)
           (reduce
             (fn [result plugin] (Vec Any)
               (into result (.-provider-ports plugin)))
