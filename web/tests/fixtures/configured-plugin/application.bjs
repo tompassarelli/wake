@@ -10,7 +10,7 @@
   configured-document
   configured-ref
   "document"
-  "document"
+  "configured-document"
   (wake/->EntityDeclarationName "entry"))
 
 (wake/imported-field-name-binding
@@ -40,14 +40,14 @@
   configured-draft-state
   configured-ref
   "draft-state"
-  "draft-state"
+  "draft-state-name"
   (wake/->StateValueDeclarationName :working))
 
 (wake/imported-state-value-name-binding
   configured-published-state
   configured-ref
   "published-state"
-  "published-state"
+  "published-state-name"
   (wake/->StateValueDeclarationName :released))
 
 (wake/imported-value-binding
