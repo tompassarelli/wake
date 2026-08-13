@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -54,10 +60,10 @@ test("typed Beagle input reaches Wake graph and code generation", () => {
     expect(plan.applicationId).toBe("wake-checked-beagle-fixture");
     expect(plan.entities.map((entity) => entity.name)).toEqual(["page", "revision"]);
     expect(readFileSync(join(temporary, "app.js"), "utf8")).toContain(
-      "wake-checked-beagle-fixture",
+      '// Source: "wake.fixtures.checked-beagle"',
     );
     expect(readFileSync(join(temporary, "wake-client.js"), "utf8")).toContain(
-      "wakeApplicationFingerprint",
+      'export const applicationId = "wake-checked-beagle-fixture";',
     );
 
     const manifest = JSON.parse(
@@ -90,3 +96,31 @@ test("compile driver exposes no caller-supplied AST route", () => {
   expect(result.exitCode).not.toBe(0);
   expect(result.stderr.toString()).toContain("driver rejects unsupported option --ast");
 });
+
+test("external source identity depends only on exact bytes", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-external-source-"));
+  try {
+    const outputs = [];
+    for (const directory of ["first", "second"]) {
+      const root = join(temporary, directory);
+      const externalSource = join(root, "application.bjs");
+      const output = join(root, "app.fram.json");
+      mkdirSync(root);
+      copyFileSync(source, externalSource);
+      const result = Bun.spawnSync([compile, "--fram", externalSource, output], {
+        cwd: webRoot,
+        env: {
+          ...process.env,
+          BEAGLE_ROOT: process.env.BEAGLE_PROJECTION_ROOT ?? process.env.BEAGLE_ROOT,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      outputs.push(readFileSync(output, "utf8"));
+    }
+    expect(outputs[0]).toBe(outputs[1]);
+  } finally {
+    rmSync(temporary, { force: true, recursive: true });
+  }
+}, 60_000);

@@ -62,14 +62,23 @@ function join(root, relative) {
   return `${root.replace(/\/+$/u, "")}/${relative}`;
 }
 
-function sourceIdentity(path) {
+function sourceIdentity(path, text) {
   const repository = Bun.spawnSync(
     ["git", "-C", dirname(path), "rev-parse", "--show-toplevel"],
     { stderr: "pipe", stdout: "pipe" },
   );
-  if (repository.exitCode !== 0) return path;
-  const root = repository.stdout.toString().trim().replace(/\/+$/u, "");
-  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+  if (repository.exitCode === 0) {
+    const root = repository.stdout.toString().trim().replace(/\/+$/u, "");
+    if (path.startsWith(`${root}/`)) {
+      const relative = path.slice(root.length + 1);
+      const tracked = Bun.spawnSync(
+        ["git", "-C", root, "ls-files", "--error-unmatch", "--", relative],
+        { stderr: "pipe", stdout: "pipe" },
+      );
+      if (tracked.exitCode === 0) return relative;
+    }
+  }
+  return `external/${sha256Digest(text).slice("sha256:".length)}.bjs`;
 }
 
 function nonempty(value, label) {
@@ -446,14 +455,15 @@ async function main() {
   const beagle = process.env.BEAGLE ?? join(beagleRoot, "bin/beagle");
   const models = await checkedModels({ beagle, webRoot });
   const sourceText = await Bun.file(options.source).text();
+  const applicationSourceId = sourceIdentity(options.source, sourceText);
   const application = decodePackageSource({
     beagle,
     compilerVersion,
     cwd: dirname(options.source),
-    entrySourceId: sourceIdentity(options.source),
+    entrySourceId: applicationSourceId,
     label: "application",
     models,
-    sources: [{ sourceId: sourceIdentity(options.source), text: sourceText }],
+    sources: [{ sourceId: applicationSourceId, text: sourceText }],
   });
   const plugins = await loadCheckedPlugins({
     application, beagle, compilerVersion, models, sourcePath: options.source,
