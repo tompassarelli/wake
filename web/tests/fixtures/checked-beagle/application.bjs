@@ -2,58 +2,151 @@
 (ns wake.fixtures.checked-beagle
   (:require [wake.core :as wake]))
 
-(wake/application application "wake-checked-beagle-fixture")
-(wake/backend backend :fram)
+(wake/command-receipt-core)
 
-(wake/defstate revision-status RevisionStatus
-  [draft published]
-  :draft
-  {:draft [:published]
-   :published []})
-
-(wake/defentity page Page
-  [slug: String
-   title: String]
-  :slug
-  {:title :create}
+(wake/defcapability
+  read-revisions
+  "capability/read-revisions"
+  "read-revisions"
   [])
 
-(wake/defentity revision Revision
-  [id: String
-   page: (wake/Ref Page)
-   status: RevisionStatus
-   links-to: (Vec (wake/Ref Page))]
-  :id
-  {:page :create
-   :status :command
-   :links-to :create}
-  [])
+(wake/defstate-model
+  revision-lifecycle
+  "state/revision-status"
+  "revision-status"
+  [[draft "state/revision-status/value/draft" "draft" :draft]
+   [published "state/revision-status/value/published" "published" :published]]
+  draft
+  [[draft [published]]
+   [published []]])
 
-(wake/defquery published-revisions
+(wake/defentity-ref page "entity/page" "page")
+(wake/defentity-ref revision "entity/revision" "revision")
+
+(wake/define-entity-model
+  page
+  Page
+  "entity/page"
+  [[slug "entity/page/field/slug" "slug" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-checked-beagle/field/page/slug"
+    true]
+   [title "entity/page/field/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-checked-beagle/field/page/title"
+    true]]
   []
-  [revision: Revision]
-  ["wake-tests/cap/read-revisions"]
-  [(wake/eq
-     (wake/field :revision :status)
-     (wake/tag :published))]
-  [(wake/select :id (wake/field :revision :id))
-   (wake/select :page (wake/field :revision :page))
-   (wake/select :status (wake/field :revision :status))]
-  (wake/page-result 20 64))
+  "wake-checked-beagle/entity/page")
 
-(wake/component revision-row
-  [id: String
-   page: (wake/Ref Page)
-   status: RevisionStatus]
-  [(wake/element
-    :div
-    {:class (wake/static-attr "revision-row")}
-    [(wake/element :span {:text (wake/bind-attr :id)} [])
-     (wake/element :span {:text (wake/bind-attr :page)} [])
-     (wake/element :span {:text (wake/bind-attr :status)} [])])])
+(wake/define-entity-model
+  revision
+  Revision
+  "entity/revision"
+  [[id "entity/revision/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-checked-beagle/field/revision/id"
+    true]
+   [page "entity/revision/field/page" "page" (wake/Ref Page)
+    (wake/->RefField (wake/->DeclaredEntityTarget page-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-checked-beagle/field/revision/page"
+    true]
+   [status "entity/revision/field/status" "status" Keyword
+    (wake/->StateField revision-lifecycle-ref)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-checked-beagle/field/revision/status"
+    true]
+   [links-to
+    "entity/revision/field/links-to"
+    "links-to"
+    (Vec (wake/Ref Page))
+    (wake/->RefField (wake/->DeclaredEntityTarget page-ref))
+    (wake/->ManyField nil)
+    (wake/->CreateWrite nil)
+    "wake-checked-beagle/field/revision/links-to"
+    true]]
+  []
+  "wake-checked-beagle/entity/revision")
 
-(wake/view revisions :revision :revision-row "Published revisions")
+(wake/defquery-model
+  published-revisions
+  "query/published-revisions"
+  "published-revisions"
+  [read-revisions-ref]
+  []
+  [(wake/->QueryBindingSpec :revision revision-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :revision revision-status-ref)
+     (wake/->QueryStateValue revision-lifecycle-published-ref))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :revision revision-id-ref))
+   (wake/->QueryValueSelection
+     :page
+     (wake/->QueryFieldValue :revision revision-page-ref))
+   (wake/->QueryValueSelection
+     :status
+     (wake/->QueryFieldValue :revision revision-status-ref))]
+  (wake/->QueryPageResult
+    (wake/->LiteralBound 20)
+    (wake/->LiteralBound 64)))
 
-(wake/routes application-routes
-  :revisions
-  [(wake/route :home :revisions)])
+(wake/defcomponent-model
+  revision-row
+  "component/revision-row"
+  [(wake/->ComponentPropertySpec
+     :id
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :page
+     (wake/->EntityReferenceValueType page-ref))
+   (wake/->ComponentPropertySpec
+     :status
+     (wake/->StateValueType revision-lifecycle-ref))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "revision-row")}
+     [(wake/->Element :span {:text (wake/->BindAttr :id)} [])
+      (wake/->Element :span {:text (wake/->BindAttr :page)} [])
+      (wake/->Element :span {:text (wake/->BindAttr :status)} [])])])
+
+(wake/defview-model
+  revisions
+  "view/revisions"
+  "revisions"
+  revision-ref
+  revision-row-ref
+  "Published revisions"
+  nil
+  nil)
+
+(wake/defroute-template
+  revisions-route
+  "route/revisions"
+  "revisions"
+  revisions-ref
+  [(wake/->RouteQuerySpec published-revisions-ref nil)]
+  [])
+
+(wake/application-root
+  application
+  "wake-checked-beagle-fixture"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec page-ref "wake-checked-beagle/entity/page")
+   (wake/->StorageSpec revision-ref "wake-checked-beagle/entity/revision")]
+  [(wake/->IdentitySpec page-ref page-slug-ref)
+   (wake/->IdentitySpec revision-ref revision-id-ref)]
+  []
+  (wake/->LocalDefaultRoute revisions-route-ref)
+  nil
+  []
+  []
+  [])
