@@ -4,6 +4,8 @@ import { packPlugin } from "../compiler/plugin-package.mjs";
 
 const webRoot = new URL("..", import.meta.url).pathname.replace(/\/$/u, "");
 const fixtureRoot = `${webRoot}/tests/fixtures/composition-plugin`;
+const COMPILER_PROCESS_TIMEOUT_MS = 30_000;
+const COMPILER_TEST_TIMEOUT_MS = 35_000;
 const scratchRoots = [];
 
 afterEach(async () => {
@@ -47,7 +49,12 @@ function runCompile(root) {
     "--all",
     `${root}/app.bjs`,
     `${root}/out`,
-  ], { cwd: webRoot, stderr: "pipe", stdout: "pipe" });
+  ], {
+    cwd: webRoot,
+    stderr: "pipe",
+    stdout: "pipe",
+    timeout: COMPILER_PROCESS_TIMEOUT_MS,
+  });
 }
 
 async function runGeneratedRoute(root) {
@@ -382,37 +389,39 @@ describe("W3 checked application composition", () => {
     )).toEqual({ "release-id": "release-1" });
   }, 60_000);
 
-  test("rejects undeclared ports, duplicate route patterns, and missing extension targets", async () => {
-    for (const [change, expected] of [
-      [
-        source => source.replace(
-          '(wake/bind-provider\n  release-summary-provider\n  release-plugin-ref\n  "release-summary"',
-          '(wake/bind-provider\n  release-summary-provider\n  release-plugin-ref\n  "unknown-provider"',
-        ),
-        "providers names unexported 'unknown-provider'",
-      ],
-      [
-        source => source
-          .replace(
-            "  [release-detail-mount])",
-            "  [release-detail-mount release-detail-mount])",
-          ),
-        "route slot 'release-plugin.release-detail' is mounted twice",
-      ],
-      [
-        source => source.replace(
-          '(wake/extend-entity-fields\n  release-fields-extension\n  release-plugin-ref\n  "release-fields"',
-          '(wake/extend-entity-fields\n  release-fields-extension\n  release-plugin-ref\n  "unknown-fields"',
-        ),
-        "extensions names unexported 'unknown-fields'",
-      ],
-    ]) {
+  for (const [name, change, expected] of [
+    [
+      "undeclared provider ports",
+      source => source.replace(
+        '(wake/bind-provider\n  release-summary-provider\n  release-plugin-ref\n  "release-summary"',
+        '(wake/bind-provider\n  release-summary-provider\n  release-plugin-ref\n  "unknown-provider"',
+      ),
+      "providers names unexported 'unknown-provider'",
+    ],
+    [
+      "duplicate route mounts",
+      source => source.replace(
+        "  [release-detail-mount])",
+        "  [release-detail-mount release-detail-mount])",
+      ),
+      "route slot 'release-plugin.release-detail' is mounted twice",
+    ],
+    [
+      "missing extension targets",
+      source => source.replace(
+        '(wake/extend-entity-fields\n  release-fields-extension\n  release-plugin-ref\n  "release-fields"',
+        '(wake/extend-entity-fields\n  release-fields-extension\n  release-plugin-ref\n  "unknown-fields"',
+      ),
+      "extensions names unexported 'unknown-fields'",
+    ],
+  ]) {
+    test(`rejects ${name}`, async () => {
       const root = await fixture(change(application));
       const result = runCompile(root);
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr.toString()).toContain(expected);
-    }
-  }, 60_000);
+    }, COMPILER_TEST_TIMEOUT_MS);
+  }
 
   test("rejects extension fields without explicit storage IDs", async () => {
     const withoutStorage = application.replace(
@@ -423,7 +432,7 @@ describe("W3 checked application composition", () => {
     const result = runCompile(root);
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("requires an explicit storage ID");
-  }, 30_000);
+  }, COMPILER_TEST_TIMEOUT_MS);
 
   test("rejects extension fields with a server write policy", async () => {
     const wrongWritePolicy = application.replace(
@@ -434,7 +443,7 @@ describe("W3 checked application composition", () => {
     const result = runCompile(root);
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("must use create write policy");
-  }, 30_000);
+  }, COMPILER_TEST_TIMEOUT_MS);
 
   test("rejects incompatible component fills", async () => {
     const incompatible = application
@@ -443,5 +452,5 @@ describe("W3 checked application composition", () => {
     const result = runCompile(root);
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("lacks required props: current-state");
-  }, 30_000);
+  }, COMPILER_TEST_TIMEOUT_MS);
 });

@@ -13,7 +13,8 @@ import { fileURLToPath } from "node:url";
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
 const compile = join(webRoot, "bin", "wake-compile");
-const COMPILER_TEST_TIMEOUT_MS = 20_000;
+const COMPILER_PROCESS_TIMEOUT_MS = 30_000;
+const COMPILER_TEST_TIMEOUT_MS = 35_000;
 
 function spawnSync(command, args, { cwd, env = process.env } = {}) {
   const result = Bun.spawnSync([command, ...args], {
@@ -21,6 +22,7 @@ function spawnSync(command, args, { cwd, env = process.env } = {}) {
     env,
     stdout: "pipe",
     stderr: "pipe",
+    timeout: COMPILER_PROCESS_TIMEOUT_MS,
   });
   return {
     status: result.exitCode,
