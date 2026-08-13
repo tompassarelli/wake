@@ -966,9 +966,70 @@
        (def ~binding CapabilitySpec
          (->CapabilitySpec ~ref-binding ~guards)))))
 
+;; Beagle macro evaluation exposes sequence shape and arity, but not delimiter
+;; identity. Nested vectors remain canonical; exact-arity guards prevent any
+;; trailing or adjacent token from becoming declaration metadata.
 (defmacro defstate-model
   [binding declaration-id public-name values initial transitions]
-  (let [state-ref-binding (format-symbol "~a-ref" binding)
+  (let [require-declaration-form
+        (fn [declaration label structure] Any
+          (if (pair? declaration)
+            declaration
+            (error
+              (str
+                "Invalid " label " declaration: " declaration "\n\n"
+                "Each " label " must be one complete form:\n"
+                "  " structure))))
+        require-declaration-arity
+        (fn [declaration expected-arity label structure] Any
+          (if (= (count declaration) expected-arity)
+            declaration
+            (error
+              (str
+                "Invalid " label " declaration: " declaration "\n\n"
+                "Each " label " must be one complete form:\n"
+                "  " structure))))
+        value-forms
+        (map
+          (fn [value] Any
+            (require-declaration-form
+              value
+              "state value"
+              "[name declaration-id public-name keyword]"))
+          values)
+        transition-forms
+        (map
+          (fn [transition] Any
+            (require-declaration-form
+              transition "state transition" "[from [to ...]]"))
+          transitions)
+        checked-values
+        (map
+          (fn [value] Any
+            (require-declaration-arity
+              value
+              4
+              "state value"
+              "[name declaration-id public-name keyword]"))
+          value-forms)
+        checked-transition-arities
+        (map
+          (fn [transition] Any
+            (require-declaration-arity
+              transition 2 "state transition" "[from [to ...]]"))
+          transition-forms)
+        checked-transitions
+        (map
+          (fn [transition] Any
+            (if (pair? (second transition))
+              transition
+              (error
+                (str
+                  "Invalid state transition declaration: " transition "\n\n"
+                  "Each state transition must be one complete form:\n"
+                  "  [from [to ...]]"))))
+          checked-transition-arities)
+        state-ref-binding (format-symbol "~a-ref" binding)
         state-provenance-token
         (str "wake:macro:state:" declaration-id)
         value-ref-name
@@ -999,13 +1060,13 @@
                      ~value-ref-binding
                      ~state-ref-binding
                      ~value-keyword)))))
-          values)
+          checked-values)
         value-specs
         (apply vec
           (map
             (fn [value] Symbol
               (value-spec-name (first value)))
-            values))
+            checked-values))
         initial-ref (value-ref-name initial)
         transition-specs
         (apply vec
@@ -1016,7 +1077,7 @@
                     (apply vec
                       (map value-ref-name (second transition)))]
                 `(->StateTransitionSpec ~from-ref ~to-refs)))
-            transitions))]
+            checked-transitions))]
     `(do
        (def ~state-ref-binding StateRef
          (->StateRef
@@ -1042,7 +1103,64 @@
 
 (defmacro define-entity-model
   [binding record-name declaration-id fields derived-fields storage-id]
-  (let [entity-ref-binding (format-symbol "~a-ref" binding)
+  (let [require-declaration-form
+        (fn [declaration label structure] Any
+          (if (pair? declaration)
+            declaration
+            (error
+              (str
+                "Invalid " label " declaration: " declaration "\n\n"
+                "Each " label " must be one complete form:\n"
+                "  " structure))))
+        require-declaration-arity
+        (fn [declaration expected-arity label structure] Any
+          (if (= (count declaration) expected-arity)
+            declaration
+            (error
+              (str
+                "Invalid " label " declaration: " declaration "\n\n"
+                "Each " label " must be one complete form:\n"
+                "  " structure))))
+        field-structure
+        (str
+          "[name declaration-id public-name record-type value-type "
+          "cardinality write-mode storage-id required]")
+        derived-field-structure
+        "[name declaration-id public-name expression dependencies]"
+        field-forms
+        (map
+          (fn [field] Any
+            (require-declaration-form field "field" field-structure))
+          fields)
+        derived-field-forms
+        (map
+          (fn [field] Any
+            (require-declaration-form
+              field "derived field" derived-field-structure))
+          derived-fields)
+        checked-fields
+        (map
+          (fn [field] Any
+            (require-declaration-arity field 9 "field" field-structure))
+          field-forms)
+        checked-derived-field-arities
+        (map
+          (fn [field] Any
+            (require-declaration-arity
+              field 5 "derived field" derived-field-structure))
+          derived-field-forms)
+        checked-derived-fields
+        (map
+          (fn [field] Any
+            (if (pair? (nth field 4))
+              field
+              (error
+                (str
+                  "Invalid derived field declaration: " field "\n\n"
+                  "Each derived field must be one complete form:\n"
+                  "  " derived-field-structure))))
+          checked-derived-field-arities)
+        entity-ref-binding (format-symbol "~a-ref" binding)
         field-ref-name
         (fn [field-name] Symbol
           (format-symbol "~a-~a-ref" binding field-name))
@@ -1055,11 +1173,11 @@
             (map
               (fn [field] Any
                 (make-field (first field) (nth field 3)))
-              fields)
+              checked-fields)
             (map
               (fn [field] Any
                 (make-field (first field) 'String))
-              derived-fields)))
+              checked-derived-fields)))
         field-definitions
         (mapcat
           (fn [field] (List Any)
@@ -1090,7 +1208,7 @@
                      ~write-mode
                      ~field-storage-id
                      ~required)))))
-          fields)
+          checked-fields)
         derived-definitions
         (mapcat
           (fn [field] (List Any)
@@ -1115,19 +1233,19 @@
                      ~entity-ref-binding
                      ~expression
                      ~dependencies)))))
-          derived-fields)
+          checked-derived-fields)
         field-specs
         (apply vec
           (map
             (fn [field] Symbol
               (field-spec-name (first field)))
-            fields))
+            checked-fields))
         derived-specs
         (apply vec
           (map
             (fn [field] Symbol
               (field-spec-name (first field)))
-            derived-fields))]
+            checked-derived-fields))]
     `(do
        (defrecord ~record-name ~record-fields)
        ~@field-definitions
@@ -1417,7 +1535,28 @@
            ~detail-tabs)))))
 
 (defmacro defvalue-type [binding declaration-id root-spec definitions envelope]
-  (let [root-ref-binding (format-symbol "~a-ref" binding)
+  (let [definition-structure "[name value-type]"
+        require-definition-form
+        (fn [definition] Any
+          (if (pair? definition)
+            definition
+            (error
+              (str
+                "Invalid value type definition: " definition "\n\n"
+                "Each value type definition must be one complete form:\n"
+                "  " definition-structure))))
+        definition-forms (map require-definition-form definitions)
+        require-definition-arity
+        (fn [definition] Any
+          (if (= (count definition) 2)
+            definition
+            (error
+              (str
+                "Invalid value type definition: " definition "\n\n"
+                "Each value type definition must be one complete form:\n"
+                "  " definition-structure))))
+        checked-definitions (map require-definition-arity definition-forms)
+        root-ref-binding (format-symbol "~a-ref" binding)
         root-definition-binding (format-symbol "~a-definition" binding)
         root-provenance-token
         (str "wake:macro:value-type:" declaration-id)
@@ -1441,7 +1580,7 @@
                    ~nested-declaration-id
                    ~(str definition-name)
                    ~provenance-token))))
-          definitions)
+          checked-definitions)
         definition-spec-forms
         (map
           (fn [definition] Any
@@ -1451,7 +1590,7 @@
                   spec-binding (definition-spec-name definition-name)]
               `(def ~spec-binding ValueTypeDefinition
                  (->ValueTypeDefinition ~ref-binding ~definition-spec))))
-          definitions)
+          checked-definitions)
         definition-specs
         (apply vec
           (cons
@@ -1459,7 +1598,7 @@
             (map
               (fn [definition] Symbol
                 (definition-spec-name (first definition)))
-              definitions)))]
+              checked-definitions)))]
     `(do
        (def ~root-ref-binding ValueTypeRef
          (->ValueTypeRef
@@ -1976,7 +2115,31 @@
          (->ProviderBindingSpec ~provider-name ~ref-binding)))))
 
 (defmacro extend-entity-fields [binding use declaration-id remote-name fields]
-  (let [ref-binding (format-symbol "~a-ref" binding)
+  (let [field-structure
+        (str
+          "[name declaration-id public-name value-type cardinality "
+          "write-mode storage-id required]")
+        require-field-form
+        (fn [field] Any
+          (if (pair? field)
+            field
+            (error
+              (str
+                "Invalid extension field declaration: " field "\n\n"
+                "Each extension field must be one complete form:\n"
+                "  " field-structure))))
+        field-forms (map require-field-form fields)
+        require-field-arity
+        (fn [field] Any
+          (if (= (count field) 8)
+            field
+            (error
+              (str
+                "Invalid extension field declaration: " field "\n\n"
+                "Each extension field must be one complete form:\n"
+                "  " field-structure))))
+        checked-fields (map require-field-arity field-forms)
+        ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:imported-entity-fields:" declaration-id)
         field-ref-name
@@ -2014,13 +2177,13 @@
                      ~write
                      ~storage-id
                      ~required)))))
-          fields)
+          checked-fields)
         field-specs
         (apply vec
           (map
             (fn [field] Symbol
               (field-spec-name (first field)))
-            fields))]
+            checked-fields))]
     `(do
        (def ~ref-binding ImportedEntityFieldsPortRef
          (->ImportedEntityFieldsPortRef
