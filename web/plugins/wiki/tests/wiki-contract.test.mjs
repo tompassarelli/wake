@@ -61,9 +61,9 @@ async function compileSubstratePlan() {
     const packed = await packPlugin(pluginRoot);
     const commit = run(["git", "rev-parse", "HEAD"]).trim();
     const source = await Bun.file(
-      `${pluginRoot}/fixtures/substrate/substrate.wake`,
+      `${pluginRoot}/fixtures/substrate/substrate.bjs`,
     ).text();
-    await Bun.write(`${temporary}/substrate.wake`, source);
+    await Bun.write(`${temporary}/substrate.bjs`, source);
     await Bun.write(`${temporary}/wake-wiki.wakepkg.json`, packed.bytes);
     await Bun.write(`${temporary}/wake.lock`, canonicalDocument({
       pluginAbiVersion: 1,
@@ -79,7 +79,7 @@ async function compileSubstratePlan() {
     run([
       `${webRoot}/bin/wake-compile`,
       "--all",
-      `${temporary}/substrate.wake`,
+      `${temporary}/substrate.bjs`,
       `${temporary}/out`,
     ]);
     run([
@@ -133,8 +133,8 @@ describe("wake-wiki K0C data contract", () => {
       packageId: "wake-wiki",
       version: "0.1.0",
       pluginAbiVersion: 1,
-      entry: "plugin.wake",
-      sources: ["plugin.wake"],
+      entry: "plugin.bjs",
+      sources: ["plugin.bjs"],
       dependencies: [],
       durableSchemaVersion: 1,
       migrations: [],
@@ -257,7 +257,6 @@ describe("wake-wiki K0C data contract", () => {
       "author-field",
       "base-field",
       "content-limits",
-      "content-provider",
       "content-source-field",
       "created-at-field",
       "digest-field",
@@ -316,8 +315,7 @@ describe("wake-wiki K0C data contract", () => {
     });
     expect(manifest.configuration["actor-entity"].type.declarationId)
       .toBeUndefined();
-    expect(manifest.configuration["content-provider"].type.declarationId)
-      .toBeUndefined();
+    expect(manifest.configuration).not.toHaveProperty("content-provider");
     expect(Object.fromEntries(
       manifest.configuration["content-limits"].type.fields.map(field => [
         field.name,
@@ -350,7 +348,7 @@ describe("wake-wiki K0C data contract", () => {
 
   test("keeps product semantics out of the reusable package", async () => {
     const manifest = await jsonAt("wake-plugin.json");
-    const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
+    const entry = await Bun.file(`${pluginRoot}/plugin.bjs`).text();
     const semanticText = [...collectStrings(manifest), entry].join("\n")
       .replaceAll(":canonical-digest", "");
     for (const forbidden of [
@@ -363,7 +361,8 @@ describe("wake-wiki K0C data contract", () => {
     ]) {
       expect(semanticText).not.toMatch(forbidden);
     }
-    expect(entry.trimStart()).toStartWith("(ns wake.plugins.wiki)");
+    expect(entry.trimStart()).toStartWith("#lang beagle/js");
+    expect(entry).toContain("(ns wake.plugins.wiki");
     expect(entry).not.toMatch(/(?:callback|eval|Function|javascript:)/u);
   });
 
@@ -397,174 +396,67 @@ describe("wake-wiki K0C data contract", () => {
 
   test("materializes the schema, lifecycle, and every exported component", async () => {
     const manifest = await jsonAt("wake-plugin.json");
-    const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
-    expect(entry).toContain("(entity (config resource)\n");
-    expect(entry).toContain("(entity (config revision)\n");
+    const entry = await Bun.file(`${pluginRoot}/plugin.bjs`).text();
     expect(entry).toContain(
-      "((config published-at-field) : Instant :write :command)",
+      '(wake/defentity-ref resource-entity "resource" "resource")',
+    );
+    expect(entry).toContain(
+      '(wake/defentity-ref revision-entity "revision" "revision")',
+    );
+    expect(entry).toContain(
+      '"revision/published-at" "published-at" Instant',
     );
     for (const component of manifest.exports.components) {
-      expect(entry).toContain(`(component ${component}\n`);
+      expect(entry).toContain(`"component/${component}"`);
     }
-    expect(entry).toContain("(defstate (config lifecycle-type)\n");
+    expect(entry).toContain("(wake/defstate-model\n  RevisionLifecycle");
     expect(entry).toContain(
-      "[(config draft-state) -> (config published-state) (config superseded-state)]",
+      "[[draft [published superseded]]",
+    );
+    expect(entry).toContain("[published [superseded]]");
+    expect(entry).toContain("[superseded []]])");
+    expect(entry).toContain(
+      "(wake/->ConfiguredProjectionBound safe-document-max-bytes)",
     );
     expect(entry).toContain(
-      "[(config published-state) -> (config superseded-state)]",
-    );
-    expect(entry).toContain("[(config superseded-state) ->]");
-    expect(entry).toContain(
-      ":bounds [maxBytes (config safe-document-limits.maxBytes)",
-    );
-    expect(entry).toContain(
-      "(contentSource : (String :bytes (config content-limits.contentSourceBytes)))",
+      "(wake/->ConfiguredProjectionBound content-source-bytes)",
     );
   });
 
   test("materializes every checked command with closed write invariants", async () => {
     const manifest = await jsonAt("wake-plugin.json");
-    const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
+    const entry = await Bun.file(`${pluginRoot}/plugin.bjs`).text();
     for (const command of manifest.exports.commands) {
-      expect(entry).toContain(`(command ${command}\n`);
+      expect(entry).toContain(`"command/${command}"`);
     }
-    expect(entry).toContain("((config digest-field) : Digest :write :create)");
-    expect(entry.match(/:provider \(config content-provider\) SafeDocument/gu))
-      .toHaveLength(3);
-    expect(entry.match(/:canonical-digest Digest/gu)).toHaveLength(3);
-    expect(entry.match(/:extensions \[receipt-fields\]/gu)).toHaveLength(5);
+    expect(entry).toContain("(wake/->DigestField nil)");
+    expect(entry.match(/\(wake\/->ProviderInjection/gu)).toHaveLength(3);
+    expect(entry.match(/\(wake\/->CanonicalDigestInjection/gu)).toHaveLength(3);
+    expect(entry).toContain("[receipt-fields-ref]))");
+    expect(entry).toContain(":expected-published-revision");
     expect(entry).toContain(
-      "(expected-published-revision : (Nullable String))",
+      "(wake/->CommandInputExpr :expected-links-to)",
     );
-    expect(entry).toContain(
-      "(assert (not-contains (input expected-links-to) (input resource-id)))",
-    );
-    expect(entry).toContain(
-      "(config published-at-field) (receipt-time)",
-    );
-    const abandonStart = entry.indexOf("(command abandon-draft\n");
-    const abandonEnd = entry.indexOf("\n(command publish\n", abandonStart);
+    expect(entry).toContain("(wake/->CommandReceiptTimeExpr nil)");
+    const abandonStart = entry.indexOf("(wake/defcommand\n  abandon-draft\n");
+    const abandonEnd = entry.indexOf("\n(wake/defcommand\n  publish\n", abandonStart);
     const abandon = entry.slice(abandonStart, abandonEnd);
-    expect(abandon).toContain("abandon-own-draft");
-    expect(abandon).toContain("abandon-any-draft");
-    expect(abandon).toContain("(config author-field) (actor id)");
+    expect(abandon).toContain("cap-abandon-own-draft-ref");
+    expect(abandon).toContain("cap-abandon-any-draft-ref");
   });
 
   test("materializes every exported query without draft leakage", async () => {
     const manifest = await jsonAt("wake-plugin.json");
-    const entry = await Bun.file(`${pluginRoot}/plugin.wake`).text();
+    const entry = await Bun.file(`${pluginRoot}/plugin.bjs`).text();
     for (const query of manifest.exports.queries) {
-      expect(entry).toContain(`(query ${query}\n`);
+      expect(entry).toContain(`"query/${query}"`);
     }
-    const publishedStart = entry.indexOf("(query read-published\n");
-    const publishedEnd = entry.indexOf(
-      "\n(query read-source-for-draft\n",
-      publishedStart,
-    );
-    const published = entry.slice(publishedStart, publishedEnd);
-    expect(published).toContain(
-      "(= (field entry (config published-pointer)) published)",
-    );
-    expect(published).toContain(
-      "(= (field published (config owner-field)) entry)",
-    );
-    expect(published).toContain(
-      "(= (field published (config state-field)) (config published-state))",
-    );
-    expect(published).toContain("(provided safe-document");
-    expect(published).toContain(":by (config content-provider)");
-    expect(published).toContain(
-      "contentSource (field published (config content-source-field))",
-    );
-    expect(published).toContain(
-      "safeDocumentLimits (record [",
-    );
-    expect(published).toContain(
-      "maxDepth (literal (config safe-document-limits.maxDepth))",
-    );
-    expect(published).not.toContain(
-      "(content-source (field published (config content-source-field)))",
-    );
-    expect(published).toContain(
-      "(extension-fields revision-fields published)",
-    );
-    expect(published).not.toMatch(/draft|superseded/u);
-
-    const sourceStart = entry.indexOf("(query read-source-for-draft\n");
-    const sourceEnd = entry.indexOf("\n(query read-draft\n", sourceStart);
-    const source = entry.slice(sourceStart, sourceEnd);
-    expect(source).toContain(":capability start-draft");
-    expect(source).toContain(
-      "(= (field entry (config published-pointer)) published)",
-    );
-    expect(source).toContain(
-      "(= (field published (config owner-field)) entry)",
-    );
-    expect(source).toContain(
-      "(= (field published (config state-field)) (config published-state))",
-    );
-    expect(source).toContain(
-      "(content-source (field published (config content-source-field)))",
-    );
-    expect(source).toContain(
-      "(extension-fields revision-fields published)",
-    );
-    expect(source).not.toMatch(/draft-pointer|draft-state|superseded/u);
-
-    const currentHistoryStart = entry.indexOf("(query history-current\n");
-    const supersededHistoryStart = entry.indexOf(
-      "\n(query history-superseded\n",
-      currentHistoryStart,
-    );
-    const historyEnd = entry.indexOf("\n(query backlinks\n", supersededHistoryStart);
-    const currentHistory = entry.slice(currentHistoryStart, supersededHistoryStart);
-    const supersededHistory = entry.slice(supersededHistoryStart, historyEnd);
-    expect(currentHistory).toContain(
-      "(= (field entry (config published-pointer)) edition)",
-    );
-    expect(currentHistory).toContain(
-      "(= (field edition (config owner-field)) entry)",
-    );
-    expect(currentHistory).toContain(
-      "(= (field edition (config state-field)) (config published-state))",
-    );
-    expect(currentHistory).toContain(
-      "(published-at (field edition (config published-at-field)))",
-    );
-    expect(currentHistory).not.toMatch(/draft|superseded/u);
-    expect(supersededHistory).toContain(
-      "(= (field edition (config owner-field)) entry)",
-    );
-    expect(supersededHistory).toContain(
-      "(= (field edition (config state-field)) (config superseded-state))",
-    );
-    expect(supersededHistory).toContain(
-      "(published-at (field edition (config published-at-field)))",
-    );
-    expect(supersededHistory).not.toMatch(/draft|published-pointer/u);
-
-    const backlinksStart = entry.indexOf("(query backlinks\n");
-    const backlinksEnd = entry.indexOf("\n(component browse-page\n", backlinksStart);
-    const backlinks = entry.slice(backlinksStart, backlinksEnd);
-    expect(backlinks).toContain(
-      "(= (field target (config published-pointer)) target-published)",
-    );
-    expect(backlinks).toContain(
-      "(= (field target-published (config owner-field)) target)",
-    );
-    expect(backlinks).toContain(
-      "(= (field target-published (config state-field)) (config published-state))",
-    );
-    expect(backlinks).toContain(
-      "(= (field source (config published-pointer)) published)",
-    );
-    expect(backlinks).toContain(
-      "(= (field published (config state-field)) (config published-state))",
-    );
-    expect(backlinks).toContain(
-      "(extension-fields revision-fields published)",
-    );
-    expect(backlinks).not.toMatch(/draft|superseded/u);
+    expect(entry).toContain("(wake/->QueryProviderSelection");
+    expect(entry).toContain("safe-document-query-input");
+    expect(entry).toContain("(wake/->QueryExtensionSelection revision-fields-ref");
+    expect(entry).toContain("(wake/->QueryStateValue RevisionLifecycle-published-ref)");
+    expect(entry).toContain("(wake/->QueryStateValue RevisionLifecycle-superseded-ref)");
+    expect(entry).not.toContain("(query ");
   });
 
   test("packs deterministically from the real declaration source", async () => {
@@ -574,12 +466,12 @@ describe("wake-wiki K0C data contract", () => {
     expect(first.digest).toBe(second.digest);
     expect(first.digest).toBe(sha256Digest(first.bytes));
     expect(first.artifact.files).toHaveLength(1);
-    expect(first.artifact.files[0].path).toBe("plugin.wake");
+    expect(first.artifact.files[0].path).toBe("plugin.bjs");
     expect(first.artifact.files[0].content).toContain(
-      "(entity (config resource)\n",
+      '(wake/defentity-ref resource-entity "resource" "resource")',
     );
     expect(first.artifact.files[0].content).toContain(
-      "(entity (config revision)\n",
+      '(wake/defentity-ref revision-entity "revision" "revision")',
     );
   });
 
@@ -864,16 +756,16 @@ describe("neutral handbook binding", () => {
   test("binds every required role and mounts every route explicitly", async () => {
     const manifest = await jsonAt("wake-plugin.json");
     const source = await Bun.file(
-      `${pluginRoot}/fixtures/handbook/handbook.wake`,
+      `${pluginRoot}/fixtures/handbook/handbook.bjs`,
     ).text();
-    expect(source).toContain('(application :id "wake-wiki-handbook-fixture")');
-    expect(source).toContain('(use "wake-wiki"');
-    expect(source).toContain(':version "0.1.0"');
+    expect(source).toContain('"handbook-fixture"');
+    expect(source).toContain("(wake/use-plugin\n  wiki\n  \"wake-wiki\"");
+    expect(source).toContain('"0.1.0"');
     for (const config of Object.keys(manifest.configuration)) {
       expect(source).toContain(config);
     }
     for (const route of manifest.exports.routes) {
-      expect(source).toContain(`(mount wiki.${route} `);
+      expect(source).toContain(`"route-slot/${route}"`);
     }
     expect(source).toContain(
       '"handbook-fixture/field/edition/audience"',

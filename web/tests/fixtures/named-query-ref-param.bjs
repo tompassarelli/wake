@@ -2,28 +2,83 @@
 (ns wake.tests.named-query-ref-param
   (:require [wake.core :as wake]))
 
-(wake/application application "wake-named-query-ref-param")
-(wake/backend backend :fram)
+(wake/command-receipt-core)
 
-(wake/defentity owner Owner
-  [id: String]
-  :id
-  {}
-  [])
-
-(wake/defentity release Release
-  [id: String
-   owner: (wake/Ref Owner)]
-  :id
-  {}
-  [])
-
-(wake/defquery invalid-ref-parameter
-  [owner: (wake/Ref)]
-  [release: Release]
+(wake/defcapability
+  read-capability
   "wake-tests/cap/read"
-  [(wake/eq
-    (wake/field :release :owner)
-    (wake/parameter :owner))]
-  [(wake/select :id (wake/field :release :id))]
-  (wake/page-result 10 20))
+  "wake-tests/cap/read"
+  [])
+
+(wake/defentity-ref owner "entity/owner" "owner")
+(wake/defentity-ref release "entity/release" "release")
+
+(wake/define-entity-model
+  owner
+  Owner
+  "entity/owner"
+  [[id "entity/owner/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-named-query-ref-param/field/owner/id"
+    true]]
+  []
+  "wake-named-query-ref-param/entity/owner")
+
+(wake/define-entity-model
+  release
+  Release
+  "entity/release"
+  [[id "entity/release/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-named-query-ref-param/field/release/id"
+    true]
+   [owner "entity/release/field/owner" "owner" String
+    (wake/->RefField (wake/->DeclaredEntityTarget owner-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-named-query-ref-param/field/release/owner"
+    true]]
+  []
+  "wake-named-query-ref-param/entity/release")
+
+(wake/defquery-model
+  invalid-ref-parameter
+  "query/invalid-ref-parameter"
+  "invalid-ref-parameter"
+  [read-capability-ref]
+  [(wake/->QueryParameterSpec
+     :owner
+     (wake/->EntityReferenceValueType))]
+  [(wake/->QueryBindingSpec :release release-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :release release-owner-ref)
+     (wake/->QueryParameterValue :owner))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))]
+  (wake/->QueryPageResult
+    (wake/->LiteralBound 10)
+    (wake/->LiteralBound 20)))
+
+(wake/application-root
+  application
+  "wake-named-query-ref-param"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec
+     owner-ref
+     "wake-named-query-ref-param/entity/owner")
+   (wake/->StorageSpec
+     release-ref
+     "wake-named-query-ref-param/entity/release")]
+  [(wake/->IdentitySpec owner-ref owner-id-ref)
+   (wake/->IdentitySpec release-ref release-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [])

@@ -107,7 +107,7 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
   try {
     const compiled = spawnSync(
       join(webRoot, "bin", "wake-compile"),
-      ["--all", "demo/wiki.wake", outputDir],
+      ["--all", "demo/wiki.bjs", outputDir],
       { cwd: webRoot },
     );
     const diagnostics = [

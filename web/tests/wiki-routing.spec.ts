@@ -22,8 +22,8 @@ function run(command: string[]) {
 
 run(["mkdir", "-p", buildRoot]);
 await Bun.write(
-  `${buildRoot}/substrate.wake`,
-  await Bun.file(`${sourceRoot}/substrate.wake`).text(),
+  `${buildRoot}/substrate.bjs`,
+  await Bun.file(`${sourceRoot}/substrate.bjs`).text(),
 );
 await Bun.write(`${buildRoot}/wake-wiki.wakepkg.json`, packed.bytes);
 await Bun.write(`${buildRoot}/wake.lock`, canonicalDocument({
@@ -40,7 +40,7 @@ await Bun.write(`${buildRoot}/wake.lock`, canonicalDocument({
 run([
   `${webRoot}/bin/wake-compile`,
   "--all",
-  `${buildRoot}/substrate.wake`,
+  `${buildRoot}/substrate.bjs`,
   `${buildRoot}/out`,
 ]);
 const javascript = await Bun.file(`${buildRoot}/out/app.js`).text();

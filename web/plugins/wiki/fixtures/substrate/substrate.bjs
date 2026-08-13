@@ -1,0 +1,257 @@
+#lang beagle/js
+(ns wake.fixtures.wiki-substrate
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defentity-ref member "host/entity/member" "member")
+(wake/define-entity-model
+  member
+  Member
+  "host/entity/member"
+  [[member-id "host/entity/member/field/id" "member-id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-wiki-substrate-fixture/field/member/id"
+    true]]
+  []
+  "wake-wiki-substrate-fixture/entity/member")
+
+(wake/defplugin-use wiki "plugin-use/wiki")
+
+(wake/imported-entity-name-binding
+  wiki-resource wiki-ref "config/resource" "resource"
+  (wake/->EntityDeclarationName "entry"))
+(wake/imported-entity-name-binding
+  wiki-revision wiki-ref "config/revision" "revision"
+  (wake/->EntityDeclarationName "edition"))
+
+(wake/imported-field-name-binding
+  wiki-resource-id wiki-ref "config/resource-id" "resource-id"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "entry-id")))
+(wake/imported-field-name-binding
+  wiki-published-pointer wiki-ref
+  "config/published-pointer" "published-pointer"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "released-edition")))
+(wake/imported-field-name-binding
+  wiki-draft-pointer wiki-ref "config/draft-pointer" "draft-pointer"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "working-edition")))
+(wake/imported-field-name-binding
+  wiki-revision-id wiki-ref "config/revision-id" "revision-id"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "edition-id")))
+(wake/imported-field-name-binding
+  wiki-owner-field wiki-ref "config/owner-field" "owner-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "entry")))
+(wake/imported-field-name-binding
+  wiki-base-field wiki-ref "config/base-field" "base-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "based-on-release")))
+(wake/imported-field-name-binding
+  wiki-replaces-field wiki-ref "config/replaces-field" "replaces-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "replaces-working")))
+(wake/imported-field-name-binding
+  wiki-state-field wiki-ref "config/state-field" "state-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "phase")))
+(wake/imported-field-name-binding
+  wiki-author-field wiki-ref "config/author-field" "author-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "prepared-by")))
+(wake/imported-field-name-binding
+  wiki-created-at-field wiki-ref "config/created-at-field" "created-at-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "prepared-at")))
+(wake/imported-field-name-binding
+  wiki-published-at-field wiki-ref
+  "config/published-at-field" "published-at-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "released-at")))
+(wake/imported-field-name-binding
+  wiki-digest-field wiki-ref "config/digest-field" "digest-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "checksum")))
+(wake/imported-field-name-binding
+  wiki-links-field wiki-ref "config/links-field" "links-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "references")))
+(wake/imported-field-name-binding
+  wiki-title-field wiki-ref "config/title-field" "title-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "heading")))
+(wake/imported-field-name-binding
+  wiki-summary-field wiki-ref "config/summary-field" "summary-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "abstract")))
+(wake/imported-field-name-binding
+  wiki-content-source-field wiki-ref
+  "config/content-source-field" "content-source-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "source")))
+(wake/imported-field-name-binding
+  wiki-receipt-result-resource-field wiki-ref
+  "config/receipt-result-resource-field" "receipt-result-resource-field"
+  (wake/->ReceiptFieldDeclarationNameValue
+    (wake/->ReceiptFieldDeclarationName "result-entry")))
+(wake/imported-field-name-binding
+  wiki-receipt-result-revision-field wiki-ref
+  "config/receipt-result-revision-field" "receipt-result-revision-field"
+  (wake/->ReceiptFieldDeclarationNameValue
+    (wake/->ReceiptFieldDeclarationName "result-edition")))
+
+(wake/imported-state-name-binding
+  wiki-lifecycle-type wiki-ref "config/lifecycle-type" "lifecycle-type"
+  (wake/->StateDeclarationName "EditionPhase"))
+(wake/imported-state-value-name-binding
+  wiki-draft-state wiki-ref "config/draft-state" "draft-state"
+  (wake/->StateValueDeclarationName :working))
+(wake/imported-state-value-name-binding
+  wiki-published-state wiki-ref "config/published-state" "published-state"
+  (wake/->StateValueDeclarationName :released))
+(wake/imported-state-value-name-binding
+  wiki-superseded-state wiki-ref
+  "config/superseded-state" "superseded-state"
+  (wake/->StateValueDeclarationName :withdrawn))
+(wake/imported-external-entity-binding
+  wiki-actor-entity wiki-ref "config/actor-entity" "actor-entity" member-ref)
+
+(wake/imported-value-binding
+  wiki-content-limits wiki-ref "config/content-limits" "content-limits"
+  (wake/->RecordValue
+    [(wake/->ValueRecordEntry :titleBytes (wake/->LiteralIntegerValue 512))
+     (wake/->ValueRecordEntry :titleScalars (wake/->LiteralIntegerValue 120))
+     (wake/->ValueRecordEntry :summaryBytes (wake/->LiteralIntegerValue 1024))
+     (wake/->ValueRecordEntry
+       :contentSourceBytes
+       (wake/->LiteralIntegerValue 8192))
+     (wake/->ValueRecordEntry :links (wake/->LiteralIntegerValue 32))]))
+(wake/imported-value-binding
+  wiki-query-limits wiki-ref "config/query-limits" "query-limits"
+  (wake/->RecordValue
+    [(wake/->ValueRecordEntry :browseDefault (wake/->LiteralIntegerValue 10))
+     (wake/->ValueRecordEntry :browseMax (wake/->LiteralIntegerValue 20))
+     (wake/->ValueRecordEntry :historyDefault (wake/->LiteralIntegerValue 10))
+     (wake/->ValueRecordEntry :historyMax (wake/->LiteralIntegerValue 20))
+     (wake/->ValueRecordEntry
+       :backlinksDefault
+       (wake/->LiteralIntegerValue 10))
+     (wake/->ValueRecordEntry :backlinksMax (wake/->LiteralIntegerValue 20))]))
+(wake/imported-value-binding
+  wiki-safe-document-limits wiki-ref
+  "config/safe-document-limits" "safe-document-limits"
+  (wake/->RecordValue
+    [(wake/->ValueRecordEntry :maxBytes (wake/->LiteralIntegerValue 16384))
+     (wake/->ValueRecordEntry :maxDepth (wake/->LiteralIntegerValue 8))
+     (wake/->ValueRecordEntry :maxNodes (wake/->LiteralIntegerValue 512))]))
+
+(wake/defplugin-bindings
+  wiki-bindings
+  [] [] [] []
+  [wiki-resource wiki-revision]
+  [wiki-resource-id
+   wiki-published-pointer
+   wiki-draft-pointer
+   wiki-revision-id
+   wiki-owner-field
+   wiki-base-field
+   wiki-replaces-field
+   wiki-state-field
+   wiki-author-field
+   wiki-created-at-field
+   wiki-published-at-field
+   wiki-digest-field
+   wiki-links-field
+   wiki-title-field
+   wiki-summary-field
+   wiki-content-source-field
+   wiki-receipt-result-resource-field
+   wiki-receipt-result-revision-field]
+  [wiki-lifecycle-type]
+  [wiki-draft-state wiki-published-state wiki-superseded-state]
+  [wiki-actor-entity]
+  [wiki-content-limits wiki-query-limits wiki-safe-document-limits])
+
+(wake/bind-provider
+  wiki-content-provider wiki-ref
+  "provider-port/content-parser" "content-parser" "plain-text")
+(wake/extend-entity-fields
+  wiki-revision-extension wiki-ref
+  "entity-fields-port/revision-fields" "revision-fields"
+  [[audience
+    "host/extension/revision-fields/audience"
+    "audience"
+    (wake/->KeywordField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki-substrate-fixture/field/edition/audience"
+    true]])
+(wake/extend-entity-fields
+  wiki-receipt-extension wiki-ref
+  "entity-fields-port/receipt-fields" "receipt-fields"
+  [[policy-digest
+    "host/extension/receipt-fields/policy-digest"
+    "policy-digest"
+    (wake/->DigestField nil)
+    (wake/->SingleField nil)
+    (wake/->ServerWrite nil)
+    "wake-wiki-substrate-fixture/field/receipt/policy-digest"
+    true]])
+
+(wake/mount-route-slot
+  wiki-browse-mount wiki-ref "route-slot/browse" "browse" "/library")
+(wake/mount-route-slot
+  wiki-new-mount wiki-ref "route-slot/new" "new" "/library/new")
+(wake/mount-route-slot
+  wiki-read-mount wiki-ref
+  "route-slot/read" "read" "/library/:entry-id")
+(wake/mount-route-slot
+  wiki-edit-mount wiki-ref
+  "route-slot/edit" "edit" "/library/:entry-id/edit")
+(wake/mount-route-slot
+  wiki-review-mount wiki-ref
+  "route-slot/review" "review" "/library/:entry-id/review")
+(wake/mount-route-slot
+  wiki-history-mount wiki-ref
+  "route-slot/history" "history" "/library/:entry-id/history")
+
+(wake/use-plugin
+  wiki
+  "wake-wiki"
+  "0.1.0"
+  [(wake/->SchemaContribution nil)
+   (wake/->QueryContribution nil)
+   (wake/->CommandContribution nil)
+   (wake/->CapabilityContribution nil)
+   (wake/->UiContribution nil)
+   (wake/->RouteContribution nil)]
+  wiki-bindings
+  [wiki-content-provider]
+  [wiki-revision-extension wiki-receipt-extension]
+  []
+  [wiki-browse-mount
+   wiki-new-mount
+   wiki-read-mount
+   wiki-edit-mount
+   wiki-review-mount
+   wiki-history-mount])
+
+(wake/application-root
+  application
+  "wake-wiki-substrate-fixture"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec
+     member-ref
+     "wake-wiki-substrate-fixture/entity/member")]
+  [(wake/->IdentitySpec member-ref member-member-id-ref)]
+  [wiki-composition]
+  (wake/->MountedDefaultRoute wiki-browse-mount-ref)
+  nil
+  []
+  []
+  [])

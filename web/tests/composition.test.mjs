@@ -21,7 +21,7 @@ async function fixture(source) {
     stdout: "pipe",
   }, 30_000);
   if (create.exitCode !== 0) throw new Error(create.stderr.toString());
-  await Bun.write(`${root}/app.wake`, source);
+  await Bun.write(`${root}/app.bjs`, source);
   const packed = await packPlugin(fixtureRoot);
   await Bun.write(`${artifactRoot}/composition-plugin.wakepkg.json`, packed.bytes);
   const commit = Bun.spawnSync(["git", "-C", webRoot, "rev-parse", "HEAD"])
@@ -45,7 +45,7 @@ function runCompile(root) {
   return Bun.spawnSync([
     `${webRoot}/bin/wake-compile`,
     "--all",
-    `${root}/app.wake`,
+    `${root}/app.bjs`,
     `${root}/out`,
   ], { cwd: webRoot, stderr: "pipe", stdout: "pipe" });
 }
@@ -120,41 +120,116 @@ process.stdout.write(JSON.stringify(calls));
   });
 }
 
-const application = `(ns wake.fixtures.composition)
-(application :id "wake-composition-fixture")
-(backend :fram)
+const application = `#lang beagle/js
+(ns wake.fixtures.composition
+  (:require [wake.core :as wake]))
 
-(entity actor
-  :storage-id "wake-composition-fixture/entity/actor"
-  (id : String :identity
-    :storage-id "wake-composition-fixture/field/actor/id"))
+(wake/defentity-ref actor "actor" "actor")
 
-(provider release-summary-provider
-  :implements release-plugin.release-summary)
+(wake/define-entity-model
+  actor
+  Actor
+  "actor"
+  [[id "actor/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-composition-fixture/field/actor/id"
+    true]]
+  []
+  "wake-composition-fixture/entity/actor")
 
-(component application-release-card
-  :props [current-id current-state]
-  (div :class "application-release-card"
-    (h2 :text current-id)
-    (p :text current-state)))
+(wake/defcomponent-model
+  application-release-card
+  "application-release-card"
+  [(wake/->ComponentPropertySpec
+     :current-id
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :current-state
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "application-release-card")}
+     [(wake/->Element :h2 {:text (wake/->BindAttr :current-id)} [])
+      (wake/->Element :p {:text (wake/->BindAttr :current-state)} [])])])
 
-(use "wake-composition-plugin"
-  :as release-plugin
-  :version "0.1.0"
-  :allow [schema query capability ui route]
-  :config [])
+(wake/defplugin-use release-plugin "release-plugin")
 
-(extend release-plugin.release-fields
-  (channel : String
-    :storage-id "wake-composition-fixture/field/release/channel"
-    :required true)
-  (owner : Ref
-    :to actor
-    :storage-id "wake-composition-fixture/field/release/owner"
-    :required true))
+(wake/defplugin-bindings
+  plugin-bindings
+  [] [] [] [] [] [] [] [] [] [])
 
-(fill release-plugin.release-card :with application-release-card)
-(mount release-plugin.release-detail :path "/releases/:release-id")
+(wake/bind-provider
+  release-summary-provider
+  release-plugin-ref
+  "release-summary"
+  "release-summary"
+  "release-summary-provider")
+
+(wake/extend-entity-fields
+  release-fields-extension
+  release-plugin-ref
+  "release-fields"
+  "release-fields"
+  [[channel
+    "release-fields/channel"
+    "channel"
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-composition-fixture/field/release/channel"
+    true]
+   [owner
+    "release-fields/owner"
+    "owner"
+    (wake/->RefField (wake/->DeclaredEntityTarget actor-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-composition-fixture/field/release/owner"
+    true]])
+
+(wake/fill-component-slot
+  release-card-fill
+  release-plugin-ref
+  "release-card"
+  "release-card"
+  application-release-card-ref)
+
+(wake/mount-route-slot
+  release-detail-mount
+  release-plugin-ref
+  "release-detail"
+  "release-detail"
+  "/releases/:release-id")
+
+(wake/use-plugin
+  release-plugin
+  "wake-composition-plugin"
+  "0.1.0"
+  [(wake/->SchemaContribution nil)
+   (wake/->QueryContribution nil)
+   (wake/->CapabilityContribution nil)
+   (wake/->UiContribution nil)
+   (wake/->RouteContribution nil)]
+  plugin-bindings
+  [release-summary-provider]
+  [release-fields-extension]
+  [release-card-fill]
+  [release-detail-mount])
+
+(wake/application-root
+  application
+  "wake-composition-fixture"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec actor-ref "wake-composition-fixture/entity/actor")]
+  [(wake/->IdentitySpec actor-ref actor-id-ref)]
+  [release-plugin-composition]
+  (wake/->MountedDefaultRoute release-detail-mount-ref)
+  nil
+  []
+  []
+  [])
 `;
 
 describe("W3 checked application composition", () => {

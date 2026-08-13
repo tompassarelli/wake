@@ -14,8 +14,8 @@ test("generated route metadata exposes provider results but not internal carrier
   try {
     const packed = await packPlugin(pluginRoot);
     await Bun.write(
-      join(outputDir, "substrate.wake"),
-      await Bun.file(join(pluginRoot, "fixtures", "substrate", "substrate.wake")).text(),
+      join(outputDir, "substrate.bjs"),
+      await Bun.file(join(pluginRoot, "fixtures", "substrate", "substrate.bjs")).text(),
     );
     await Bun.write(join(outputDir, "wake-wiki.wakepkg.json"), packed.bytes);
     await Bun.write(join(outputDir, "wake.lock"), canonicalDocument({
@@ -32,7 +32,7 @@ test("generated route metadata exposes provider results but not internal carrier
     const compiled = Bun.spawnSync([
       join(webRoot, "bin", "wake-compile"),
       "--all",
-      join(outputDir, "substrate.wake"),
+      join(outputDir, "substrate.bjs"),
       join(outputDir, "out"),
     ], {
       cwd: webRoot,

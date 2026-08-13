@@ -1,0 +1,121 @@
+#lang beagle/js
+(ns wake.command-ux
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defentity-ref item "item" "item")
+
+(wake/define-entity-model
+  item
+  Item
+  "item"
+  [[id "item/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-test-command-ux/field/item/id"
+    true]
+   [title "item/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    "wake-test-command-ux/field/item/title"
+    true]
+   [status "item/status" "status" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    "wake-test-command-ux/field/item/status"
+    true]]
+  []
+  "wake-test-command-ux/entity/item")
+
+(wake/defform
+  add-item
+  "add-item"
+  "add-item"
+  item-ref
+  [item-id-ref item-title-ref item-status-ref]
+  [item-id-ref item-title-ref item-status-ref]
+  "Add item"
+  (wake/->ClearFormSuccess nil))
+
+(wake/defcomponent-model
+  item-row
+  "item-row"
+  [(wake/->ComponentPropertySpec :id (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec :title (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec :status (wake/->StringValueType nil nil nil))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "px-4 py-3 border-b border-border")}
+     [(wake/->Element
+        :span
+        {:class (wake/->StaticAttr "text-sm")
+         :text (wake/->BindAttr :title)}
+        [])
+      (wake/->Element
+        :span
+        {:class (wake/->StaticAttr "text-xs text-muted-foreground")
+         :text (wake/->BindAttr :status)}
+        [])])])
+
+(wake/defcomponent-model
+  item-detail
+  "item-detail"
+  [(wake/->ComponentPropertySpec :title (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec :status (wake/->StringValueType nil nil nil))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "p-4")}
+     [(wake/->Element
+        :h2
+        {:class (wake/->StaticAttr "text-base font-semibold")
+         :text (wake/->BindAttr :title)}
+        [])
+      (wake/->Element
+        :span
+        {:class (wake/->StaticAttr "text-sm")
+         :text (wake/->BindAttr :status)}
+        [])
+      (wake/->Element
+        :button
+        {:on-click
+         (wake/->ActionAttr
+           (wake/->SetFieldAction
+             item-status-ref
+             (wake/->LiteralStringValue "done")))
+         :text (wake/->StaticAttr "Done")}
+        [])])])
+
+(wake/defview-model
+  items
+  "items"
+  "items"
+  item-ref
+  item-row-ref
+  "Items"
+  add-item-ref
+  item-detail-ref)
+
+(wake/defroute-template
+  items-route
+  "items"
+  "items"
+  items-ref
+  []
+  [])
+
+(wake/application-root
+  application
+  "wake-test-command-ux"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec item-ref "wake-test-command-ux/entity/item")]
+  [(wake/->IdentitySpec item-ref item-id-ref)]
+  []
+  (wake/->LocalDefaultRoute items-route-ref)
+  nil
+  []
+  [add-item-ref]
+  [])

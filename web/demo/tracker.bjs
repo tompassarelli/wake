@@ -1,0 +1,155 @@
+#lang beagle/js
+(ns wake.tracker
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defentity-ref task "entity/task" "task")
+
+(wake/define-entity-model
+  task
+  Task
+  "entity/task"
+  [[title "entity/task/field/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]
+   [done "entity/task/field/done" "done" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]]
+  []
+  nil)
+
+(wake/defcomponent-model
+  task-row
+  "component/task-row"
+  [(wake/->ComponentPropertySpec
+     :title
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :done
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->Element
+     :div
+     {:class
+      (wake/->StaticAttr
+        "flex items-center gap-4 px-4 py-2.5 border-b border-border")}
+     [(wake/->Element
+        :span
+        {:class (wake/->StaticAttr "flex-1 text-sm")
+         :text (wake/->BindAttr :title)}
+        [])
+      (wake/->WhenNode
+        (wake/->UiPropertyPresent :done)
+        [(wake/->Element
+           :span
+           {:class
+            (wake/->StaticAttr
+              "ml-1 text-xs text-green-600 font-medium")
+            :text (wake/->StaticAttr "Done")}
+           [])])])])
+
+(wake/defcomponent-model
+  task-detail
+  "component/task-detail"
+  [(wake/->ComponentPropertySpec
+     :title
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :done
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "p-6")}
+     [(wake/->Element
+        :h2
+        {:class (wake/->StaticAttr "text-lg font-semibold mb-2")
+         :text (wake/->BindAttr :title)}
+        [])
+      (wake/->WhenNode
+        (wake/->UiPropertyPresent :done)
+        [(wake/->Element
+           :div
+           {:class
+            (wake/->StaticAttr
+              "mt-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded text-sm text-green-700")}
+           [(wake/->Element
+              :span
+              {:text (wake/->StaticAttr "Completed")}
+              [])])])])])
+
+(wake/defcomponent-model
+  task-simple
+  "component/task-simple"
+  [(wake/->ComponentPropertySpec
+     :title
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "px-4 py-2.5 border-b border-border")}
+     [(wake/->Element
+        :span
+        {:class (wake/->StaticAttr "text-sm")
+         :text (wake/->BindAttr :title)}
+        [])])])
+
+(wake/defform
+  tasks-create-form
+  "form/tasks-create"
+  "tasks-create"
+  task-ref
+  [task-title-ref task-done-ref]
+  [task-title-ref]
+  "Add"
+  (wake/->ClearFormSuccess nil))
+
+(wake/defform
+  board-create-form
+  "form/board-create"
+  "board-create"
+  task-ref
+  [task-title-ref]
+  [task-title-ref]
+  "Add"
+  (wake/->ClearFormSuccess nil))
+
+(wake/defview-model
+  tasks
+  "view/tasks"
+  "tasks"
+  task-ref
+  task-row-ref
+  "Tasks"
+  tasks-create-form-ref
+  task-detail-ref)
+
+(wake/defview-model
+  board
+  "view/board"
+  "board"
+  task-ref
+  task-simple-ref
+  "Board"
+  board-create-form-ref
+  nil)
+
+(wake/defroute-template tasks-route "route/tasks" "tasks" tasks-ref [] [])
+(wake/defroute-template board-route "route/board" "board" board-ref [] [])
+
+(wake/application-root
+  application
+  "wake-demo-tracker"
+  (wake/->LocalStorageAuthority "wake-tracker")
+  []
+  []
+  []
+  (wake/->LocalDefaultRoute tasks-route-ref)
+  nil
+  []
+  [tasks-create-form-ref board-create-form-ref]
+  [])

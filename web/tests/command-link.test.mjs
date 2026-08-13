@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 const webRoot = `${import.meta.dir}/..`;
-const source = `${import.meta.dir}/fixtures/command-app.wake`;
+const source = `${import.meta.dir}/fixtures/command-app.bjs`;
 
 function run(command) {
   const result = Bun.spawnSync(command, {

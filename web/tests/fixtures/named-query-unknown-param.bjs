@@ -2,28 +2,72 @@
 (ns wake.tests.named-query-unknown-param
   (:require [wake.core :as wake]))
 
-(wake/application application "wake-named-query-unknown-param")
-(wake/backend backend :fram)
+(wake/command-receipt-core)
 
-(wake/defentity opaque-value Opaque
-  [id: String]
-  :id
-  {}
-  [])
-
-(wake/defentity release Release
-  [id: String
-   opaque: String]
-  :id
-  {}
-  [])
-
-(wake/defquery invalid-unknown-parameter
-  [opaque: Opaque]
-  [release: Release]
+(wake/defcapability
+  read-capability
   "wake-tests/cap/read"
-  [(wake/eq
-    (wake/field :release :opaque)
-    (wake/parameter :opaque))]
-  [(wake/select :id (wake/field :release :id))]
-  (wake/page-result 10 20))
+  "wake-tests/cap/read"
+  [])
+
+(wake/defvalue-type
+  Opaque
+  "value-type/Opaque"
+  (wake/->RecordValueType [])
+  []
+  nil)
+
+(wake/defentity-ref release "entity/release" "release")
+
+(wake/define-entity-model
+  release
+  Release
+  "entity/release"
+  [[id "entity/release/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-named-query-unknown-param/field/release/id"
+    true]
+   [opaque "entity/release/field/opaque" "opaque" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-named-query-unknown-param/field/release/opaque"
+    true]]
+  []
+  "wake-named-query-unknown-param/entity/release")
+
+(wake/defquery-model
+  invalid-unknown-parameter
+  "query/invalid-unknown-parameter"
+  "invalid-unknown-parameter"
+  [read-capability-ref]
+  [(wake/->QueryParameterSpec
+     :opaque
+     (wake/->NamedValueType Opaque-ref))]
+  [(wake/->QueryBindingSpec :release release-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :release release-opaque-ref)
+     (wake/->QueryParameterValue :opaque))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))]
+  (wake/->QueryPageResult
+    (wake/->LiteralBound 10)
+    (wake/->LiteralBound 20)))
+
+(wake/application-root
+  application
+  "wake-named-query-unknown-param"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec
+     release-ref
+     "wake-named-query-unknown-param/entity/release")]
+  [(wake/->IdentitySpec release-ref release-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [])

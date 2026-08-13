@@ -42,7 +42,7 @@ test("FRAM commands propagate promises while local commands stay synchronous", (
     const framDir = join(outputDir, "fram");
     runCompile([
       "--all",
-      "tests/fixtures/fram-command-ux.wake",
+      "tests/fixtures/fram-command-ux.bjs",
       framDir,
     ]);
     const framSource = readFileSync(join(framDir, "app.js"), "utf8");
@@ -100,7 +100,7 @@ test("FRAM commands propagate promises while local commands stay synchronous", (
     assert.ok(command < clear && clear < hide && hide < failure);
 
     const localPath = join(outputDir, "local.js");
-    runCompile(["demo/todo.wake", localPath]);
+    runCompile(["demo/todo.bjs", localPath]);
     const localSource = readFileSync(localPath, "utf8");
     assert.match(localSource, /return entity;/);
     assert.match(

@@ -1,0 +1,84 @@
+#lang beagle/js
+(ns wake.todo
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defentity-ref task "entity/task" "task")
+
+(wake/define-entity-model
+  task
+  Task
+  "entity/task"
+  [[title "entity/task/field/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]
+   [status "entity/task/field/status" "status" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]]
+  []
+  nil)
+
+(wake/defcomponent-model
+  task-row
+  "component/task-row"
+  [(wake/->ComponentPropertySpec
+     :title
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :status
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->Element
+     :div
+     {:class
+      (wake/->StaticAttr
+        "flex items-center gap-4 px-4 py-2.5 border-b border-border")}
+     [(wake/->Element
+        :span
+        {:class (wake/->StaticAttr "flex-1 text-sm")
+         :text (wake/->BindAttr :title)}
+        [])
+      (wake/->Element
+        :span
+        {:class (wake/->StaticAttr "text-xs text-muted-foreground")
+         :text (wake/->BindAttr :status)}
+        [])])])
+
+(wake/defform
+  main-create-form
+  "form/main-create"
+  "main-create"
+  task-ref
+  [task-title-ref]
+  [task-title-ref]
+  "Add"
+  (wake/->ClearFormSuccess nil))
+
+(wake/defview-model
+  main
+  "view/main"
+  "main"
+  task-ref
+  task-row-ref
+  "Tasks"
+  main-create-form-ref
+  nil)
+
+(wake/application-root
+  application
+  "wake-demo-todo"
+  (wake/->LocalStorageAuthority "wake-todo")
+  []
+  []
+  []
+  nil
+  nil
+  []
+  [main-create-form-ref]
+  [])

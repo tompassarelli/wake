@@ -1,0 +1,212 @@
+#lang beagle/js
+(ns wake.compiler-contracts
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defstate-model
+  PublishStatus
+  "PublishStatus"
+  "PublishStatus"
+  [[draft "PublishStatus/draft" "draft" :draft]
+   [published "PublishStatus/published" "published" :published]
+   [retired "PublishStatus/retired" "retired" :retired]]
+  draft
+  [[draft [published retired]]
+   [published [retired]]
+   [retired []]])
+
+(wake/defentity-ref blog-owner "blog_post" "blog_post")
+(wake/defentity-ref blog-post "blog-post" "blog-post")
+(wake/defentity-ref blog-note "blog-note" "blog-note")
+
+(wake/define-entity-model
+  blog-owner
+  BlogOwner
+  "blog_post"
+  [[slug "blog_post/slug" "slug" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-test-compiler-contracts/field/blog_post/slug"
+    true]
+   [canonical-revision "blog_post/canonical-revision" "canonical-revision" String
+    (wake/->RefField (wake/->DeclaredEntityTarget blog-post-ref))
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-test-compiler-contracts/field/blog_post/canonical-revision"
+    false]
+   [title "blog_post/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    "wake-test-compiler-contracts/field/blog_post/title"
+    true]]
+  []
+  "wake-test-compiler-contracts/entity/blog_post")
+
+(wake/define-entity-model
+  blog-post
+  BlogPost
+  "blog-post"
+  [[id "blog-post/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-test-compiler-contracts/field/blog-post/id"
+    true]
+   [blog-owner-ref "blog-post/blog-owner-ref" "blog-owner-ref" String
+    (wake/->RefField (wake/->DeclaredEntityTarget blog-owner-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-compiler-contracts/field/blog-post/blog-owner-ref"
+    true]
+   [body "blog-post/body" "body" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-compiler-contracts/field/blog-post/body"
+    true]
+   [class-field "blog-post/class" "class" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-compiler-contracts/field/blog-post/class"
+    true]
+   [first-field "blog-post/1st" "1st" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-compiler-contracts/field/blog-post/1st"
+    true]
+   [foo-bar "blog-post/foo-bar" "foo-bar" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-compiler-contracts/field/blog-post/foo-bar"
+    true]
+   [foo-dot-bar "blog-post/foo.bar" "foo.bar" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-compiler-contracts/field/blog-post/foo.bar"
+    true]
+   [foo-underscore-bar "blog-post/foo_bar" "foo_bar" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-compiler-contracts/field/blog-post/foo_bar"
+    true]
+   [status "blog-post/status" "status" Keyword
+    (wake/->StateField PublishStatus-ref)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-test-compiler-contracts/field/blog-post/status"
+    true]]
+  []
+  "wake-test-compiler-contracts/entity/blog-post")
+
+(wake/define-entity-model
+  blog-note
+  BlogNote
+  "blog-note"
+  [[note-id "blog-note/note-id" "note-id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-test-compiler-contracts/field/blog-note/note-id"
+    true]
+   [contact-ref "blog-note/contact-ref" "contact-ref" String
+    (wake/->RefField (wake/->DeclaredEntityTarget blog-post-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-compiler-contracts/field/blog-note/contact-ref"
+    true]
+   [summary "blog-note/summary" "summary" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-compiler-contracts/field/blog-note/summary"
+    true]
+   [status "blog-note/status" "status" Keyword
+    (wake/->StateField PublishStatus-ref)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-test-compiler-contracts/field/blog-note/status"
+    true]]
+  []
+  "wake-test-compiler-contracts/entity/blog-note")
+
+(wake/defpublication
+  canonical
+  "canonical"
+  "canonical"
+  blog-owner-ref
+  blog-owner-canonical-revision-ref
+  blog-post-ref
+  blog-post-blog-owner-ref-ref
+  blog-post-status-ref
+  PublishStatus-draft-ref
+  PublishStatus-published-ref
+  PublishStatus-retired-ref)
+
+(wake/deflist-detail
+  blog-post-detail
+  "blog-post"
+  "blog-post"
+  blog-post-ref
+  "Blog posts"
+  [blog-post-id-ref
+   blog-post-blog-owner-ref-ref
+   blog-post-body-ref
+   blog-post-class-field-ref
+   blog-post-first-field-ref
+   blog-post-foo-bar-ref
+   blog-post-foo-dot-bar-ref
+   blog-post-foo-underscore-bar-ref
+   blog-post-status-ref]
+  [blog-post-id-ref
+   blog-post-body-ref
+   blog-post-class-field-ref
+   blog-post-first-field-ref
+   blog-post-foo-bar-ref
+   blog-post-foo-dot-bar-ref
+   blog-post-foo-underscore-bar-ref]
+  [(wake/->FieldsDetailTab
+     "Overview"
+     [blog-post-id-ref
+      blog-post-blog-owner-ref-ref
+      blog-post-body-ref
+      blog-post-status-ref])
+   (wake/->RelatedDetailTab
+     "Notes"
+     blog-note-ref
+     blog-note-contact-ref-ref
+     [blog-note-note-id-ref blog-note-summary-ref blog-note-status-ref])])
+
+(wake/defform
+  add-blog-post
+  "add-blog-post"
+  "add-blog-post"
+  blog-post-ref
+  [blog-post-id-ref blog-post-blog-owner-ref-ref blog-post-body-ref]
+  [blog-post-id-ref blog-post-blog-owner-ref-ref blog-post-body-ref]
+  "Add blog post"
+  (wake/->ClearFormSuccess nil))
+
+(wake/application-root
+  application
+  "wake-test-compiler-contracts"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec blog-owner-ref "wake-test-compiler-contracts/entity/blog_post")
+   (wake/->StorageSpec blog-post-ref "wake-test-compiler-contracts/entity/blog-post")
+   (wake/->StorageSpec blog-note-ref "wake-test-compiler-contracts/entity/blog-note")]
+  [(wake/->IdentitySpec blog-owner-ref blog-owner-slug-ref)
+   (wake/->IdentitySpec blog-post-ref blog-post-id-ref)
+   (wake/->IdentitySpec blog-note-ref blog-note-note-id-ref)]
+  []
+  nil
+  nil
+  [canonical-ref]
+  [add-blog-post-ref]
+  [blog-post-detail-ref])

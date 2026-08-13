@@ -37,8 +37,8 @@ async function compileFixture() {
   try {
     const packed = await packPlugin(fixtureRoot);
     const commit = run(["git", "rev-parse", "HEAD"]).trim();
-    const application = await Bun.file(`${fixtureRoot}/application.wake`).text();
-    await Bun.write(`${temporary}/application.wake`, application);
+    const application = await Bun.file(`${fixtureRoot}/application.bjs`).text();
+    await Bun.write(`${temporary}/application.bjs`, application);
     await Bun.write(`${temporary}/plugin.wakepkg.json`, packed.bytes);
     await Bun.write(`${temporary}/wake.lock`, canonicalDocument({
       pluginAbiVersion: 1,
@@ -55,7 +55,7 @@ async function compileFixture() {
     run([
       `${webRoot}/bin/wake-compile`,
       "--fram",
-      `${temporary}/application.wake`,
+      `${temporary}/application.bjs`,
       planPath,
     ]);
     return Bun.file(planPath).json();

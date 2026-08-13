@@ -1,0 +1,148 @@
+#lang beagle/js
+(ns wake.fixtures.composition-plugin
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defcapability read-release "read-release" "read-release" [])
+
+(wake/defprovider-port
+  release-summary
+  "release-summary"
+  (wake/->RecordValueType [])
+  (wake/->StringValueType nil nil nil)
+  nil)
+
+(wake/defentity-ref release "release" "release")
+
+(wake/define-entity-model
+  release
+  Release
+  "release"
+  [[id "release/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-composition-plugin/field/release/id"
+    true]
+   [state "release/state" "state" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    "wake-composition-plugin/field/release/state"
+    true]]
+  []
+  "wake-composition-plugin/entity/release")
+
+(wake/defentity-fields-port
+  release-fields
+  "release-fields"
+  (wake/->DeclaredEntityFieldsTarget release-ref)
+  []
+  (wake/->OpenManyEntityFields (wake/->CreateWrite nil) true))
+
+(wake/defquery-model
+  release-by-id
+  "release-by-id"
+  "release-by-id"
+  [read-release-ref]
+  [(wake/->QueryParameterSpec
+     :release-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :item release-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :item release-id-ref)
+     (wake/->QueryParameterValue :release-id))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :item release-id-ref))
+   (wake/->QueryValueSelection
+     :state
+     (wake/->QueryFieldValue :item release-state-ref))
+   (wake/->QueryExtensionSelection release-fields-ref :item)]
+  (wake/->QueryOptionalResult nil))
+
+(wake/defcomponent-model
+  release-card
+  "release-card"
+  [(wake/->ComponentPropertySpec
+     :current-id
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :current-state
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "release-card")}
+     [(wake/->Element :h2 {:text (wake/->BindAttr :current-id)} [])
+      (wake/->Element :p {:text (wake/->BindAttr :current-state)} [])])])
+
+(wake/defview-model
+  release-detail-view
+  "release-detail"
+  "release-detail"
+  release-ref
+  release-card-ref
+  "Release"
+  nil
+  nil)
+
+(wake/defroute-template
+  release-detail-route
+  "release-detail"
+  "release-detail"
+  release-detail-view-ref
+  [(wake/->RouteQuerySpec release-by-id-ref "current")]
+  [(wake/->RouteParameterSpec
+     :release-id
+     (wake/->StringValueType nil nil nil))])
+
+(wake/defcomponent-slot
+  release-card-slot
+  "release-card"
+  "release-card"
+  release-card-ref)
+(wake/defroute-slot
+  release-detail-slot
+  "release-detail"
+  "release-detail"
+  release-detail-route-ref)
+
+(wake/defplugin-configuration
+  plugin-configuration
+  [] [] [] [] [] [] [] [] [] [])
+
+(wake/defplugin-exports
+  plugin-exports
+  [release-ref]
+  [release-id-ref release-state-ref]
+  [] [] []
+  [release-summary-ref]
+  []
+  [read-release-ref]
+  [release-by-id-ref]
+  []
+  [release-card-ref]
+  [release-detail-view-ref]
+  [release-detail-route-ref]
+  [release-fields-ref]
+  [release-card-slot-ref]
+  [release-detail-slot-ref])
+
+(wake/defplugin
+  composition-plugin
+  "wake-composition-plugin"
+  "0.1.0"
+  "0.1.0"
+  1
+  1
+  [(wake/->SchemaContribution nil)
+   (wake/->QueryContribution nil)
+   (wake/->CapabilityContribution nil)
+   (wake/->UiContribution nil)
+   (wake/->RouteContribution nil)]
+  plugin-configuration
+  plugin-exports
+  [release-summary-ref]
+  []
+  release-detail-route-ref)

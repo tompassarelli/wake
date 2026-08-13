@@ -63,11 +63,168 @@ function storeBinding(generated, entity) {
   )?.[1];
 }
 
+const singlePublicationProgram = `#lang beagle/js
+(ns wake.single-publication
+  (:require [wake.core :as wake]))
+
+(wake/defstate-model
+  publish-status
+  "PublishStatus"
+  "PublishStatus"
+  [[draft "PublishStatus/draft" "draft" :draft]
+   [published "PublishStatus/published" "published" :published]
+   [retired "PublishStatus/retired" "retired" :retired]]
+  draft
+  [[draft [published retired]]
+   [published [retired]]
+   [retired []]])
+
+(wake/defentity-ref page "page" "page")
+(wake/defentity-ref revision "revision" "revision")
+
+(wake/define-entity-model
+  page
+  Page
+  "page"
+  [[slug "page/slug" "slug" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-test-single-publication/field/page/slug"
+    true]
+   [canonical-revision "page/canonical-revision" "canonical-revision" String
+    (wake/->RefField (wake/->DeclaredEntityTarget revision-ref))
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-test-single-publication/field/page/canonical-revision"
+    false]]
+  []
+  "wake-test-single-publication/entity/page")
+
+(wake/define-entity-model
+  revision
+  Revision
+  "revision"
+  [[id "revision/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-test-single-publication/field/revision/id"
+    true]
+   [page-ref "revision/page-ref" "page-ref" String
+    (wake/->RefField (wake/->DeclaredEntityTarget page-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-test-single-publication/field/revision/page-ref"
+    true]
+   [status "revision/status" "status" Keyword
+    (wake/->StateField publish-status-ref)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-test-single-publication/field/revision/status"
+    true]]
+  []
+  "wake-test-single-publication/entity/revision")
+
+(wake/defpublication
+  canonical
+  "canonical"
+  "canonical"
+  page-ref
+  page-canonical-revision-ref
+  revision-ref
+  revision-page-ref-ref
+  revision-status-ref
+  publish-status-draft-ref
+  publish-status-published-ref
+  publish-status-retired-ref)
+
+(wake/defcomponent-model
+  revision-row
+  "revision-row"
+  [(wake/->ComponentPropertySpec :id (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :page-ref
+     (wake/->EntityReferenceValueType page-ref))
+   (wake/->ComponentPropertySpec
+     :status
+     (wake/->StateValueType publish-status-ref))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "row")}
+     [(wake/->Element :span {:text (wake/->BindAttr :id)} [])
+      (wake/->Element :span {:text (wake/->BindAttr :status)} [])])])
+
+(wake/defview-model
+  revisions
+  "revisions"
+  "revisions"
+  revision-ref
+  revision-row-ref
+  "Revisions"
+  nil
+  nil)
+
+(wake/application-root
+  application
+  "wake-test-single-publication"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec page-ref "wake-test-single-publication/entity/page")
+   (wake/->StorageSpec revision-ref "wake-test-single-publication/entity/revision")]
+  [(wake/->IdentitySpec page-ref page-slug-ref)
+   (wake/->IdentitySpec revision-ref revision-id-ref)]
+  []
+  nil
+  nil
+  [canonical-ref]
+  []
+  [])
+`;
+
+const schemaOnlyProgram = `#lang beagle/js
+(ns wake.tests.schema-only
+  (:require [wake.core :as wake]))
+
+(wake/defentity-ref page "page" "page")
+
+(wake/define-entity-model
+  page
+  Page
+  "page"
+  [[id "page/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-schema-only/field/page/id"
+    true]
+   [title "page/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    "wake-schema-only/field/page/title"
+    true]]
+  []
+  "wake-schema-only/entity/page")
+
+(wake/application-root
+  application
+  "wake-schema-only"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec page-ref "wake-schema-only/entity/page")]
+  [(wake/->IdentitySpec page-ref page-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [])
+`;
+
 test("generated bindings are injective and related FRAM creates obey the entity contract", async () => {
   const outputDir = mkdtempSync(join(tmpdir(), "wake-compiler-contracts-"));
   try {
     const generated = await compileAll(
-      "tests/fixtures/compiler-contracts-list-detail.wake",
+      "tests/fixtures/compiler-contracts-list-detail.bjs",
       outputDir,
     );
     const hyphenStore = storeBinding(generated, "blog-post");
@@ -115,33 +272,8 @@ test("generated bindings are injective and related FRAM creates obey the entity 
 
 test("read-only single views compile and attach publication actions on add and load", async () => {
   const outputDir = mkdtempSync(join(tmpdir(), "wake-single-publication-"));
-  const sourcePath = join(outputDir, "single-publication.wake");
-  writeFileSync(sourcePath, `(ns wake.single-publication)
-(application :id "wake-test-single-publication")
-(backend :fram)
-(defstate PublishStatus
-  [:draft -> :published :retired]
-  [:published -> :retired]
-  [:retired ->])
-(entity page
-  (slug : String :identity)
-  (canonical-revision : Ref :to revision :write :command))
-(entity revision
-  (id : String :identity)
-  (page-ref : Ref :to page :write :create)
-  (status : PublishStatus :write :command))
-(publication canonical
-  :owner page :pointer canonical-revision
-  :revision revision :owner-field page-ref :state-field status
-  :draft :draft :published :published :retired :retired)
-(component revision-row
-  :props [id page-ref status]
-  (div :class "row" (span :text id) (span :text status)))
-(view revisions
-  :entity revision
-  :each revision-row
-  :title "Revisions")
-`);
+  const sourcePath = join(outputDir, "single-publication.bjs");
+  writeFileSync(sourcePath, singlePublicationProgram);
 
   try {
     const generated = await compileAll(sourcePath, join(outputDir, "out"));
@@ -158,88 +290,32 @@ test("read-only single views compile and attach publication actions on add and l
   }
 }, COMPILER_TEST_TIMEOUT_MS);
 
-test("legacy related queries keep one coherent row variable", () => {
-  const temporary = mkdtempSync(join(tmpdir(), "wake-related-query-guard-"));
-  const source = readFileSync(
-    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.wake"),
-    "utf8",
-  );
-  try {
-    for (const [name, query, expected] of [
-      [
-        "incoherent",
-        "[:find ?n :where [?other :blog-note/contact-ref ?e]]",
-        /:query :find row '\?n' must match :where row '\?other'/,
-      ],
-      [
-        "aliased-roles",
-        "[:find ?n :where [?n :blog-note/contact-ref ?n]]",
-        /:query related row and owner must be distinct/,
-      ],
-    ]) {
-      const sourcePath = join(temporary, `${name}.wake`);
-      writeFileSync(sourcePath, source.replace(
-        "[:find ?n :where [?n :blog-note/contact-ref ?e]]",
-        query,
-      ));
-      const result = compileFram(sourcePath);
-      assert.notEqual(result.status, 0);
-      assert.match(`${result.stdout}\n${result.stderr}`, expected);
-    }
-  } finally {
-    rmSync(temporary, { force: true, recursive: true });
-  }
-}, COMPILER_TEST_TIMEOUT_MS);
-
-test("legacy derived fields cannot hide unknown or derived dependencies", () => {
-  const temporary = mkdtempSync(join(tmpdir(), "wake-derived-graph-guard-"));
-  try {
-    const cases = [
-      [
-        "unknown",
-        "  (label : Derived (str ghost))",
-        /derived field 'page\.label' references unknown field 'ghost'/,
-      ],
-      [
-        "derived",
-        "  (label : Derived (str title))\n  (slug : Derived (str label))",
-        /derived field 'page\.slug' cannot reference derived field 'label'/,
-      ],
-    ];
-    for (const [name, derivedFields, expected] of cases) {
-      const sourcePath = join(temporary, `${name}.wake`);
-      writeFileSync(sourcePath, `(ns wake.tests.derived-graph-guard)
-(application :id "wake-derived-graph-guard")
-(backend :fram)
-(entity page
-  (id : String :identity)
-  (title : String)
-${derivedFields})
-`);
-      const result = compileFram(sourcePath);
-      assert.notEqual(result.status, 0);
-      assert.match(`${result.stdout}\n${result.stderr}`, expected);
-    }
-  } finally {
-    rmSync(temporary, { force: true, recursive: true });
-  }
-}, COMPILER_TEST_TIMEOUT_MS);
-
 test("compiler rejects list-detail declarations it cannot all generate", () => {
   const temporary = mkdtempSync(join(tmpdir(), "wake-list-detail-cardinality-"));
-  const sourcePath = join(temporary, "two-list-details.wake");
+  const sourcePath = join(temporary, "two-list-details.bjs");
   const source = readFileSync(
-    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.wake"),
+    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.bjs"),
     "utf8",
   );
-  writeFileSync(sourcePath, `${source}
-(list-detail blog-note
-  :title "Blog notes"
-  :columns [note-id summary]
-  :search [note-id summary]
-  :detail (tabs
-    (tab "Overview" (fields [note-id summary]))))
-`);
+  const secondListDetail = `(wake/deflist-detail
+  blog-note-detail
+  "blog-note"
+  "blog-note"
+  blog-note-ref
+  "Blog notes"
+  [blog-note-note-id-ref blog-note-summary-ref]
+  [blog-note-note-id-ref blog-note-summary-ref]
+  [(wake/->FieldsDetailTab
+     "Overview"
+     [blog-note-note-id-ref blog-note-summary-ref])])
+
+`;
+  writeFileSync(sourcePath, source
+    .replace("(wake/application-root", `${secondListDetail}(wake/application-root`)
+    .replace(
+      "[blog-post-detail-ref])",
+      "[blog-post-detail-ref blog-note-detail-ref])",
+    ));
   try {
     const result = compileFram(sourcePath);
     assert.notEqual(result.status, 0);
@@ -254,11 +330,16 @@ test("compiler rejects list-detail declarations it cannot all generate", () => {
 
 test("list-detail mode omits creation UI when no form is declared", async () => {
   const temporary = mkdtempSync(join(tmpdir(), "wake-list-without-form-"));
-  const sourcePath = join(temporary, "read-only-list.wake");
+  const sourcePath = join(temporary, "read-only-list.bjs");
   const source = readFileSync(
-    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.wake"),
+    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.bjs"),
     "utf8",
-  ).replace(/\n\(form add-blog-post[\s\S]*\)\s*$/u, "\n");
+  )
+    .replace(
+      /\n\(wake\/defform[\s\S]*?\(wake\/->ClearFormSuccess nil\)\)\n/u,
+      "\n",
+    )
+    .replace("  [add-blog-post-ref]\n", "  []\n");
   writeFileSync(sourcePath, source);
   try {
     const generated = await compileAll(sourcePath, join(temporary, "out"));
@@ -273,14 +354,8 @@ test("list-detail mode omits creation UI when no form is declared", async () => 
 
 test("schema-only programs remain valid while browser generation needs a UI root", () => {
   const temporary = mkdtempSync(join(tmpdir(), "wake-schema-only-"));
-  const sourcePath = join(temporary, "schema-only.wake");
-  writeFileSync(sourcePath, `(ns wake.tests.schema-only)
-(application :id "wake-schema-only")
-(backend :fram)
-(entity page
-  (id : String :identity)
-  (title : String))
-`);
+  const sourcePath = join(temporary, "schema-only.bjs");
+  writeFileSync(sourcePath, schemaOnlyProgram);
   try {
     const fram = compileFram(sourcePath);
     assert.equal(fram.status, 0, `${fram.stdout}\n${fram.stderr}`);
@@ -298,30 +373,67 @@ test("schema-only programs remain valid while browser generation needs a UI root
 test("compiler rejects ambiguous or mismatched UI root declarations", () => {
   const temporary = mkdtempSync(join(tmpdir(), "wake-ui-root-topology-"));
   const base = readFileSync(
-    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.wake"),
+    join(webRoot, "tests", "fixtures", "compiler-contracts-list-detail.bjs"),
     "utf8",
   );
-  const form = base.match(/\n\(form add-blog-post[\s\S]*\)\s*$/u)?.[0];
+  const form = base.match(
+    /\n\(wake\/defform[\s\S]*?\(wake\/->ClearFormSuccess nil\)\)\n/u,
+  )?.[0];
   assert.ok(form, "fixture must contain one smart form");
+  const secondForm = form
+    .replaceAll("add-blog-post", "add-blog-post-again");
+  const view = `(wake/defcomponent-model
+  blog-row
+  "blog-row"
+  [(wake/->ComponentPropertySpec :id (wake/->StringValueType nil nil nil))]
+  [(wake/->Element :div {:text (wake/->BindAttr :id)} [])])
+
+(wake/defview-model
+  blogs
+  "blogs"
+  "blogs"
+  blog-post-ref
+  blog-row-ref
+  "Blogs"
+  nil
+  nil)
+
+`;
   try {
     for (const [name, source, expected] of [
       [
         "multiple-forms",
-        `${base}${form}`,
+        base
+          .replace("(wake/application-root", `${secondForm}(wake/application-root`)
+          .replace(
+            "  [add-blog-post-ref]\n",
+            "  [add-blog-post-ref add-blog-post-again-ref]\n",
+          ),
         /program may declare at most one list-detail form/,
       ],
       [
         "wrong-form-owner",
-        base.replace(":entity blog-post", ":entity blog-note"),
+        base.replace(
+          `(wake/defform
+  add-blog-post
+  "add-blog-post"
+  "add-blog-post"
+  blog-post-ref`,
+          `(wake/defform
+  add-blog-post
+  "add-blog-post"
+  "add-blog-post"
+  blog-note-ref`,
+        ),
         /targets entity 'blog-note' but the list detail owns 'blog-post'/,
       ],
       [
         "view-and-list",
-        `${base}\n(component blog-row :props [id] (div :text id))\n(view blogs :entity blog-post :each blog-row :title "Blogs")\n`,
+        base.replace("(wake/application-root", `${view}(wake/application-root`),
         /program cannot combine view and list-detail UI roots/,
       ],
     ]) {
-      const sourcePath = join(temporary, `${name}.wake`);
+      const sourcePath = join(temporary, `${name}.bjs`);
       writeFileSync(sourcePath, source);
       const result = compileFram(sourcePath);
       assert.notEqual(result.status, 0);

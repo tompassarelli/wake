@@ -2,24 +2,69 @@
 (ns wake.tests.named-query-derived
   (:require [wake.core :as wake]))
 
-(wake/application application "wake-named-query-derived")
-(wake/backend backend :fram)
+(wake/command-receipt-core)
 
-(wake/defentity release Release
-  [id: String
-   title: String
-   label: String]
-  :id
-  {}
-  [(wake/derived-field
-    :label
-    (wake/concat-derived [(wake/derived-ref :title)]))])
-
-(wake/defquery invalid-derived-projection
-  []
-  [release: Release]
+(wake/defcapability
+  read-capability
   "wake-tests/cap/read"
+  "wake-tests/cap/read"
+  [])
+
+(wake/defentity-ref release "entity/release" "release")
+
+(wake/define-entity-model
+  release
+  Release
+  "entity/release"
+  [[id "entity/release/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-named-query-derived/field/release/id"
+    true]
+   [title "entity/release/field/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-named-query-derived/field/release/title"
+    true]]
+  [[label
+    "entity/release/field/label"
+    "label"
+    (wake/->ConcatDerivedExpr
+      [(wake/->FieldDerivedExpr release-title-ref)])
+    [release-title-ref]]]
+  "wake-named-query-derived/entity/release")
+
+(wake/defquery-model
+  invalid-derived-projection
+  "query/invalid-derived-projection"
+  "invalid-derived-projection"
+  [read-capability-ref]
   []
-  [(wake/select :id (wake/field :release :id))
-   (wake/select :label (wake/field :release :label))]
-  (wake/page-result 10 20))
+  [(wake/->QueryBindingSpec :release release-ref)]
+  []
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))
+   (wake/->QueryValueSelection
+     :label
+     (wake/->QueryFieldValue :release release-label-ref))]
+  (wake/->QueryPageResult
+    (wake/->LiteralBound 10)
+    (wake/->LiteralBound 20)))
+
+(wake/application-root
+  application
+  "wake-named-query-derived"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec
+     release-ref
+     "wake-named-query-derived/entity/release")]
+  [(wake/->IdentitySpec release-ref release-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [])

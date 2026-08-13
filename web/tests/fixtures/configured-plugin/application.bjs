@@ -1,0 +1,110 @@
+#lang beagle/js
+(ns wake.fixtures.configured-application
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defplugin-use configured "configured")
+
+(wake/imported-entity-name-binding
+  configured-document
+  configured-ref
+  "document"
+  "document"
+  (wake/->EntityDeclarationName "entry"))
+
+(wake/imported-field-name-binding
+  configured-identity-field
+  configured-ref
+  "identity-field"
+  "identity-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "entry-id")))
+
+(wake/imported-field-name-binding
+  configured-state-field
+  configured-ref
+  "state-field"
+  "state-field"
+  (wake/->EntityFieldDeclarationNameValue
+    (wake/->FieldDeclarationName "status")))
+
+(wake/imported-state-name-binding
+  configured-lifecycle
+  configured-ref
+  "lifecycle"
+  "lifecycle"
+  (wake/->StateDeclarationName "EntryPhase"))
+
+(wake/imported-state-value-name-binding
+  configured-draft-state
+  configured-ref
+  "draft-state"
+  "draft-state"
+  (wake/->StateValueDeclarationName :working))
+
+(wake/imported-state-value-name-binding
+  configured-published-state
+  configured-ref
+  "published-state"
+  "published-state"
+  (wake/->StateValueDeclarationName :released))
+
+(wake/imported-value-binding
+  configured-limits
+  configured-ref
+  "limits"
+  "limits"
+  (wake/->RecordValue
+    [(wake/->ValueRecordEntry :default (wake/->LiteralIntegerValue 5))
+     (wake/->ValueRecordEntry :maximum (wake/->LiteralIntegerValue 12))]))
+
+(wake/defplugin-bindings
+  plugin-bindings
+  [] [] [] []
+  [configured-document]
+  [configured-identity-field configured-state-field]
+  [configured-lifecycle]
+  [configured-draft-state configured-published-state]
+  []
+  [configured-limits])
+
+(wake/extend-entity-fields
+  configured-document-extension
+  configured-ref
+  "document-fields"
+  "document-fields"
+  [[audience
+    "document-fields/audience"
+    "audience"
+    (wake/->KeywordField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-configured-application/field/entry/audience"
+    true]])
+
+(wake/use-plugin
+  configured
+  "wake-configured-plugin"
+  "0.1.0"
+  [(wake/->SchemaContribution nil)
+   (wake/->QueryContribution nil)
+   (wake/->CapabilityContribution nil)]
+  plugin-bindings
+  []
+  [configured-document-extension]
+  []
+  [])
+
+(wake/application-root
+  application
+  "wake-configured-application"
+  (wake/->FramAuthority "fram")
+  []
+  []
+  [configured-composition]
+  nil
+  nil
+  []
+  []
+  [])

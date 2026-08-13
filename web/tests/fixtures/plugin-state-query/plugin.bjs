@@ -1,0 +1,86 @@
+#lang beagle/js
+(ns wake.tests.plugin-state-query
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defcapability read-releases "read-releases" "read-releases" [])
+
+(wake/defstate-model
+  phase
+  "Phase"
+  "Phase"
+  [[draft "Phase/draft" "draft" :draft]
+   [published "Phase/published" "published" :published]]
+  draft
+  [[draft [published]]
+   [published []]])
+
+(wake/defentity-ref release "release" "release")
+
+(wake/define-entity-model
+  release
+  Release
+  "release"
+  [[id "release/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-state-query-fixture/field/release/id"
+    true]
+   [phase "release/phase" "phase" Keyword
+    (wake/->StateField phase-ref)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    "wake-state-query-fixture/field/release/phase"
+    true]]
+  []
+  "wake-state-query-fixture/entity/release")
+
+(wake/defquery-model
+  releases-in-phase
+  "releases-in-phase"
+  "releases-in-phase"
+  [read-releases-ref]
+  [(wake/->QueryParameterSpec :phase (wake/->StateValueType phase-ref))]
+  [(wake/->QueryBindingSpec :release release-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :release release-phase-ref)
+     (wake/->QueryParameterValue :phase))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))]
+  (wake/->QueryPageResult
+    (wake/->LiteralBound 10)
+    (wake/->LiteralBound 20)))
+
+(wake/defplugin-configuration
+  plugin-configuration
+  [] [] [] [] [] [] [] [] [] [])
+
+(wake/defplugin-exports
+  plugin-exports
+  [release-ref]
+  [release-id-ref release-phase-ref]
+  [phase-ref]
+  [phase-draft-ref phase-published-ref]
+  [] [] []
+  [read-releases-ref]
+  [releases-in-phase-ref]
+  [] [] [] [] [] [] [])
+
+(wake/defplugin
+  state-query-plugin
+  "wake-state-query-fixture"
+  "0.1.0"
+  "0.1.0"
+  1
+  1
+  [(wake/->SchemaContribution nil)
+   (wake/->QueryContribution nil)
+   (wake/->CapabilityContribution nil)]
+  plugin-configuration
+  plugin-exports
+  []
+  []
+  nil)

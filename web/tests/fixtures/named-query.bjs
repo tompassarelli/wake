@@ -2,77 +2,189 @@
 (ns wake.fixtures.named-query
   (:require [wake.core :as wake]))
 
-(wake/application application "wake-named-query-fixture")
-(wake/backend backend :fram)
+(wake/command-receipt-core)
 
-(wake/defstate release-state ReleaseState
-  [draft published]
-  :draft
-  {:draft [:published]
-   :published []})
-
-(wake/defentity release Release
-  [id: String
-   state: ReleaseState
-   tags: (Vec String)]
-  :id
-  {:state :command
-   :tags :create}
-  [])
-
-(wake/defentity approval Approval
-  [id: String
-   release: (wake/Ref Release)
-   state: String]
-  :id
-  {:release :create
-   :state :create}
-  [])
-
-(wake/defquery browse-releases
-  []
-  [release: Release]
+(wake/defcapability
+  browse-releases-capability
   "wake-tests/cap/browse-releases"
-  [(wake/eq
-    (wake/field :release :state)
-    (wake/tag :published))]
-  [(wake/select :id (wake/field :release :id))
-   (wake/select :state (wake/field :release :state))]
-  (wake/page-result 20 64))
-
-(wake/defquery release-by-id
-  [release-id: String]
-  [release: Release]
+  "wake-tests/cap/browse-releases"
+  [])
+(wake/defcapability
+  read-release-capability
   "wake-tests/cap/read-release"
-  [(wake/eq
-    (wake/field :release :id)
-    (wake/parameter :release-id))]
-  [(wake/select :id (wake/field :release :id))
-   (wake/select :state (wake/field :release :state))
-   (wake/select :tags (wake/field :release :tags))]
-  (wake/optional-result))
+  "wake-tests/cap/read-release"
+  [])
+(wake/defcapability
+  read-approvals-capability
+  "wake-tests/cap/read-approvals"
+  "wake-tests/cap/read-approvals"
+  [])
+(wake/defcapability
+  admin-capability
+  "wake-tests/cap/admin"
+  "wake-tests/cap/admin"
+  [])
 
-(wake/defquery approvals-for-release
-  [release-id: String]
-  [release: Release
-   approval: Approval]
-  ["wake-tests/cap/read-approvals" "wake-tests/cap/admin"]
-  [(wake/eq
-    (wake/field :release :id)
-    (wake/parameter :release-id))
-   (wake/eq
-    (wake/field :approval :release)
-    (wake/query-binding :release))
-   (wake/eq
-    (wake/field :approval :state)
-    (wake/string-value "approved"))]
-  [(wake/select :release-id (wake/field :release :id))
-   (wake/select :approval-id (wake/field :approval :id))]
-  (wake/page-result 10 40))
+(wake/defstate-model
+  release-lifecycle
+  "state/release-state"
+  "ReleaseState"
+  [[draft "state/release-state/value/draft" "draft" :draft]
+   [published "state/release-state/value/published" "published" :published]]
+  draft
+  [[draft [published]]
+   [published []]])
 
-(wake/list-detail release-list
-  :release
+(wake/defentity-ref release "entity/release" "release")
+(wake/defentity-ref approval "entity/approval" "approval")
+
+(wake/define-entity-model
+  release
+  Release
+  "entity/release"
+  [[id "entity/release/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-named-query-fixture/field/release/id"
+    true]
+   [state "entity/release/field/state" "state" Keyword
+    (wake/->StateField release-lifecycle-ref)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-named-query-fixture/field/release/state"
+    true]
+   [tags "entity/release/field/tags" "tags" (Vec String)
+    (wake/->StringField nil)
+    (wake/->ManyField nil)
+    (wake/->CreateWrite nil)
+    "wake-named-query-fixture/field/release/tags"
+    true]]
+  []
+  "wake-named-query-fixture/entity/release")
+
+(wake/define-entity-model
+  approval
+  Approval
+  "entity/approval"
+  [[id "entity/approval/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-named-query-fixture/field/approval/id"
+    true]
+   [release "entity/approval/field/release" "release" String
+    (wake/->RefField (wake/->DeclaredEntityTarget release-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-named-query-fixture/field/approval/release"
+    true]
+   [state "entity/approval/field/state" "state" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-named-query-fixture/field/approval/state"
+    true]]
+  []
+  "wake-named-query-fixture/entity/approval")
+
+(wake/defquery-model
+  browse-releases
+  "query/browse-releases"
+  "browse-releases"
+  [browse-releases-capability-ref]
+  []
+  [(wake/->QueryBindingSpec :release release-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :release release-state-ref)
+     (wake/->QueryStateValue release-lifecycle-published-ref))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))
+   (wake/->QueryValueSelection
+     :state
+     (wake/->QueryFieldValue :release release-state-ref))]
+  (wake/->QueryPageResult
+    (wake/->LiteralBound 20)
+    (wake/->LiteralBound 64)))
+
+(wake/defquery-model
+  release-by-id
+  "query/release-by-id"
+  "release-by-id"
+  [read-release-capability-ref]
+  [(wake/->QueryParameterSpec
+     :release-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :release release-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :release release-id-ref)
+     (wake/->QueryParameterValue :release-id))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :release release-id-ref))
+   (wake/->QueryValueSelection
+     :state
+     (wake/->QueryFieldValue :release release-state-ref))
+   (wake/->QueryValueSelection
+     :tags
+     (wake/->QueryFieldValue :release release-tags-ref))]
+  (wake/->QueryOptionalResult nil))
+
+(wake/defquery-model
+  approvals-for-release
+  "query/approvals-for-release"
+  "approvals-for-release"
+  [read-approvals-capability-ref admin-capability-ref]
+  [(wake/->QueryParameterSpec
+     :release-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :release release-ref)
+   (wake/->QueryBindingSpec :approval approval-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :release release-id-ref)
+     (wake/->QueryParameterValue :release-id))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :approval approval-release-ref)
+     (wake/->QueryBindingValue :release))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :approval approval-state-ref)
+     (wake/->QueryStringValue "approved"))]
+  [(wake/->QueryValueSelection
+     :release-id
+     (wake/->QueryFieldValue :release release-id-ref))
+   (wake/->QueryValueSelection
+     :approval-id
+     (wake/->QueryFieldValue :approval approval-id-ref))]
+  (wake/->QueryPageResult
+    (wake/->LiteralBound 10)
+    (wake/->LiteralBound 40)))
+
+(wake/deflist-detail
+  release-list
+  "list-detail/release-list"
+  "release-list"
+  release-ref
   "Releases"
-  [:id :state]
+  [release-id-ref release-state-ref]
   []
   [])
+
+(wake/application-root
+  application
+  "wake-named-query-fixture"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec
+     release-ref
+     "wake-named-query-fixture/entity/release")
+   (wake/->StorageSpec
+     approval-ref
+     "wake-named-query-fixture/entity/approval")]
+  [(wake/->IdentitySpec release-ref release-id-ref)
+   (wake/->IdentitySpec approval-ref approval-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [release-list-ref])

@@ -2,38 +2,108 @@
 (ns wake.tests.named-query-invalid-ref
   (:require [wake.core :as wake]))
 
-(wake/application application "wake-named-query-invalid-ref")
-(wake/backend backend :fram)
+(wake/command-receipt-core)
 
-(wake/defentity release Release
-  [id: String]
-  :id
-  {}
-  [])
-
-(wake/defentity actor Actor
-  [id: String]
-  :id
-  {}
-  [])
-
-(wake/defentity approval Approval
-  [id: String
-   release: (wake/Ref Release)
-   actor: (wake/Ref Actor)]
-  :id
-  {}
-  [])
-
-(wake/defquery invalid-reference-comparison
-  [approval-id: String]
-  [approval: Approval]
+(wake/defcapability
+  read-capability
   "wake-tests/cap/read"
-  [(wake/eq
-    (wake/field :approval :id)
-    (wake/parameter :approval-id))
-   (wake/eq
-    (wake/field :approval :release)
-    (wake/field :approval :actor))]
-  [(wake/select :id (wake/field :approval :id))]
-  (wake/optional-result))
+  "wake-tests/cap/read"
+  [])
+
+(wake/defentity-ref release "entity/release" "release")
+(wake/defentity-ref actor "entity/actor" "actor")
+(wake/defentity-ref approval "entity/approval" "approval")
+
+(wake/define-entity-model
+  release
+  Release
+  "entity/release"
+  [[id "entity/release/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-named-query-invalid-ref/field/release/id"
+    true]]
+  []
+  "wake-named-query-invalid-ref/entity/release")
+
+(wake/define-entity-model
+  actor
+  Actor
+  "entity/actor"
+  [[id "entity/actor/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-named-query-invalid-ref/field/actor/id"
+    true]]
+  []
+  "wake-named-query-invalid-ref/entity/actor")
+
+(wake/define-entity-model
+  approval
+  Approval
+  "entity/approval"
+  [[id "entity/approval/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-named-query-invalid-ref/field/approval/id"
+    true]
+   [release "entity/approval/field/release" "release" String
+    (wake/->RefField (wake/->DeclaredEntityTarget release-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-named-query-invalid-ref/field/approval/release"
+    true]
+   [actor "entity/approval/field/actor" "actor" String
+    (wake/->RefField (wake/->DeclaredEntityTarget actor-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-named-query-invalid-ref/field/approval/actor"
+    true]]
+  []
+  "wake-named-query-invalid-ref/entity/approval")
+
+(wake/defquery-model
+  invalid-reference-comparison
+  "query/invalid-reference-comparison"
+  "invalid-reference-comparison"
+  [read-capability-ref]
+  [(wake/->QueryParameterSpec
+     :approval-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :approval approval-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :approval approval-id-ref)
+     (wake/->QueryParameterValue :approval-id))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :approval approval-release-ref)
+     (wake/->QueryFieldValue :approval approval-actor-ref))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :approval approval-id-ref))]
+  (wake/->QueryOptionalResult nil))
+
+(wake/application-root
+  application
+  "wake-named-query-invalid-ref"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec
+     release-ref
+     "wake-named-query-invalid-ref/entity/release")
+   (wake/->StorageSpec
+     actor-ref
+     "wake-named-query-invalid-ref/entity/actor")
+   (wake/->StorageSpec
+     approval-ref
+     "wake-named-query-invalid-ref/entity/approval")]
+  [(wake/->IdentitySpec release-ref release-id-ref)
+   (wake/->IdentitySpec actor-ref actor-id-ref)
+   (wake/->IdentitySpec approval-ref approval-id-ref)]
+  []
+  nil
+  nil
+  []
+  []
+  [])

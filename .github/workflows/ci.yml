@@ -45,7 +45,7 @@ jobs:
         run: |
           build_dir="$(mktemp -d)"
           web/bin/wake-compile
-          web/bin/wake-compile --all web/demo/wiki.wake "$build_dir"
+          web/bin/wake-compile --all web/demo/wiki.bjs "$build_dir"
 
       - name: Install pinned Wake dependencies
         working-directory: web

@@ -1,0 +1,2203 @@
+#lang beagle/js
+(ns wake.plugins.wiki
+  (:require [wake.core :as wake]))
+
+;; The plugin contract is deliberately built from nominal references. Public
+;; names are configuration targets; local bindings remain collision-free.
+(wake/defexternal-entity-role actor-entity "config/actor-entity")
+
+(wake/defvalue-role
+  content-limits
+  "config/content-limits"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "titleBytes"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 1048576))
+       true)
+     (wake/->ValueRecordField
+       "titleScalars"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 1048576))
+       true)
+     (wake/->ValueRecordField
+       "summaryBytes"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 1048576))
+       true)
+     (wake/->ValueRecordField
+       "contentSourceBytes"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 1048576))
+       true)
+     (wake/->ValueRecordField
+       "links"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 0)
+         (wake/->LiteralBound 200))
+       true)]))
+
+(wake/defvalue-role
+  query-limits
+  "config/query-limits"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "browseDefault"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 247))
+       true)
+     (wake/->ValueRecordField
+       "browseMax"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 247))
+       true)
+     (wake/->ValueRecordField
+       "historyDefault"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 247))
+       true)
+     (wake/->ValueRecordField
+       "historyMax"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 247))
+       true)
+     (wake/->ValueRecordField
+       "backlinksDefault"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 247))
+       true)
+     (wake/->ValueRecordField
+       "backlinksMax"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 247))
+       true)]))
+
+(wake/defvalue-role
+  safe-document-limits
+  "config/safe-document-limits"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "maxBytes"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 1048576))
+       true)
+     (wake/->ValueRecordField
+       "maxDepth"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 5)
+         (wake/->LiteralBound 256))
+       true)
+     (wake/->ValueRecordField
+       "maxNodes"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 65536))
+       true)]))
+
+(def content-title-bytes wake/ConfigProjection
+  (wake/->ConfigProjection content-limits-ref ["titleBytes"]))
+(def content-title-scalars wake/ConfigProjection
+  (wake/->ConfigProjection content-limits-ref ["titleScalars"]))
+(def content-summary-bytes wake/ConfigProjection
+  (wake/->ConfigProjection content-limits-ref ["summaryBytes"]))
+(def content-source-bytes wake/ConfigProjection
+  (wake/->ConfigProjection content-limits-ref ["contentSourceBytes"]))
+(def content-link-count wake/ConfigProjection
+  (wake/->ConfigProjection content-limits-ref ["links"]))
+(def query-browse-default wake/ConfigProjection
+  (wake/->ConfigProjection query-limits-ref ["browseDefault"]))
+(def query-browse-max wake/ConfigProjection
+  (wake/->ConfigProjection query-limits-ref ["browseMax"]))
+(def query-history-default wake/ConfigProjection
+  (wake/->ConfigProjection query-limits-ref ["historyDefault"]))
+(def query-history-max wake/ConfigProjection
+  (wake/->ConfigProjection query-limits-ref ["historyMax"]))
+(def query-backlinks-default wake/ConfigProjection
+  (wake/->ConfigProjection query-limits-ref ["backlinksDefault"]))
+(def query-backlinks-max wake/ConfigProjection
+  (wake/->ConfigProjection query-limits-ref ["backlinksMax"]))
+(def safe-document-max-bytes wake/ConfigProjection
+  (wake/->ConfigProjection safe-document-limits-ref ["maxBytes"]))
+(def safe-document-max-depth wake/ConfigProjection
+  (wake/->ConfigProjection safe-document-limits-ref ["maxDepth"]))
+(def safe-document-max-nodes wake/ConfigProjection
+  (wake/->ConfigProjection safe-document-limits-ref ["maxNodes"]))
+
+(wake/defstate-model
+  RevisionLifecycle
+  "RevisionLifecycle"
+  "RevisionLifecycle"
+  [[draft "RevisionLifecycle/value/draft" "draft" :draft]
+   [published "RevisionLifecycle/value/published" "published" :published]
+   [superseded
+    "RevisionLifecycle/value/superseded"
+    "superseded"
+    :superseded]]
+  draft
+  [[draft [published superseded]]
+   [published [superseded]]
+   [superseded []]])
+
+(wake/defentity-ref resource-entity "resource" "resource")
+(wake/defentity-ref revision-entity "revision" "revision")
+
+(wake/define-entity-model
+  resource-entity
+  Resource
+  "resource"
+  [[resource-id "resource/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-wiki/field/resource/id"
+    true]
+   [published-pointer
+    "resource/published-revision"
+    "published-revision"
+    String
+    (wake/->RefField (wake/->DeclaredEntityTarget revision-entity-ref))
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-wiki/field/resource/published-revision"
+    false]
+   [draft-pointer
+    "resource/draft-revision"
+    "draft-revision"
+    String
+    (wake/->RefField (wake/->DeclaredEntityTarget revision-entity-ref))
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-wiki/field/resource/draft-revision"
+    false]]
+  []
+  "wake-wiki/entity/resource")
+
+(wake/define-entity-model
+  revision-entity
+  Revision
+  "revision"
+  [[revision-id "revision/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-wiki/field/revision/id"
+    true]
+   [owner-field "revision/resource" "resource" String
+    (wake/->RefField (wake/->DeclaredEntityTarget resource-entity-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/resource"
+    true]
+   [base-field "revision/based-on" "based-on" String
+    (wake/->RefField (wake/->DeclaredEntityTarget revision-entity-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/based-on"
+    false]
+   [replaces-field "revision/replaces-draft" "replaces-draft" String
+    (wake/->RefField (wake/->DeclaredEntityTarget revision-entity-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/replaces-draft"
+    false]
+   [state-field "revision/state" "state" Keyword
+    (wake/->StateField RevisionLifecycle-ref)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-wiki/field/revision/state"
+    true]
+   [author-field "revision/author" "author" String
+    (wake/->RefField (wake/->ExternalEntityTarget actor-entity-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/author"
+    true]
+   [created-at-field "revision/created-at" "created-at" Instant
+    (wake/->InstantField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/created-at"
+    true]
+   [published-at-field "revision/published-at" "published-at" Instant
+    (wake/->InstantField nil)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    "wake-wiki/field/revision/published-at"
+    false]
+   [digest-field "revision/digest" "digest" String
+    (wake/->DigestField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/digest"
+    true]
+   [links-field "revision/links-to" "links-to" (Vec String)
+    (wake/->RefField (wake/->DeclaredEntityTarget resource-entity-ref))
+    (wake/->ManyField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/links-to"
+    true]
+   [title-field "revision/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/title"
+    true]
+   [summary-field "revision/summary" "summary" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/summary"
+    true]
+   [content-source-field "revision/content-source" "content-source" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-wiki/field/revision/content-source"
+    true]]
+  []
+  "wake-wiki/entity/revision")
+
+(wake/defentity-name-role resource "config/resource" resource-entity-ref)
+(wake/defentity-name-role revision "config/revision" revision-entity-ref)
+(wake/deffield-name-role
+  resource-id
+  "config/resource-id"
+  (wake/->EntityFieldNameRoleTarget resource-entity-resource-id-ref))
+(wake/deffield-name-role
+  published-pointer
+  "config/published-pointer"
+  (wake/->EntityFieldNameRoleTarget resource-entity-published-pointer-ref))
+(wake/deffield-name-role
+  draft-pointer
+  "config/draft-pointer"
+  (wake/->EntityFieldNameRoleTarget resource-entity-draft-pointer-ref))
+(wake/deffield-name-role
+  revision-id
+  "config/revision-id"
+  (wake/->EntityFieldNameRoleTarget revision-entity-revision-id-ref))
+(wake/deffield-name-role
+  owner-field
+  "config/owner-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-owner-field-ref))
+(wake/deffield-name-role
+  base-field
+  "config/base-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-base-field-ref))
+(wake/deffield-name-role
+  replaces-field
+  "config/replaces-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-replaces-field-ref))
+(wake/deffield-name-role
+  state-field
+  "config/state-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-state-field-ref))
+(wake/deffield-name-role
+  author-field
+  "config/author-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-author-field-ref))
+(wake/deffield-name-role
+  created-at-field
+  "config/created-at-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-created-at-field-ref))
+(wake/deffield-name-role
+  published-at-field
+  "config/published-at-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-published-at-field-ref))
+(wake/deffield-name-role
+  digest-field
+  "config/digest-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-digest-field-ref))
+(wake/deffield-name-role
+  links-field
+  "config/links-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-links-field-ref))
+(wake/deffield-name-role
+  title-field
+  "config/title-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-title-field-ref))
+(wake/deffield-name-role
+  summary-field
+  "config/summary-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-summary-field-ref))
+(wake/deffield-name-role
+  content-source-field
+  "config/content-source-field"
+  (wake/->EntityFieldNameRoleTarget revision-entity-content-source-field-ref))
+(wake/defstate-name-role
+  lifecycle-type
+  "config/lifecycle-type"
+  RevisionLifecycle-ref)
+(wake/defstate-value-name-role
+  draft-state
+  "config/draft-state"
+  RevisionLifecycle-draft-ref)
+(wake/defstate-value-name-role
+  published-state
+  "config/published-state"
+  RevisionLifecycle-published-ref)
+(wake/defstate-value-name-role
+  superseded-state
+  "config/superseded-state"
+  RevisionLifecycle-superseded-ref)
+
+(wake/defvalue-type
+  SafeDocument
+  "SafeDocument"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "tag"
+       (wake/->LiteralValueType (wake/->StringLiteral "document"))
+       true)
+     (wake/->ValueRecordField
+       "blocks"
+       (wake/->ListValueType
+         (wake/->NamedValueType SafeDocument-Block-ref)
+         nil
+         (wake/->LiteralBound 65536)
+         nil)
+       true)])
+  [[Block
+    (wake/->TaggedValueType
+      "tag"
+      [(wake/->ValueTaggedVariant
+         "paragraph"
+         [(wake/->ValueRecordField
+            "inlines"
+            (wake/->ListValueType
+              (wake/->NamedValueType SafeDocument-Inline-ref)
+              nil
+              (wake/->LiteralBound 65536)
+              nil)
+            true)])
+       (wake/->ValueTaggedVariant
+         "heading"
+         [(wake/->ValueRecordField
+            "level"
+            (wake/->EnumValueType
+              [(wake/->IntegerLiteral 2)
+               (wake/->IntegerLiteral 3)
+               (wake/->IntegerLiteral 4)])
+            true)
+          (wake/->ValueRecordField
+            "inlines"
+            (wake/->ListValueType
+              (wake/->NamedValueType SafeDocument-Inline-ref)
+              nil
+              (wake/->LiteralBound 65536)
+              nil)
+            true)])
+       (wake/->ValueTaggedVariant
+         "blockQuote"
+         [(wake/->ValueRecordField
+            "blocks"
+            (wake/->ListValueType
+              (wake/->NamedValueType SafeDocument-Block-ref)
+              nil
+              (wake/->LiteralBound 65536)
+              nil)
+            true)])
+       (wake/->ValueTaggedVariant
+         "list"
+         [(wake/->ValueRecordField
+            "ordered"
+            (wake/->BooleanValueType nil)
+            true)
+          (wake/->ValueRecordField
+            "items"
+            (wake/->ListValueType
+              (wake/->NamedValueType SafeDocument-ListItem-ref)
+              nil
+              (wake/->LiteralBound 65536)
+              nil)
+            true)])
+       (wake/->ValueTaggedVariant
+         "codeBlock"
+         [(wake/->ValueRecordField
+            "language"
+            (wake/->NullableValueType
+              (wake/->StringValueType nil nil nil))
+            true)
+          (wake/->ValueRecordField
+            "text"
+            (wake/->StringValueType nil nil nil)
+            true)])
+       (wake/->ValueTaggedVariant "thematicBreak" [])])]
+   [ListItem
+    (wake/->RecordValueType
+      [(wake/->ValueRecordField
+         "blocks"
+         (wake/->ListValueType
+           (wake/->NamedValueType SafeDocument-Block-ref)
+           nil
+           (wake/->LiteralBound 65536)
+           nil)
+         true)])]
+   [Inline
+    (wake/->TaggedValueType
+      "tag"
+      [(wake/->ValueTaggedVariant
+         "text"
+         [(wake/->ValueRecordField
+            "text"
+            (wake/->StringValueType nil nil nil)
+            true)])
+       (wake/->ValueTaggedVariant
+         "emphasis"
+         [(wake/->ValueRecordField
+            "inlines"
+            (wake/->ListValueType
+              (wake/->NamedValueType SafeDocument-Inline-ref)
+              nil
+              (wake/->LiteralBound 65536)
+              nil)
+            true)])
+       (wake/->ValueTaggedVariant
+         "strong"
+         [(wake/->ValueRecordField
+            "inlines"
+            (wake/->ListValueType
+              (wake/->NamedValueType SafeDocument-Inline-ref)
+              nil
+              (wake/->LiteralBound 65536)
+              nil)
+            true)])
+       (wake/->ValueTaggedVariant
+         "inlineCode"
+         [(wake/->ValueRecordField
+            "text"
+            (wake/->StringValueType nil nil nil)
+            true)])
+       (wake/->ValueTaggedVariant
+         "link"
+         [(wake/->ValueRecordField
+            "href"
+            (wake/->NamedValueType SafeDocument-SafeUrl-ref)
+            true)
+          (wake/->ValueRecordField
+            "inlines"
+            (wake/->ListValueType
+              (wake/->NamedValueType SafeDocument-Inline-ref)
+              nil
+              (wake/->LiteralBound 65536)
+              nil)
+            true)])
+       (wake/->ValueTaggedVariant "lineBreak" [])])]
+   [SafeUrl
+    (wake/->TaggedValueType
+      "kind"
+      [(wake/->ValueTaggedVariant
+         "external"
+         [(wake/->ValueRecordField
+            "href"
+            (wake/->StringValueType (wake/->LiteralBound 1) nil nil)
+            true)])
+       (wake/->ValueTaggedVariant
+         "internal"
+         [(wake/->ValueRecordField
+            "reference"
+            (wake/->StringValueType (wake/->LiteralBound 1) nil nil)
+            true)])])]]
+  (wake/->ValueEnvelopeSpec
+    (wake/->ConfiguredProjectionBound safe-document-max-bytes)
+    (wake/->ConfiguredProjectionBound safe-document-max-depth)
+    (wake/->ConfiguredProjectionBound safe-document-max-nodes)))
+
+(wake/defprovider-port
+  content-parser
+  "provider-port/content-parser"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "contentSource"
+       (wake/->StringValueType
+         nil
+         nil
+         (wake/->ConfiguredProjectionBound content-source-bytes))
+       true)
+     (wake/->ValueRecordField
+       "safeDocumentLimits"
+       (wake/->RecordValueType
+         [(wake/->ValueRecordField
+            "maxBytes"
+            (wake/->IntegerValueType
+              (wake/->LiteralBound 1)
+              (wake/->LiteralBound 1048576))
+            true)
+          (wake/->ValueRecordField
+            "maxDepth"
+            (wake/->IntegerValueType
+              (wake/->LiteralBound 5)
+              (wake/->LiteralBound 256))
+            true)
+          (wake/->ValueRecordField
+            "maxNodes"
+            (wake/->IntegerValueType
+              (wake/->LiteralBound 1)
+              (wake/->LiteralBound 65536))
+            true)])
+       true)])
+  (wake/->NamedValueType SafeDocument-ref)
+  nil)
+
+(wake/defentity-fields-port
+  revision-fields
+  "entity-fields-port/revision-fields"
+  (wake/->DeclaredEntityFieldsTarget revision-entity-ref)
+  []
+  (wake/->OpenManyEntityFields (wake/->CreateWrite nil) true))
+
+(wake/command-receipt-core)
+
+(wake/defcommand-receipt-field
+  resource-receipt-result
+  "receipt-result-resource-field"
+  "resource-id"
+  (wake/->StringValueType nil nil nil)
+  resource-entity-ref
+  "wake-wiki/field/receipt/result-resource")
+
+(wake/defcommand-receipt-field
+  revision-receipt-result
+  "receipt-result-revision-field"
+  "revision-id"
+  (wake/->StringValueType nil nil nil)
+  revision-entity-ref
+  "wake-wiki/field/receipt/result-revision")
+
+(wake/deffield-name-role
+  receipt-result-resource-field
+  "config/receipt-result-resource-field"
+  (wake/->ReceiptFieldNameRoleTarget resource-receipt-result-ref))
+(wake/deffield-name-role
+  receipt-result-revision-field
+  "config/receipt-result-revision-field"
+  (wake/->ReceiptFieldNameRoleTarget revision-receipt-result-ref))
+
+(wake/defentity-fields-port
+  receipt-fields
+  "entity-fields-port/receipt-fields"
+  (wake/->ReceiptEntityFieldsTarget wake-command-receipt-ref)
+  []
+  (wake/->OpenManyEntityFields (wake/->ServerWrite nil) true))
+
+(wake/defcapability
+  cap-browse-published "capability/browse-published" "browse-published" [])
+(wake/defcapability
+  cap-read-published "capability/read-published" "read-published" [])
+(wake/defcapability cap-read-draft "capability/read-draft" "read-draft" [])
+(wake/defcapability cap-review-draft "capability/review-draft" "review-draft" [])
+(wake/defcapability cap-read-history "capability/read-history" "read-history" [])
+(wake/defcapability
+  cap-read-backlinks "capability/read-backlinks" "read-backlinks" [])
+(wake/defcapability cap-create-draft "capability/create-draft" "create-draft" [])
+(wake/defcapability cap-start-draft "capability/start-draft" "start-draft" [])
+(wake/defcapability
+  cap-replace-own-draft
+  "capability/replace-own-draft"
+  "replace-own-draft"
+  [(wake/->CommandGuardSpec
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-draft-revision)
+     revision-entity-author-field-ref
+     (wake/->CommandActorExpr :id)
+     nil)])
+(wake/defcapability
+  cap-abandon-own-draft
+  "capability/abandon-own-draft"
+  "abandon-own-draft"
+  [(wake/->CommandGuardSpec
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-draft-revision)
+     revision-entity-author-field-ref
+     (wake/->CommandActorExpr :id)
+     nil)])
+(wake/defcapability
+  cap-abandon-any-draft
+  "capability/abandon-any-draft"
+  "abandon-any-draft"
+  [])
+(wake/defcapability
+  cap-publish-draft "capability/publish-draft" "publish-draft" [])
+
+(def title-value-type wake/ValueTypeSpec
+  (wake/->StringValueType
+    (wake/->LiteralBound 1)
+    (wake/->ConfiguredProjectionBound content-title-scalars)
+    (wake/->ConfiguredProjectionBound content-title-bytes)))
+(def summary-value-type wake/ValueTypeSpec
+  (wake/->StringValueType
+    nil
+    nil
+    (wake/->ConfiguredProjectionBound content-summary-bytes)))
+(def content-source-value-type wake/ValueTypeSpec
+  (wake/->StringValueType
+    nil
+    nil
+    (wake/->ConfiguredProjectionBound content-source-bytes)))
+(def links-value-type wake/ValueTypeSpec
+  (wake/->ListValueType
+    (wake/->StringValueType nil nil nil)
+    nil
+    (wake/->ConfiguredProjectionBound content-link-count)
+    (wake/->SortUniqueList nil)))
+(def nullable-string-value-type wake/ValueTypeSpec
+  (wake/->NullableValueType (wake/->StringValueType nil nil nil)))
+(def revision-extension-value-type wake/ValueTypeSpec
+  (wake/->ExtensionValueType revision-fields-ref))
+
+(def safe-document-input wake/CommandExpr
+  (wake/->CommandRecordExpr
+    [(wake/->CommandRecordField
+       :contentSource
+       (wake/->CommandInputExpr :content-source))
+     (wake/->CommandRecordField
+       :safeDocumentLimits
+       (wake/->CommandRecordExpr
+         [(wake/->CommandRecordField
+            :maxBytes
+            (wake/->CommandConfiguredExpr safe-document-max-bytes))
+          (wake/->CommandRecordField
+            :maxDepth
+            (wake/->CommandConfiguredExpr safe-document-max-depth))
+          (wake/->CommandRecordField
+            :maxNodes
+            (wake/->CommandConfiguredExpr safe-document-max-nodes))]))]))
+
+(def payload-digest-input wake/CommandExpr
+  (wake/->CommandRecordExpr
+    [(wake/->CommandRecordField :title (wake/->CommandInputExpr :title))
+     (wake/->CommandRecordField :summary (wake/->CommandInputExpr :summary))
+     (wake/->CommandRecordField
+       :contentSource
+       (wake/->CommandInputExpr :content-source))
+     (wake/->CommandRecordField
+       :linksTo
+       (wake/->CommandInputExpr :links-to))
+     (wake/->CommandRecordField
+       :revisionFields
+       (wake/->CommandInputExpr :revision-fields))]))
+
+(def wiki-command-receipt wake/ReceiptSpec
+  (wake/->ReceiptSpec
+    [(wake/->ReceiptResultField :resource-id resource-receipt-result-ref)
+     (wake/->ReceiptResultField :revision-id revision-receipt-result-ref)]
+    [receipt-fields-ref]))
+
+(wake/defcommand
+  create-resource-draft
+  "command/create-resource-draft"
+  [cap-create-draft-ref]
+  1
+  [(wake/->CommandInputField :title title-value-type)
+   (wake/->CommandInputField :summary summary-value-type)
+   (wake/->CommandInputField :content-source content-source-value-type)
+   (wake/->CommandInputField :links-to links-value-type)
+   (wake/->CommandInputField
+     :revision-fields
+     revision-extension-value-type)]
+  [(wake/->GeneratedIdInjection :resource-id)
+   (wake/->GeneratedIdInjection :revision-id)
+   (wake/->ProviderInjection
+     :validated-document
+     content-parser-ref
+     safe-document-input
+     (wake/->NamedValueType SafeDocument-ref))
+   (wake/->CanonicalDigestInjection :payload-digest payload-digest-input)]
+  [(wake/->AssertStep
+     (wake/->NotContainsPredicate
+       (wake/->CommandInputExpr :links-to)
+       (wake/->CommandInjectedExpr :resource-id)))
+   (wake/->RequireEachStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :links-to))
+   (wake/->CreateStep
+     resource-entity-ref
+     (wake/->CommandInjectedExpr :resource-id)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite resource-entity-draft-pointer-ref (wake/->CommandInjectedExpr :revision-id) nil false))])
+   (wake/->CreateStep
+     revision-entity-ref
+     (wake/->CommandInjectedExpr :revision-id)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-owner-field-ref (wake/->CommandInjectedExpr :resource-id) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-state-field-ref (wake/->CommandStateValueExpr RevisionLifecycle-draft-ref) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-author-field-ref (wake/->CommandActorExpr :id) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-created-at-field-ref (wake/->CommandReceiptTimeExpr nil) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-digest-field-ref (wake/->CommandInjectedExpr :payload-digest) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-links-field-ref (wake/->CommandInputExpr :links-to) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-title-field-ref (wake/->CommandInputExpr :title) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-summary-field-ref (wake/->CommandInputExpr :summary) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-content-source-field-ref (wake/->CommandInputExpr :content-source) nil false))
+      (wake/->ExtensionCommandWrite revision-fields-ref :revision-fields)])]
+  [(wake/->CommandResultField
+     :resource-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInjectedExpr :resource-id))
+   (wake/->CommandResultField
+     :revision-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInjectedExpr :revision-id))]
+  wiki-command-receipt)
+
+(wake/defcommand
+  start-revision-draft
+  "command/start-revision-draft"
+  [cap-start-draft-ref]
+  1
+  [(wake/->CommandInputField
+     :resource-id
+     (wake/->StringValueType nil nil nil))
+   (wake/->CommandInputField
+     :expected-published-revision
+     nullable-string-value-type)
+   (wake/->CommandInputField :title title-value-type)
+   (wake/->CommandInputField :summary summary-value-type)
+   (wake/->CommandInputField :content-source content-source-value-type)
+   (wake/->CommandInputField :links-to links-value-type)
+   (wake/->CommandInputField
+     :revision-fields
+     revision-extension-value-type)]
+  [(wake/->GeneratedIdInjection :revision-id)
+   (wake/->ProviderInjection
+     :validated-document
+     content-parser-ref
+     safe-document-input
+     (wake/->NamedValueType SafeDocument-ref))
+   (wake/->CanonicalDigestInjection :payload-digest payload-digest-input)]
+  [(wake/->AssertStep
+     (wake/->NotContainsPredicate
+       (wake/->CommandInputExpr :links-to)
+       (wake/->CommandInputExpr :resource-id)))
+   (wake/->RequireStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :resource-id)
+     nil)
+   (wake/->RequireStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-published-revision)
+     (wake/->NonNullPredicate
+       (wake/->CommandInputExpr :expected-published-revision)))
+   (wake/->RequireEachStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :links-to))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       resource-entity-ref
+       (wake/->CommandInputExpr :resource-id)
+       resource-entity-published-pointer-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       resource-entity-ref
+       (wake/->CommandInputExpr :resource-id)
+       resource-entity-draft-pointer-ref
+       (wake/->CommandNilExpr nil)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       revision-entity-owner-field-ref
+       (wake/->CommandInputExpr :resource-id)
+       (wake/->NonNullPredicate
+         (wake/->CommandInputExpr :expected-published-revision))))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       revision-entity-state-field-ref
+       (wake/->CommandStateValueExpr RevisionLifecycle-published-ref)
+       (wake/->NonNullPredicate
+         (wake/->CommandInputExpr :expected-published-revision))))
+   (wake/->CreateStep
+     revision-entity-ref
+     (wake/->CommandInjectedExpr :revision-id)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-owner-field-ref (wake/->CommandInputExpr :resource-id) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-base-field-ref (wake/->CommandInputExpr :expected-published-revision) nil true))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-state-field-ref (wake/->CommandStateValueExpr RevisionLifecycle-draft-ref) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-author-field-ref (wake/->CommandActorExpr :id) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-created-at-field-ref (wake/->CommandReceiptTimeExpr nil) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-digest-field-ref (wake/->CommandInjectedExpr :payload-digest) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-links-field-ref (wake/->CommandInputExpr :links-to) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-title-field-ref (wake/->CommandInputExpr :title) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-summary-field-ref (wake/->CommandInputExpr :summary) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-content-source-field-ref (wake/->CommandInputExpr :content-source) nil false))
+      (wake/->ExtensionCommandWrite revision-fields-ref :revision-fields)])
+   (wake/->UpdateStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :resource-id)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite resource-entity-draft-pointer-ref (wake/->CommandInjectedExpr :revision-id) (wake/->CommandNilExpr nil) false))]
+     nil)]
+  [(wake/->CommandResultField
+     :resource-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInputExpr :resource-id))
+   (wake/->CommandResultField
+     :revision-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInjectedExpr :revision-id))]
+  wiki-command-receipt)
+
+(wake/defcommand
+  replace-draft
+  "command/replace-draft"
+  [cap-replace-own-draft-ref]
+  1
+  [(wake/->CommandInputField
+     :resource-id
+     (wake/->StringValueType nil nil nil))
+   (wake/->CommandInputField
+     :expected-draft-revision
+     (wake/->StringValueType nil nil nil))
+   (wake/->CommandInputField
+     :expected-published-revision
+     nullable-string-value-type)
+   (wake/->CommandInputField :title title-value-type)
+   (wake/->CommandInputField :summary summary-value-type)
+   (wake/->CommandInputField :content-source content-source-value-type)
+   (wake/->CommandInputField :links-to links-value-type)
+   (wake/->CommandInputField
+     :revision-fields
+     revision-extension-value-type)]
+  [(wake/->GeneratedIdInjection :revision-id)
+   (wake/->ProviderInjection
+     :validated-document
+     content-parser-ref
+     safe-document-input
+     (wake/->NamedValueType SafeDocument-ref))
+   (wake/->CanonicalDigestInjection :payload-digest payload-digest-input)]
+  [(wake/->AssertStep
+     (wake/->NotContainsPredicate
+       (wake/->CommandInputExpr :links-to)
+       (wake/->CommandInputExpr :resource-id)))
+   (wake/->RequireStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :resource-id)
+     nil)
+   (wake/->RequireStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-draft-revision)
+     nil)
+   (wake/->RequireStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-published-revision)
+     (wake/->NonNullPredicate
+       (wake/->CommandInputExpr :expected-published-revision)))
+   (wake/->RequireEachStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :links-to))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       resource-entity-ref
+       (wake/->CommandInputExpr :resource-id)
+       resource-entity-published-pointer-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       resource-entity-ref
+       (wake/->CommandInputExpr :resource-id)
+       resource-entity-draft-pointer-ref
+       (wake/->CommandInputExpr :expected-draft-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-draft-revision)
+       revision-entity-owner-field-ref
+       (wake/->CommandInputExpr :resource-id)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-draft-revision)
+       revision-entity-state-field-ref
+       (wake/->CommandStateValueExpr RevisionLifecycle-draft-ref)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-draft-revision)
+       revision-entity-base-field-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       revision-entity-owner-field-ref
+       (wake/->CommandInputExpr :resource-id)
+       (wake/->NonNullPredicate
+         (wake/->CommandInputExpr :expected-published-revision))))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       revision-entity-state-field-ref
+       (wake/->CommandStateValueExpr RevisionLifecycle-published-ref)
+       (wake/->NonNullPredicate
+         (wake/->CommandInputExpr :expected-published-revision))))
+   (wake/->CreateStep
+     revision-entity-ref
+     (wake/->CommandInjectedExpr :revision-id)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-owner-field-ref (wake/->CommandInputExpr :resource-id) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-base-field-ref (wake/->CommandInputExpr :expected-published-revision) nil true))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-replaces-field-ref (wake/->CommandInputExpr :expected-draft-revision) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-state-field-ref (wake/->CommandStateValueExpr RevisionLifecycle-draft-ref) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-author-field-ref (wake/->CommandActorExpr :id) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-created-at-field-ref (wake/->CommandReceiptTimeExpr nil) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-digest-field-ref (wake/->CommandInjectedExpr :payload-digest) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-links-field-ref (wake/->CommandInputExpr :links-to) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-title-field-ref (wake/->CommandInputExpr :title) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-summary-field-ref (wake/->CommandInputExpr :summary) nil false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-content-source-field-ref (wake/->CommandInputExpr :content-source) nil false))
+      (wake/->ExtensionCommandWrite revision-fields-ref :revision-fields)])
+   (wake/->UpdateStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :resource-id)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite resource-entity-draft-pointer-ref (wake/->CommandInjectedExpr :revision-id) (wake/->CommandInputExpr :expected-draft-revision) false))]
+     nil)
+   (wake/->UpdateStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-draft-revision)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-state-field-ref (wake/->CommandStateValueExpr RevisionLifecycle-superseded-ref) (wake/->CommandStateValueExpr RevisionLifecycle-draft-ref) false))]
+     nil)]
+  [(wake/->CommandResultField
+     :resource-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInputExpr :resource-id))
+   (wake/->CommandResultField
+     :revision-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInjectedExpr :revision-id))]
+  wiki-command-receipt)
+
+(wake/defcommand
+  abandon-draft
+  "command/abandon-draft"
+  [cap-abandon-own-draft-ref cap-abandon-any-draft-ref]
+  1
+  [(wake/->CommandInputField
+     :resource-id
+     (wake/->StringValueType nil nil nil))
+   (wake/->CommandInputField
+     :expected-draft-revision
+     (wake/->StringValueType nil nil nil))
+   (wake/->CommandInputField
+     :expected-published-revision
+     nullable-string-value-type)]
+  []
+  [(wake/->RequireStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :resource-id)
+     nil)
+   (wake/->RequireStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-draft-revision)
+     nil)
+   (wake/->RequireStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-published-revision)
+     (wake/->NonNullPredicate
+       (wake/->CommandInputExpr :expected-published-revision)))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       resource-entity-ref
+       (wake/->CommandInputExpr :resource-id)
+       resource-entity-published-pointer-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       resource-entity-ref
+       (wake/->CommandInputExpr :resource-id)
+       resource-entity-draft-pointer-ref
+       (wake/->CommandInputExpr :expected-draft-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-draft-revision)
+       revision-entity-owner-field-ref
+       (wake/->CommandInputExpr :resource-id)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-draft-revision)
+       revision-entity-state-field-ref
+       (wake/->CommandStateValueExpr RevisionLifecycle-draft-ref)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-draft-revision)
+       revision-entity-base-field-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       revision-entity-owner-field-ref
+       (wake/->CommandInputExpr :resource-id)
+       (wake/->NonNullPredicate
+         (wake/->CommandInputExpr :expected-published-revision))))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       revision-entity-state-field-ref
+       (wake/->CommandStateValueExpr RevisionLifecycle-published-ref)
+       (wake/->NonNullPredicate
+         (wake/->CommandInputExpr :expected-published-revision))))
+   (wake/->UpdateStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :resource-id)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite resource-entity-draft-pointer-ref (wake/->CommandNilExpr nil) (wake/->CommandInputExpr :expected-draft-revision) false))]
+     nil)
+   (wake/->UpdateStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-draft-revision)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-state-field-ref (wake/->CommandStateValueExpr RevisionLifecycle-superseded-ref) (wake/->CommandStateValueExpr RevisionLifecycle-draft-ref) false))]
+     nil)]
+  [(wake/->CommandResultField
+     :resource-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInputExpr :resource-id))
+   (wake/->CommandResultField
+     :revision-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInputExpr :expected-draft-revision))]
+  wiki-command-receipt)
+
+(wake/defcommand
+  publish
+  "command/publish"
+  [cap-publish-draft-ref]
+  1
+  [(wake/->CommandInputField
+     :resource-id
+     (wake/->StringValueType nil nil nil))
+   (wake/->CommandInputField
+     :candidate-revision-id
+     (wake/->StringValueType nil nil nil))
+   (wake/->CommandInputField
+     :expected-draft-revision
+     (wake/->StringValueType nil nil nil))
+   (wake/->CommandInputField
+     :expected-published-revision
+     nullable-string-value-type)
+   (wake/->CommandInputField
+     :expected-candidate-digest
+     (wake/->DigestValueType nil))
+   (wake/->CommandInputField :expected-links-to links-value-type)]
+  []
+  [(wake/->AssertStep
+     (wake/->EqualPredicate
+       (wake/->CommandInputExpr :candidate-revision-id)
+       (wake/->CommandInputExpr :expected-draft-revision)))
+   (wake/->AssertStep
+     (wake/->NotContainsPredicate
+       (wake/->CommandInputExpr :expected-links-to)
+       (wake/->CommandInputExpr :resource-id)))
+   (wake/->RequireStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :resource-id)
+     nil)
+   (wake/->RequireStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :candidate-revision-id)
+     nil)
+   (wake/->RequireStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-published-revision)
+     (wake/->NonNullPredicate
+       (wake/->CommandInputExpr :expected-published-revision)))
+   (wake/->RequireEachStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :expected-links-to))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       resource-entity-ref
+       (wake/->CommandInputExpr :resource-id)
+       resource-entity-published-pointer-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       resource-entity-ref
+       (wake/->CommandInputExpr :resource-id)
+       resource-entity-draft-pointer-ref
+       (wake/->CommandInputExpr :expected-draft-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :candidate-revision-id)
+       revision-entity-owner-field-ref
+       (wake/->CommandInputExpr :resource-id)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :candidate-revision-id)
+       revision-entity-state-field-ref
+       (wake/->CommandStateValueExpr RevisionLifecycle-draft-ref)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :candidate-revision-id)
+       revision-entity-base-field-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :candidate-revision-id)
+       revision-entity-digest-field-ref
+       (wake/->CommandInputExpr :expected-candidate-digest)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :candidate-revision-id)
+       revision-entity-links-field-ref
+       (wake/->CommandInputExpr :expected-links-to)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :candidate-revision-id)
+       revision-entity-published-at-field-ref
+       (wake/->CommandNilExpr nil)
+       nil))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       revision-entity-owner-field-ref
+       (wake/->CommandInputExpr :resource-id)
+       (wake/->NonNullPredicate
+         (wake/->CommandInputExpr :expected-published-revision))))
+   (wake/->GuardStep
+     (wake/->CommandGuardSpec
+       revision-entity-ref
+       (wake/->CommandInputExpr :expected-published-revision)
+       revision-entity-state-field-ref
+       (wake/->CommandStateValueExpr RevisionLifecycle-published-ref)
+       (wake/->NonNullPredicate
+         (wake/->CommandInputExpr :expected-published-revision))))
+   (wake/->UpdateStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :candidate-revision-id)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-state-field-ref (wake/->CommandStateValueExpr RevisionLifecycle-published-ref) (wake/->CommandStateValueExpr RevisionLifecycle-draft-ref) false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-published-at-field-ref (wake/->CommandReceiptTimeExpr nil) (wake/->CommandNilExpr nil) false))]
+     nil)
+   (wake/->UpdateStep
+     revision-entity-ref
+     (wake/->CommandInputExpr :expected-published-revision)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite revision-entity-state-field-ref (wake/->CommandStateValueExpr RevisionLifecycle-superseded-ref) (wake/->CommandStateValueExpr RevisionLifecycle-published-ref) false))]
+     (wake/->NonNullPredicate
+       (wake/->CommandInputExpr :expected-published-revision)))
+   (wake/->UpdateStep
+     resource-entity-ref
+     (wake/->CommandInputExpr :resource-id)
+        [(wake/->FieldCommandWrite (wake/->CommandWrite resource-entity-published-pointer-ref (wake/->CommandInputExpr :candidate-revision-id) (wake/->CommandInputExpr :expected-published-revision) false))
+            (wake/->FieldCommandWrite (wake/->CommandWrite resource-entity-draft-pointer-ref (wake/->CommandNilExpr nil) (wake/->CommandInputExpr :expected-draft-revision) false))]
+     nil)]
+  [(wake/->CommandResultField
+     :resource-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInputExpr :resource-id))
+   (wake/->CommandResultField
+     :revision-id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInputExpr :candidate-revision-id))]
+  wiki-command-receipt)
+
+
+
+
+(def safe-document-query-input wake/QueryValueExpr
+  (wake/->QueryRecordValue
+    [(wake/->QueryRecordField
+       :contentSource
+       (wake/->QueryFieldValue
+         :published
+         revision-entity-content-source-field-ref))
+     (wake/->QueryRecordField
+       :safeDocumentLimits
+       (wake/->QueryRecordValue
+         [(wake/->QueryRecordField
+            :maxBytes
+            (wake/->QueryConfiguredValue safe-document-max-bytes))
+          (wake/->QueryRecordField
+            :maxDepth
+            (wake/->QueryConfiguredValue safe-document-max-depth))
+          (wake/->QueryRecordField
+            :maxNodes
+            (wake/->QueryConfiguredValue safe-document-max-nodes))]))]))
+
+(wake/defquery-model
+  query-browse-published
+  "query/browse-published"
+  "browse-published"
+  [cap-browse-published-ref]
+  []
+  [(wake/->QueryBindingSpec :entry resource-entity-ref)
+   (wake/->QueryBindingSpec :published revision-entity-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-published-pointer-ref)
+     (wake/->QueryBindingValue :published))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :published revision-entity-owner-field-ref)
+     (wake/->QueryBindingValue :entry))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :published revision-entity-state-field-ref)
+     (wake/->QueryStateValue RevisionLifecycle-published-ref))]
+  [(wake/->QueryValueSelection
+     :resource-id
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref))
+   (wake/->QueryValueSelection
+     :revision-id
+     (wake/->QueryFieldValue :published revision-entity-revision-id-ref))
+   (wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :published revision-entity-title-field-ref))
+   (wake/->QueryValueSelection
+     :summary
+     (wake/->QueryFieldValue :published revision-entity-summary-field-ref))
+   (wake/->QueryValueSelection
+     :author
+     (wake/->QueryFieldValue :published revision-entity-author-field-ref))
+   (wake/->QueryValueSelection
+     :created-at
+     (wake/->QueryFieldValue :published revision-entity-created-at-field-ref))
+   (wake/->QueryExtensionSelection revision-fields-ref :published)]
+  (wake/->QueryPageResult
+    (wake/->ConfiguredProjectionBound query-browse-default)
+    (wake/->ConfiguredProjectionBound query-browse-max)))
+
+(wake/defquery-model
+  query-read-published
+  "query/read-published"
+  "read-published"
+  [cap-read-published-ref]
+  [(wake/->QueryParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :entry resource-entity-ref)
+   (wake/->QueryBindingSpec :published revision-entity-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref)
+     (wake/->QueryParameterValue :resource-id))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-published-pointer-ref)
+     (wake/->QueryBindingValue :published))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :published revision-entity-owner-field-ref)
+     (wake/->QueryBindingValue :entry))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :published revision-entity-state-field-ref)
+     (wake/->QueryStateValue RevisionLifecycle-published-ref))]
+  [(wake/->QueryValueSelection
+     :resource-id
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref))
+   (wake/->QueryValueSelection
+     :revision-id
+     (wake/->QueryFieldValue :published revision-entity-revision-id-ref))
+   (wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :published revision-entity-title-field-ref))
+   (wake/->QueryValueSelection
+     :summary
+     (wake/->QueryFieldValue :published revision-entity-summary-field-ref))
+   (wake/->QueryProviderSelection
+     :safe-document
+     content-parser-ref
+     safe-document-query-input
+     (wake/->NamedValueType SafeDocument-ref))
+   (wake/->QueryValueSelection
+     :links-to
+     (wake/->QueryFieldValue :published revision-entity-links-field-ref))
+   (wake/->QueryValueSelection
+     :author
+     (wake/->QueryFieldValue :published revision-entity-author-field-ref))
+   (wake/->QueryValueSelection
+     :created-at
+     (wake/->QueryFieldValue :published revision-entity-created-at-field-ref))
+   (wake/->QueryValueSelection
+     :digest
+     (wake/->QueryFieldValue :published revision-entity-digest-field-ref))
+   (wake/->QueryExtensionSelection revision-fields-ref :published)]
+  (wake/->QueryOptionalResult nil))
+
+(wake/defquery-model
+  query-read-source-for-draft
+  "query/read-source-for-draft"
+  "read-source-for-draft"
+  [cap-start-draft-ref]
+  [(wake/->QueryParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :entry resource-entity-ref)
+   (wake/->QueryBindingSpec :published revision-entity-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref)
+     (wake/->QueryParameterValue :resource-id))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-published-pointer-ref)
+     (wake/->QueryBindingValue :published))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :published revision-entity-owner-field-ref)
+     (wake/->QueryBindingValue :entry))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :published revision-entity-state-field-ref)
+     (wake/->QueryStateValue RevisionLifecycle-published-ref))]
+  [(wake/->QueryValueSelection
+     :resource-id
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref))
+   (wake/->QueryValueSelection
+     :revision-id
+     (wake/->QueryFieldValue :published revision-entity-revision-id-ref))
+   (wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :published revision-entity-title-field-ref))
+   (wake/->QueryValueSelection
+     :summary
+     (wake/->QueryFieldValue :published revision-entity-summary-field-ref))
+   (wake/->QueryValueSelection
+     :content-source
+     (wake/->QueryFieldValue
+       :published
+       revision-entity-content-source-field-ref))
+   (wake/->QueryValueSelection
+     :links-to
+     (wake/->QueryFieldValue :published revision-entity-links-field-ref))
+   (wake/->QueryValueSelection
+     :author
+     (wake/->QueryFieldValue :published revision-entity-author-field-ref))
+   (wake/->QueryValueSelection
+     :created-at
+     (wake/->QueryFieldValue :published revision-entity-created-at-field-ref))
+   (wake/->QueryValueSelection
+     :digest
+     (wake/->QueryFieldValue :published revision-entity-digest-field-ref))
+   (wake/->QueryExtensionSelection revision-fields-ref :published)]
+  (wake/->QueryOptionalResult nil))
+
+(wake/defquery-model
+  query-read-draft
+  "query/read-draft"
+  "read-draft"
+  [cap-read-draft-ref]
+  [(wake/->QueryParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :entry resource-entity-ref)
+   (wake/->QueryBindingSpec :draft revision-entity-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref)
+     (wake/->QueryParameterValue :resource-id))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-draft-pointer-ref)
+     (wake/->QueryBindingValue :draft))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :draft revision-entity-owner-field-ref)
+     (wake/->QueryBindingValue :entry))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :draft revision-entity-state-field-ref)
+     (wake/->QueryStateValue RevisionLifecycle-draft-ref))]
+  [(wake/->QueryValueSelection
+     :resource-id
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref))
+   (wake/->QueryValueSelection
+     :revision-id
+     (wake/->QueryFieldValue :draft revision-entity-revision-id-ref))
+   (wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :draft revision-entity-title-field-ref))
+   (wake/->QueryValueSelection
+     :summary
+     (wake/->QueryFieldValue :draft revision-entity-summary-field-ref))
+   (wake/->QueryValueSelection
+     :content-source
+     (wake/->QueryFieldValue :draft revision-entity-content-source-field-ref))
+   (wake/->QueryValueSelection
+     :links-to
+     (wake/->QueryFieldValue :draft revision-entity-links-field-ref))
+   (wake/->QueryValueSelection
+     :author
+     (wake/->QueryFieldValue :draft revision-entity-author-field-ref))
+   (wake/->QueryValueSelection
+     :created-at
+     (wake/->QueryFieldValue :draft revision-entity-created-at-field-ref))
+   (wake/->QueryValueSelection
+     :digest
+     (wake/->QueryFieldValue :draft revision-entity-digest-field-ref))
+   (wake/->QueryExtensionSelection revision-fields-ref :draft)]
+  (wake/->QueryOptionalResult nil))
+
+(wake/defquery-model
+  query-review
+  "query/review"
+  "review"
+  [cap-review-draft-ref]
+  [(wake/->QueryParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :entry resource-entity-ref)
+   (wake/->QueryBindingSpec :candidate revision-entity-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref)
+     (wake/->QueryParameterValue :resource-id))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-draft-pointer-ref)
+     (wake/->QueryBindingValue :candidate))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :candidate revision-entity-owner-field-ref)
+     (wake/->QueryBindingValue :entry))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :candidate revision-entity-state-field-ref)
+     (wake/->QueryStateValue RevisionLifecycle-draft-ref))]
+  [(wake/->QueryValueSelection
+     :resource-id
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref))
+   (wake/->QueryValueSelection
+     :revision-id
+     (wake/->QueryFieldValue :candidate revision-entity-revision-id-ref))
+   (wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :candidate revision-entity-title-field-ref))
+   (wake/->QueryValueSelection
+     :summary
+     (wake/->QueryFieldValue :candidate revision-entity-summary-field-ref))
+   (wake/->QueryValueSelection
+     :content-source
+     (wake/->QueryFieldValue
+       :candidate
+       revision-entity-content-source-field-ref))
+   (wake/->QueryValueSelection
+     :links-to
+     (wake/->QueryFieldValue :candidate revision-entity-links-field-ref))
+   (wake/->QueryValueSelection
+     :author
+     (wake/->QueryFieldValue :candidate revision-entity-author-field-ref))
+   (wake/->QueryValueSelection
+     :created-at
+     (wake/->QueryFieldValue :candidate revision-entity-created-at-field-ref))
+   (wake/->QueryValueSelection
+     :digest
+     (wake/->QueryFieldValue :candidate revision-entity-digest-field-ref))
+   (wake/->QueryExtensionSelection revision-fields-ref :candidate)]
+  (wake/->QueryOptionalResult nil))
+
+(wake/defquery-model
+  query-history-current
+  "query/history-current"
+  "history-current"
+  [cap-read-history-ref]
+  [(wake/->QueryParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :entry resource-entity-ref)
+   (wake/->QueryBindingSpec :edition revision-entity-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref)
+     (wake/->QueryParameterValue :resource-id))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-published-pointer-ref)
+     (wake/->QueryBindingValue :edition))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :edition revision-entity-owner-field-ref)
+     (wake/->QueryBindingValue :entry))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :edition revision-entity-state-field-ref)
+     (wake/->QueryStateValue RevisionLifecycle-published-ref))]
+  [(wake/->QueryValueSelection
+     :resource-id
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref))
+   (wake/->QueryValueSelection
+     :revision-id
+     (wake/->QueryFieldValue :edition revision-entity-revision-id-ref))
+   (wake/->QueryValueSelection
+     :state
+     (wake/->QueryFieldValue :edition revision-entity-state-field-ref))
+   (wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :edition revision-entity-title-field-ref))
+   (wake/->QueryValueSelection
+     :summary
+     (wake/->QueryFieldValue :edition revision-entity-summary-field-ref))
+   (wake/->QueryValueSelection
+     :author
+     (wake/->QueryFieldValue :edition revision-entity-author-field-ref))
+   (wake/->QueryValueSelection
+     :created-at
+     (wake/->QueryFieldValue :edition revision-entity-created-at-field-ref))
+   (wake/->QueryValueSelection
+     :published-at
+     (wake/->QueryFieldValue :edition revision-entity-published-at-field-ref))
+   (wake/->QueryValueSelection
+     :digest
+     (wake/->QueryFieldValue :edition revision-entity-digest-field-ref))
+   (wake/->QueryExtensionSelection revision-fields-ref :edition)]
+  (wake/->QueryOptionalResult nil))
+
+(wake/defquery-model
+  query-history-superseded
+  "query/history-superseded"
+  "history-superseded"
+  [cap-read-history-ref]
+  [(wake/->QueryParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :entry resource-entity-ref)
+   (wake/->QueryBindingSpec :edition revision-entity-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref)
+     (wake/->QueryParameterValue :resource-id))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :edition revision-entity-owner-field-ref)
+     (wake/->QueryBindingValue :entry))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :edition revision-entity-state-field-ref)
+     (wake/->QueryStateValue RevisionLifecycle-superseded-ref))]
+  [(wake/->QueryValueSelection
+     :resource-id
+     (wake/->QueryFieldValue :entry resource-entity-resource-id-ref))
+   (wake/->QueryValueSelection
+     :revision-id
+     (wake/->QueryFieldValue :edition revision-entity-revision-id-ref))
+   (wake/->QueryValueSelection
+     :state
+     (wake/->QueryFieldValue :edition revision-entity-state-field-ref))
+   (wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :edition revision-entity-title-field-ref))
+   (wake/->QueryValueSelection
+     :summary
+     (wake/->QueryFieldValue :edition revision-entity-summary-field-ref))
+   (wake/->QueryValueSelection
+     :author
+     (wake/->QueryFieldValue :edition revision-entity-author-field-ref))
+   (wake/->QueryValueSelection
+     :created-at
+     (wake/->QueryFieldValue :edition revision-entity-created-at-field-ref))
+   (wake/->QueryValueSelection
+     :published-at
+     (wake/->QueryFieldValue :edition revision-entity-published-at-field-ref))
+   (wake/->QueryValueSelection
+     :digest
+     (wake/->QueryFieldValue :edition revision-entity-digest-field-ref))
+   (wake/->QueryExtensionSelection revision-fields-ref :edition)]
+  (wake/->QueryPageResult
+    (wake/->ConfiguredProjectionBound query-history-default)
+    (wake/->ConfiguredProjectionBound query-history-max)))
+
+(wake/defquery-model
+  query-backlinks
+  "query/backlinks"
+  "backlinks"
+  [cap-read-backlinks-ref]
+  [(wake/->QueryParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))]
+  [(wake/->QueryBindingSpec :source resource-entity-ref)
+   (wake/->QueryBindingSpec :published revision-entity-ref)
+   (wake/->QueryBindingSpec :target resource-entity-ref)
+   (wake/->QueryBindingSpec :target-published revision-entity-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :target resource-entity-resource-id-ref)
+     (wake/->QueryParameterValue :resource-id))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :target resource-entity-published-pointer-ref)
+     (wake/->QueryBindingValue :target-published))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :target-published revision-entity-owner-field-ref)
+     (wake/->QueryBindingValue :target))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :target-published revision-entity-state-field-ref)
+     (wake/->QueryStateValue RevisionLifecycle-published-ref))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :source resource-entity-published-pointer-ref)
+     (wake/->QueryBindingValue :published))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :published revision-entity-owner-field-ref)
+     (wake/->QueryBindingValue :source))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :published revision-entity-state-field-ref)
+     (wake/->QueryStateValue RevisionLifecycle-published-ref))
+   (wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :published revision-entity-links-field-ref)
+     (wake/->QueryBindingValue :target))]
+  [(wake/->QueryValueSelection
+     :resource-id
+     (wake/->QueryFieldValue :source resource-entity-resource-id-ref))
+   (wake/->QueryValueSelection
+     :revision-id
+     (wake/->QueryFieldValue :published revision-entity-revision-id-ref))
+   (wake/->QueryValueSelection
+     :title
+     (wake/->QueryFieldValue :published revision-entity-title-field-ref))
+   (wake/->QueryValueSelection
+     :summary
+     (wake/->QueryFieldValue :published revision-entity-summary-field-ref))
+   (wake/->QueryExtensionSelection revision-fields-ref :published)]
+  (wake/->QueryPageResult
+    (wake/->ConfiguredProjectionBound query-backlinks-default)
+    (wake/->ConfiguredProjectionBound query-backlinks-max)))
+
+(def string-prop wake/ValueTypeSpec (wake/->StringValueType nil nil nil))
+(def keyword-prop wake/ValueTypeSpec (wake/->KeywordValueType []))
+(def instant-prop wake/ValueTypeSpec (wake/->InstantValueType nil))
+(def digest-prop wake/ValueTypeSpec (wake/->DigestValueType nil))
+
+(wake/defcomponent-model
+  browse-page
+  "component/browse-page"
+  [(wake/->ComponentPropertySpec :title string-prop)
+   (wake/->ComponentPropertySpec :summary string-prop)]
+  [(wake/element
+     :main
+     {:class (wake/static-attr "wake-wiki-browse-page")}
+     [(wake/element
+        :h1
+        {:class (wake/static-attr "wake-wiki-page-title")
+         :text (wake/bind-attr :title)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-page-summary")
+         :text (wake/bind-attr :summary)}
+        [])])])
+
+(wake/defcomponent-model
+  new-draft-page
+  "component/new-draft-page"
+  []
+  [(wake/element
+     :main
+     {:class (wake/static-attr "wake-wiki-new-draft-page")}
+     [(wake/element
+        :h1
+        {:class (wake/static-attr "wake-wiki-page-title")
+         :text (wake/static-attr "New draft")}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-page-guidance")
+         :text
+         (wake/static-attr "Create a resource and begin its first draft.")}
+        [])])])
+
+(wake/defcomponent-model
+  read-page
+  "component/read-page"
+  [(wake/->ComponentPropertySpec :title string-prop)
+   (wake/->ComponentPropertySpec :summary string-prop)
+   (wake/->ComponentPropertySpec
+     :safe-document
+     (wake/->NamedValueType SafeDocument-ref))]
+  [(wake/element
+     :main
+     {:class (wake/static-attr "wake-wiki-read-page")}
+     [(wake/element
+        :h1
+        {:class (wake/static-attr "wake-wiki-page-title")
+         :text (wake/bind-attr :title)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-page-summary")
+         :text (wake/bind-attr :summary)}
+        [])
+      (wake/element
+        :div
+        {:class (wake/static-attr "wake-wiki-safe-document")}
+        [])])])
+
+(wake/defcomponent-model
+  edit-draft-page
+  "component/edit-draft-page"
+  [(wake/->ComponentPropertySpec :title string-prop)
+   (wake/->ComponentPropertySpec :content-source string-prop)]
+  [(wake/element
+     :main
+     {:class (wake/static-attr "wake-wiki-edit-draft-page")}
+     [(wake/element
+        :h1
+        {:class (wake/static-attr "wake-wiki-page-title")
+         :text (wake/bind-attr :title)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-safe-text")
+         :text (wake/bind-attr :content-source)}
+        [])])])
+
+(wake/defcomponent-model
+  review-page
+  "component/review-page"
+  [(wake/->ComponentPropertySpec :draft-title string-prop)
+   (wake/->ComponentPropertySpec :draft-summary string-prop)
+   (wake/->ComponentPropertySpec :published-title string-prop)
+   (wake/->ComponentPropertySpec :published-summary string-prop)]
+  [(wake/element
+     :main
+     {:class (wake/static-attr "wake-wiki-review-page")}
+     [(wake/element
+        :h1
+        {:class (wake/static-attr "wake-wiki-page-title")
+         :text (wake/bind-attr :draft-title)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-page-summary")
+         :text (wake/bind-attr :draft-summary)}
+        [])
+      (wake/element
+        :section
+        {:class (wake/static-attr "wake-wiki-review-page__published")}
+        [(wake/element
+           :h2
+           {:class (wake/static-attr "wake-wiki-section-title")
+            :text (wake/static-attr "Published revision")}
+           [])
+         (wake/->WhenNode
+           (wake/->UiPropertyPresent :published-title)
+           [(wake/element
+              :h3
+              {:class
+               (wake/static-attr "wake-wiki-review-page__published-title")
+               :text (wake/bind-attr :published-title)}
+              [])])
+         (wake/->WhenNode
+           (wake/->UiPropertyPresent :published-summary)
+           [(wake/element
+              :p
+              {:class
+               (wake/static-attr "wake-wiki-review-page__published-summary")
+               :text (wake/bind-attr :published-summary)}
+              [])])])])])
+
+(wake/defcomponent-model
+  history-page
+  "component/history-page"
+  [(wake/->ComponentPropertySpec :title string-prop)
+   (wake/->ComponentPropertySpec :state keyword-prop)
+   (wake/->ComponentPropertySpec :created-at instant-prop)]
+  [(wake/element
+     :main
+     {:class (wake/static-attr "wake-wiki-history-page")}
+     [(wake/element
+        :h1
+        {:class (wake/static-attr "wake-wiki-page-title")
+         :text (wake/bind-attr :title)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-revision-state")
+         :text (wake/bind-attr :state)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-revision-created")
+         :text (wake/bind-attr :created-at)}
+        [])])])
+
+(wake/defcomponent-model
+  resource-card
+  "component/resource-card"
+  [(wake/->ComponentPropertySpec :id string-prop)
+   (wake/->ComponentPropertySpec :published-revision string-prop)
+   (wake/->ComponentPropertySpec :draft-revision string-prop)]
+  [(wake/element
+     :section
+     {:class (wake/static-attr "wake-wiki-resource-card")}
+     [(wake/element
+        :h2
+        {:class (wake/static-attr "wake-wiki-resource-card__id")
+         :text (wake/bind-attr :id)}
+        [])
+      (wake/->WhenNode
+        (wake/->UiPropertyPresent :published-revision)
+        [(wake/element
+           :p
+           {:class (wake/static-attr "wake-wiki-resource-card__published")
+            :text (wake/bind-attr :published-revision)}
+           [])])
+      (wake/->WhenNode
+        (wake/->UiPropertyPresent :draft-revision)
+        [(wake/element
+           :p
+           {:class (wake/static-attr "wake-wiki-resource-card__draft")
+            :text (wake/bind-attr :draft-revision)}
+           [])])])])
+
+(wake/defcomponent-model
+  revision-summary
+  "component/revision-summary"
+  [(wake/->ComponentPropertySpec :id string-prop)
+   (wake/->ComponentPropertySpec :title string-prop)
+   (wake/->ComponentPropertySpec :summary string-prop)
+   (wake/->ComponentPropertySpec :state keyword-prop)
+   (wake/->ComponentPropertySpec :author string-prop)
+   (wake/->ComponentPropertySpec :created-at instant-prop)
+   (wake/->ComponentPropertySpec :digest digest-prop)]
+  [(wake/element
+     :section
+     {:class (wake/static-attr "wake-wiki-revision-summary")}
+     [(wake/element
+        :h2
+        {:class (wake/static-attr "wake-wiki-revision-summary__title")
+         :text (wake/bind-attr :title)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-revision-summary__summary")
+         :text (wake/bind-attr :summary)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-revision-summary__state")
+         :text (wake/bind-attr :state)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-revision-summary__id")
+         :text (wake/bind-attr :id)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-revision-summary__author")
+         :text (wake/bind-attr :author)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-revision-summary__created")
+         :text (wake/bind-attr :created-at)}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-revision-summary__digest")
+         :text (wake/bind-attr :digest)}
+        [])])])
+
+(wake/defcomponent-model
+  safe-document-component
+  "component/safe-document"
+  [(wake/->ComponentPropertySpec
+     :value
+     (wake/->NamedValueType SafeDocument-ref))]
+  [(wake/element
+     :div
+     {:class (wake/static-attr "wake-wiki-safe-document")}
+     [])])
+
+(wake/defcomponent-model
+  link-list
+  "component/link-list"
+  [(wake/->ComponentPropertySpec
+     :links-to
+     (wake/->ListValueType string-prop nil nil nil))]
+  [(wake/element
+     :section
+     {:class (wake/static-attr "wake-wiki-link-list")}
+     [(wake/element
+        :h2
+        {:class (wake/static-attr "wake-wiki-section-title")
+         :text (wake/static-attr "Links")}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-link-list__items")
+         :text (wake/bind-attr :links-to)}
+        [])])])
+
+(wake/defcomponent-model
+  backlink-list
+  "component/backlink-list"
+  [(wake/->ComponentPropertySpec :resource string-prop)]
+  [(wake/element
+     :section
+     {:class (wake/static-attr "wake-wiki-backlink-list")}
+     [(wake/element
+        :h2
+        {:class (wake/static-attr "wake-wiki-section-title")
+         :text (wake/static-attr "Backlinks")}
+        [])
+      (wake/element
+        :p
+        {:class (wake/static-attr "wake-wiki-backlink-list__resource")
+         :text (wake/bind-attr :resource)}
+        [])])])
+
+(wake/defcomponent-model
+  conflict-notice
+  "component/conflict-notice"
+  [(wake/->ComponentPropertySpec :message string-prop)]
+  [(wake/element
+     :p
+     {:class (wake/static-attr "wake-wiki-conflict-notice")
+     :text (wake/bind-attr :message)}
+     [])])
+
+(wake/defview-model
+  browse-view
+  "view/browse-view"
+  "browse-view"
+  resource-entity-ref
+  browse-page-ref
+  "Browse published resources"
+  nil
+  nil)
+(wake/defview-model
+  new-view
+  "view/new-view"
+  "new-view"
+  resource-entity-ref
+  new-draft-page-ref
+  "New draft"
+  nil
+  nil)
+(wake/defview-model
+  read-view
+  "view/read-view"
+  "read-view"
+  resource-entity-ref
+  read-page-ref
+  "Published resource"
+  nil
+  nil)
+(wake/defview-model
+  edit-view
+  "view/edit-view"
+  "edit-view"
+  revision-entity-ref
+  edit-draft-page-ref
+  "Edit draft"
+  nil
+  nil)
+(wake/defview-model
+  review-view
+  "view/review-view"
+  "review-view"
+  revision-entity-ref
+  review-page-ref
+  "Review draft"
+  nil
+  nil)
+(wake/defview-model
+  history-view
+  "view/history-view"
+  "history-view"
+  revision-entity-ref
+  history-page-ref
+  "Published history"
+  nil
+  nil)
+
+(wake/defroute-template
+  route-browse
+  "route/browse"
+  "browse"
+  browse-view-ref
+  [(wake/->RouteQuerySpec query-browse-published-ref nil)]
+  [])
+(wake/defroute-template
+  route-new
+  "route/new"
+  "new"
+  new-view-ref
+  []
+  [])
+(wake/defroute-template
+  route-read
+  "route/read"
+  "read"
+  read-view-ref
+  [(wake/->RouteQuerySpec query-read-published-ref nil)]
+  [(wake/->RouteParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))])
+(wake/defroute-template
+  route-edit
+  "route/edit"
+  "edit"
+  edit-view-ref
+  [(wake/->RouteQuerySpec query-read-draft-ref nil)]
+  [(wake/->RouteParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))])
+(wake/defroute-template
+  route-review
+  "route/review"
+  "review"
+  review-view-ref
+  [(wake/->RouteQuerySpec query-review-ref "draft")
+   (wake/->RouteQuerySpec query-read-published-ref "published")]
+  [(wake/->RouteParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))])
+(wake/defroute-template
+  route-history
+  "route/history"
+  "history"
+  history-view-ref
+  [(wake/->RouteQuerySpec query-history-current-ref nil)]
+  [(wake/->RouteParameterSpec
+     :resource-id
+     (wake/->StringValueType nil nil nil))])
+
+(wake/defroute-slot slot-browse "route-slot/browse" "browse" route-browse-ref)
+(wake/defroute-slot slot-new "route-slot/new" "new" route-new-ref)
+(wake/defroute-slot slot-read "route-slot/read" "read" route-read-ref)
+(wake/defroute-slot slot-edit "route-slot/edit" "edit" route-edit-ref)
+(wake/defroute-slot slot-review "route-slot/review" "review" route-review-ref)
+(wake/defroute-slot
+  slot-history "route-slot/history" "history" route-history-ref)
+
+(wake/defplugin-configuration
+  plugin-configuration
+  []
+  []
+  []
+  []
+  [resource revision]
+  [resource-id
+   published-pointer
+   draft-pointer
+   revision-id
+   owner-field
+   base-field
+   replaces-field
+   state-field
+   author-field
+   created-at-field
+   published-at-field
+   digest-field
+   links-field
+   title-field
+   summary-field
+   content-source-field
+   receipt-result-resource-field
+   receipt-result-revision-field]
+  [lifecycle-type]
+  [draft-state published-state superseded-state]
+  [actor-entity]
+  [content-limits query-limits safe-document-limits])
+
+(wake/defplugin-exports
+  plugin-exports
+  [resource-entity-ref revision-entity-ref]
+  [resource-entity-resource-id-ref
+   resource-entity-published-pointer-ref
+   resource-entity-draft-pointer-ref
+   revision-entity-revision-id-ref
+   revision-entity-owner-field-ref
+   revision-entity-base-field-ref
+   revision-entity-replaces-field-ref
+   revision-entity-state-field-ref
+   revision-entity-author-field-ref
+   revision-entity-created-at-field-ref
+   revision-entity-published-at-field-ref
+   revision-entity-digest-field-ref
+   revision-entity-links-field-ref
+   revision-entity-title-field-ref
+   revision-entity-summary-field-ref
+   revision-entity-content-source-field-ref]
+  [RevisionLifecycle-ref]
+  [RevisionLifecycle-draft-ref
+   RevisionLifecycle-published-ref
+   RevisionLifecycle-superseded-ref]
+  [SafeDocument-ref]
+  [content-parser-ref]
+  []
+  [cap-browse-published-ref
+   cap-read-published-ref
+   cap-read-draft-ref
+   cap-review-draft-ref
+   cap-read-history-ref
+   cap-read-backlinks-ref
+   cap-create-draft-ref
+   cap-start-draft-ref
+   cap-replace-own-draft-ref
+   cap-abandon-own-draft-ref
+   cap-abandon-any-draft-ref
+   cap-publish-draft-ref]
+  [query-browse-published-ref
+   query-read-published-ref
+   query-read-source-for-draft-ref
+   query-read-draft-ref
+   query-review-ref
+   query-history-current-ref
+   query-history-superseded-ref
+   query-backlinks-ref]
+  [create-resource-draft-ref
+   start-revision-draft-ref
+   replace-draft-ref
+   abandon-draft-ref
+   publish-ref]
+  [browse-page-ref
+   new-draft-page-ref
+   read-page-ref
+   edit-draft-page-ref
+   review-page-ref
+   history-page-ref
+   resource-card-ref
+   revision-summary-ref
+   safe-document-component-ref
+   link-list-ref
+   backlink-list-ref
+   conflict-notice-ref]
+  [browse-view-ref
+   new-view-ref
+   read-view-ref
+   edit-view-ref
+   review-view-ref
+   history-view-ref]
+  [route-browse-ref
+   route-new-ref
+   route-read-ref
+   route-edit-ref
+   route-review-ref
+   route-history-ref]
+  [revision-fields-ref receipt-fields-ref]
+  []
+  [slot-browse-ref
+   slot-new-ref
+   slot-read-ref
+   slot-edit-ref
+   slot-review-ref
+   slot-history-ref])
+
+(wake/defplugin
+  wiki-plugin
+  "wake-wiki"
+  "0.1.0"
+  "0.1.0"
+  1
+  1
+  [(wake/->SchemaContribution nil)
+   (wake/->QueryContribution nil)
+   (wake/->CommandContribution nil)
+   (wake/->CapabilityContribution nil)
+   (wake/->UiContribution nil)
+   (wake/->RouteContribution nil)]
+  plugin-configuration
+  plugin-exports
+  [content-parser-ref]
+  []
+  route-browse-ref)

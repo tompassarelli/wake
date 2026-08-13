@@ -1,0 +1,132 @@
+#lang beagle/js
+(ns wake.fixtures.command-app
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+(wake/defcapability
+  create-entry-capability
+  "app/cap/create-entry"
+  "app/cap/create-entry"
+  [])
+(wake/defentity-ref entry "entry" "entry")
+
+(wake/define-entity-model
+  entry
+  Entry
+  "entry"
+  [[id "entry/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-command-fixture/field/entry/id"
+    true]
+   [links "entry/links" "links" String
+    (wake/->RefField (wake/->DeclaredEntityTarget entry-ref))
+    (wake/->ManyField nil)
+    (wake/->CreateWrite nil)
+    "wake-command-fixture/field/entry/links"
+    true]
+   [digest "entry/digest" "digest" String
+    (wake/->DigestField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    "wake-command-fixture/field/entry/digest"
+    true]]
+  []
+  "wake-command-fixture/entity/entry")
+
+(wake/defcommand-receipt-field
+  result-entry
+  "receipt/result-entry"
+  "result-entry"
+  (wake/->StringValueType nil nil nil)
+  entry-ref
+  "wake-command-fixture/field/receipt/result-entry")
+
+(wake/defcommand
+  create-entry
+  "create-entry"
+  [create-entry-capability-ref]
+  1
+  [(wake/->CommandInputField
+     :id
+     (wake/->StringValueType nil nil nil))
+   (wake/->CommandInputField
+     :links
+     (wake/->ListValueType
+       (wake/->StringValueType nil nil nil)
+       nil
+       (wake/->LiteralBound 8)
+       (wake/->SortUniqueList nil)))]
+  [(wake/->CanonicalDigestInjection
+     :digest
+     (wake/->CommandRecordExpr
+       [(wake/->CommandRecordField :id (wake/->CommandInputExpr :id))
+        (wake/->CommandRecordField :links (wake/->CommandInputExpr :links))]))]
+  [(wake/->AssertStep
+     (wake/->NotContainsPredicate
+       (wake/->CommandInputExpr :links)
+       (wake/->CommandInputExpr :id)))
+   (wake/->RequireEachStep entry-ref (wake/->CommandInputExpr :links))
+   (wake/->CreateStep
+     entry-ref
+     (wake/->CommandInputExpr :id)
+     [(wake/->FieldCommandWrite
+        (wake/->CommandWrite
+          entry-links-ref
+          (wake/->CommandInputExpr :links)
+          nil
+          false))
+      (wake/->FieldCommandWrite
+        (wake/->CommandWrite
+          entry-digest-ref
+          (wake/->CommandInjectedExpr :digest)
+          nil
+          false))])]
+  [(wake/->CommandResultField
+     :id
+     (wake/->StringValueType nil nil nil)
+     (wake/->CommandInputExpr :id))]
+  (wake/->ReceiptSpec
+    [(wake/->ReceiptResultField :id result-entry-ref)]
+    []))
+
+(wake/defcomponent-model
+  entry-card
+  "entry-card"
+  [(wake/->ComponentPropertySpec :id (wake/->StringValueType nil nil nil))]
+  [(wake/->Element
+     :main
+     {:class (wake/->StaticAttr "entry-card")}
+     [(wake/->Element :h1 {:text (wake/->BindAttr :id)} [])])])
+
+(wake/defview-model
+  entries
+  "entries"
+  "entries"
+  entry-ref
+  entry-card-ref
+  "Entries"
+  nil
+  nil)
+
+(wake/defroute-template
+  entries-route
+  "entries"
+  "entries"
+  entries-ref
+  []
+  [])
+
+(wake/application-root
+  application
+  "wake-command-fixture"
+  (wake/->FramAuthority "fram")
+  [(wake/->StorageSpec entry-ref "wake-command-fixture/entity/entry")]
+  [(wake/->IdentitySpec entry-ref entry-id-ref)]
+  []
+  (wake/->LocalDefaultRoute entries-route-ref)
+  nil
+  []
+  []
+  [])

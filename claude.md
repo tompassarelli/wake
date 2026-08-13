@@ -3,7 +3,7 @@
 Wake is a projection compiler:
 
 ```text
-.wake → IR → checked application graph → direct-DOM JS | FRAM plan
+.bjs Beagle → typed Wake declarations → checked application graph → direct-DOM JS | FRAM plan
 ```
 
 The checked graph is the authority. Do not let an emitter or runtime infer a
@@ -19,7 +19,8 @@ beagle langs --json
 beagle check --agent web/compiler
 ```
 
-Use current flat annotations (`name: Type`, `] -> Return`), not legacy `:-`.
+Use canonical typed structure (`(name Type)` fields and parameters, with a
+return type after the parameter vector), not legacy colon/arrow annotations.
 After an edit, ask the compiler first:
 
 ```sh
@@ -33,9 +34,9 @@ Run these Wake commands from `wake:web/`:
 ```sh
 bun install --frozen-lockfile
 ./bin/wake-compile
-./bin/wake-compile demo/tracker.wake out/app.js
-./bin/wake-compile --fram demo/wiki.wake out/app.fram.json
-./bin/wake-compile --all demo/wiki.wake out/wiki
+./bin/wake-compile demo/tracker.bjs out/app.js
+./bin/wake-compile --fram demo/wiki.bjs out/app.fram.json
+./bin/wake-compile --all demo/wiki.bjs out/wiki
 bun run test
 bun run test:browser
 ```
@@ -55,16 +56,15 @@ not invoke bare Racket or patch generated JavaScript.
 
 | Source | Responsibility |
 | --- | --- |
-| `wake:web/compiler/sexpr.bjs` | s-expression parser |
-| `wake:web/compiler/ir.bjs` | reader IR records |
-| `wake:web/compiler/reader.bjs` | `.wake` forms to IR |
+| `wake:web/compiler/ir.bjs` | typed compiler IR records |
+| `wake:web/compiler/checked-beagle.mjs` | checked Beagle declarations to Wake IR |
 | `wake:web/compiler/graph.bjs` | semantic validation and checked graph |
 | `wake:web/compiler/ui.bjs` | UI expansion |
 | `wake:web/compiler/codegen.bjs` | direct-DOM and browser connector output |
 | `wake:web/compiler/emit-fram.bjs` | deterministic `app.fram.json` plan |
 | `wake:web/runtime/fram-gateway.mjs` | checked-plan operations over the FRAM client |
 | `wake:web/runtime/fram-http.mjs` | closed POST/JSON transport and authorization seam |
-| `wake:web/demo/wiki.wake` | canonical FRAM-backed application fixture |
+| `wake:web/demo/wiki.bjs` | canonical FRAM-backed application fixture |
 | `wake:web/bin/wake-browser-test` | hermetic local-app browser fixture runner |
 
 Generated output in `wake:web/out/` is never an edit target. The tracked files
@@ -72,10 +72,10 @@ in `wake:web/public-js/` are test-shell assets, not generated applications.
 
 ## Data authorities
 
-Wake supports two deliberately separate declarations:
+Wake supports two deliberately separate application authorities:
 
-- `(persist :localStorage "key")` means browser-local data authority.
-- `(backend :fram)` means FRAM data authority through the Wake gateway.
+- `(wake/->LocalStorageAuthority "key")` means browser-local data authority.
+- `(wake/->FramAuthority "fram")` means FRAM data authority through the Wake gateway.
 
 They cannot be combined. Retired alternative persistence and deployment
 projections are not compatibility surfaces and must not return.

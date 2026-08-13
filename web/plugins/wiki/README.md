@@ -14,7 +14,7 @@ never participate in storage identity.
 
 ## Materialization status
 
-`plugin.wake` materializes both durable entities, the three-state revision
+`plugin.bjs` materializes both durable entities, the three-state revision
 lifecycle, all five invariant-bearing commands, all eight exported named
 queries, the closed `SafeDocument` value type and provider port, and all twelve
 exported UI components. A neutral substrate fixture is packed, digest-pinned,

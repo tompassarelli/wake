@@ -1,0 +1,42 @@
+#lang beagle/js
+(ns wake.fixtures.neutral-application
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defplugin-use release-plugin "release-plugin")
+
+(wake/imported-string-binding
+  release-channel
+  release-plugin-ref
+  "channel"
+  "channel"
+  "stable")
+
+(wake/defplugin-bindings
+  plugin-bindings
+  []
+  [release-channel]
+  [] [] [] [] [] [] [] [])
+
+(wake/use-plugin
+  release-plugin
+  "wake-neutral-release"
+  "0.1.0"
+  [(wake/->SchemaContribution nil)
+   (wake/->UiContribution nil)]
+  plugin-bindings
+  [] [] [] [])
+
+(wake/application-root
+  application
+  "wake-neutral-release-fixture"
+  (wake/->FramAuthority "fram")
+  []
+  []
+  [release-plugin-composition]
+  nil
+  nil
+  []
+  []
+  [])

@@ -25,16 +25,16 @@ cleanup() {
 trap cleanup EXIT
 
 "$wake_web/bin/wake-compile" \
-  "$wake_web/demo/crm-v2.wake" "$fixture_dir/crm.js" &
+  "$wake_web/demo/crm-v2.bjs" "$fixture_dir/crm.js" &
 crm_pid=$!
 "$wake_web/bin/wake-compile" \
-  "$wake_web/demo/todo.wake" "$fixture_dir/todo.js" &
+  "$wake_web/demo/todo.bjs" "$fixture_dir/todo.js" &
 todo_pid=$!
 "$wake_web/bin/wake-compile" \
-  "$wake_web/demo/tracker.wake" "$fixture_dir/tracker.js" &
+  "$wake_web/demo/tracker.bjs" "$fixture_dir/tracker.js" &
 tracker_pid=$!
 "$wake_web/bin/wake-compile" \
-  "$wake_web/demo/wiki.wake" "$fixture_dir/wiki.js" &
+  "$wake_web/demo/wiki.bjs" "$fixture_dir/wiki.js" &
 wiki_pid=$!
 
 build_status=0

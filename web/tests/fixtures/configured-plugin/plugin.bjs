@@ -1,0 +1,145 @@
+#lang beagle/js
+(ns wake.fixtures.configured-plugin
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defcapability browse-capability "browse" "browse" [])
+
+(wake/defstate-model
+  Lifecycle
+  "Lifecycle"
+  "Lifecycle"
+  [[draft-state "Lifecycle/draft" "draft" :draft]
+   [published-state "Lifecycle/published" "published" :published]]
+  draft-state
+  [[draft-state [published-state]]
+   [published-state []]])
+
+(wake/defentity-ref document "document" "document")
+
+(wake/define-entity-model
+  document
+  Document
+  "document"
+  [[id "document/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "wake-configured-plugin/field/document/id"
+    true]
+   [state "document/state" "state" Keyword
+    (wake/->StateField Lifecycle-ref)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    "wake-configured-plugin/field/document/state"
+    true]]
+  []
+  "wake-configured-plugin/entity/document")
+
+(wake/defentity-fields-port
+  document-fields
+  "document-fields"
+  (wake/->DeclaredEntityFieldsTarget document-ref)
+  []
+  (wake/->OpenManyEntityFields (wake/->CreateWrite nil) true))
+
+(wake/defvalue-role
+  limits
+  "limits"
+  (wake/->RecordValueType
+    [(wake/->ValueRecordField
+       "default"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 247))
+       true)
+     (wake/->ValueRecordField
+       "maximum"
+       (wake/->IntegerValueType
+         (wake/->LiteralBound 1)
+         (wake/->LiteralBound 247))
+       true)]))
+
+(def limits-default wake/ConfigProjection
+  (wake/->ConfigProjection limits-ref ["default"]))
+(def limits-maximum wake/ConfigProjection
+  (wake/->ConfigProjection limits-ref ["maximum"]))
+
+(wake/defquery-model
+  browse-query
+  "browse"
+  "browse"
+  [browse-capability-ref]
+  []
+  [(wake/->QueryBindingSpec :item document-ref)]
+  [(wake/->QueryEqualPredicate
+     (wake/->QueryFieldValue :item document-state-ref)
+     (wake/->QueryStateValue Lifecycle-published-state-ref))]
+  [(wake/->QueryValueSelection
+     :id
+     (wake/->QueryFieldValue :item document-id-ref))
+   (wake/->QueryValueSelection
+     :state
+     (wake/->QueryFieldValue :item document-state-ref))]
+  (wake/->QueryPageResult
+    (wake/->ConfiguredProjectionBound limits-default)
+    (wake/->ConfiguredProjectionBound limits-maximum)))
+
+(wake/defentity-name-role configured-document "document" document-ref)
+(wake/deffield-name-role
+  identity-field
+  "identity-field"
+  (wake/->EntityFieldNameRoleTarget document-id-ref))
+(wake/deffield-name-role
+  state-field
+  "state-field"
+  (wake/->EntityFieldNameRoleTarget document-state-ref))
+(wake/defstate-name-role lifecycle "lifecycle" Lifecycle-ref)
+(wake/defstate-value-name-role
+  draft-state-name
+  "draft-state"
+  Lifecycle-draft-state-ref)
+(wake/defstate-value-name-role
+  published-state-name
+  "published-state"
+  Lifecycle-published-state-ref)
+
+(wake/defplugin-configuration
+  plugin-configuration
+  [] [] [] []
+  [configured-document]
+  [identity-field state-field]
+  [lifecycle]
+  [draft-state-name published-state-name]
+  []
+  [limits])
+
+(wake/defplugin-exports
+  plugin-exports
+  [document-ref]
+  [document-id-ref document-state-ref]
+  [Lifecycle-ref]
+  [Lifecycle-draft-state-ref Lifecycle-published-state-ref]
+  [] [] []
+  [browse-capability-ref]
+  [browse-query-ref]
+  [] [] [] []
+  [document-fields-ref]
+  [] [])
+
+(wake/defplugin
+  configured-plugin
+  "wake-configured-plugin"
+  "0.1.0"
+  "0.1.0"
+  1
+  1
+  [(wake/->SchemaContribution nil)
+   (wake/->QueryContribution nil)
+   (wake/->CapabilityContribution nil)]
+  plugin-configuration
+  plugin-exports
+  []
+  []
+  nil)

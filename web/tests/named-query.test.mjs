@@ -47,8 +47,8 @@ async function compilePluginStateQuery() {
   try {
     const packed = await packPlugin(pluginStateFixture);
     await Bun.write(
-      `${temporary}/app.wake`,
-      await Bun.file(`${pluginStateFixture}/app.wake`).text(),
+      `${temporary}/app.bjs`,
+      await Bun.file(`${pluginStateFixture}/app.bjs`).text(),
     );
     await Bun.write(`${temporary}/plugin.wakepkg.json`, packed.bytes);
     await Bun.write(`${temporary}/wake.lock`, canonicalDocument({
@@ -62,7 +62,7 @@ async function compilePluginStateQuery() {
       }],
       schemaVersion: 1,
     }));
-    return compileFram(`${temporary}/app.wake`);
+    return compileFram(`${temporary}/app.bjs`);
   } finally {
     Bun.spawnSync(["rm", "-rf", "--", temporary]);
   }
@@ -175,7 +175,7 @@ describe("W1 checked named query compiler", () => {
     const ref = compileFram(refParamFixture);
     expect(ref.status).not.toBe(0);
     expect(ref.stderr).toContain(
-      "type wake/Ref expects 1 argument, got 0",
+      "call to wake/->EntityReferenceValueType: expected 1 arg(s), got 0",
     );
 
     const unknown = compileFram(unknownParamFixture);

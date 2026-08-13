@@ -8,7 +8,7 @@
   "files": [
     "README.md",
     "SAFE-DOCUMENT.md",
-    "plugin.wake",
+    "plugin.bjs",
     "wake-plugin.json"
   ],
   "scripts": {

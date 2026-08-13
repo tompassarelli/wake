@@ -1,0 +1,253 @@
+#lang beagle/js
+(ns wake.wiki
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defentity-ref page "entity/page" "page")
+(wake/defentity-ref revision "entity/revision" "revision")
+
+(wake/defstate-model
+  RevisionStatus
+  "state/revision-status"
+  "RevisionStatus"
+  [[draft "state/revision-status/value/draft" "draft" :draft]
+   [canonical "state/revision-status/value/canonical" "canonical" :canonical]
+   [obsolete "state/revision-status/value/obsolete" "obsolete" :obsolete]]
+  draft
+  [[draft [canonical obsolete]]
+   [canonical [obsolete]]
+   [obsolete []]])
+
+(wake/define-entity-model
+  page
+  Page
+  "entity/page"
+  [[slug "entity/page/field/slug" "slug" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    nil
+    false]
+   [title "entity/page/field/title" "title" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]
+   [canonical-revision
+    "entity/page/field/canonical-revision"
+    "canonical-revision"
+    (wake/Ref Revision)
+    (wake/->RefField (wake/->DeclaredEntityTarget revision-ref))
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    nil
+    false]]
+  []
+  nil)
+
+(wake/define-entity-model
+  revision
+  Revision
+  "entity/revision"
+  [[id "entity/revision/field/id" "id" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    nil
+    false]
+   [page "entity/revision/field/page" "page" (wake/Ref Page)
+    (wake/->RefField (wake/->DeclaredEntityTarget page-ref))
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    nil
+    false]
+   [body "entity/revision/field/body" "body" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->CreateWrite nil)
+    nil
+    false]
+   [status "entity/revision/field/status" "status" Keyword
+    (wake/->StateField RevisionStatus-ref)
+    (wake/->SingleField nil)
+    (wake/->CommandFieldWrite nil)
+    nil
+    false]
+   [links-to
+    "entity/revision/field/links-to"
+    "links-to"
+    (Vec (wake/Ref Page))
+    (wake/->RefField (wake/->DeclaredEntityTarget page-ref))
+    (wake/->ManyField nil)
+    (wake/->CreateWrite nil)
+    nil
+    false]]
+  []
+  nil)
+
+(wake/defpublication
+  canonical
+  "publication/canonical"
+  "canonical"
+  page-ref
+  page-canonical-revision-ref
+  revision-ref
+  revision-page-ref
+  revision-status-ref
+  RevisionStatus-draft-ref
+  RevisionStatus-canonical-ref
+  RevisionStatus-obsolete-ref)
+
+(wake/defcomponent-model
+  page-row
+  "component/page-row"
+  [(wake/->ComponentPropertySpec
+     :slug
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :title
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :canonical-revision
+     (wake/->EntityReferenceValueType revision-ref))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "px-4 py-3 border-b border-border")}
+     [(wake/->Element
+        :h2
+        {:class (wake/->StaticAttr "text-base font-semibold")
+         :text (wake/->BindAttr :title)}
+        [])
+      (wake/->Element
+        :p
+        {:class (wake/->StaticAttr "text-sm text-muted-foreground")
+         :text (wake/->BindAttr :slug)}
+        [])
+      (wake/->WhenNode
+        (wake/->UiPropertyPresent :canonical-revision)
+        [(wake/->Element
+           :p
+           {:class (wake/->StaticAttr "mt-1 text-xs text-muted-foreground")
+            :text (wake/->BindAttr :canonical-revision)}
+           [])])])])
+
+(wake/defcomponent-model
+  revision-row
+  "component/revision-row"
+  [(wake/->ComponentPropertySpec
+     :id
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :page
+     (wake/->EntityReferenceValueType page-ref))
+   (wake/->ComponentPropertySpec
+     :body
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :status
+     (wake/->StateValueType RevisionStatus-ref))
+   (wake/->ComponentPropertySpec
+     :links-to
+     (wake/->ListValueType
+       (wake/->EntityReferenceValueType page-ref)
+       nil
+       nil
+       nil))]
+  [(wake/->Element
+     :div
+     {:class (wake/->StaticAttr "px-4 py-3 border-b border-border")}
+     [(wake/->Element
+        :div
+        {:class (wake/->StaticAttr "flex items-center gap-3")}
+        [(wake/->Element
+           :span
+           {:class (wake/->StaticAttr "font-mono text-xs")
+            :text (wake/->BindAttr :id)}
+           [])
+         (wake/->Element
+           :span
+           {:class (wake/->StaticAttr "text-xs text-muted-foreground")
+            :text (wake/->BindAttr :status)}
+           [])])
+      (wake/->Element
+        :p
+        {:class (wake/->StaticAttr "mt-2 text-sm")
+         :text (wake/->BindAttr :body)}
+        [])
+      (wake/->Element
+        :p
+        {:class (wake/->StaticAttr "mt-2 text-xs text-muted-foreground")
+         :text (wake/->BindAttr :page)}
+        [])
+      (wake/->WhenNode
+        (wake/->UiPropertyPresent :links-to)
+        [(wake/->Element
+           :p
+           {:class (wake/->StaticAttr "mt-1 text-xs text-muted-foreground")
+            :text (wake/->BindAttr :links-to)}
+           [])])])])
+
+(wake/defform
+  pages-create-form
+  "form/pages-create"
+  "pages-create"
+  page-ref
+  [page-slug-ref page-title-ref]
+  [page-slug-ref]
+  "Add"
+  (wake/->ClearFormSuccess nil))
+
+(wake/defform
+  revisions-create-form
+  "form/revisions-create"
+  "revisions-create"
+  revision-ref
+  [revision-id-ref revision-page-ref revision-body-ref revision-links-to-ref]
+  [revision-id-ref]
+  "Add"
+  (wake/->ClearFormSuccess nil))
+
+(wake/defview-model
+  pages
+  "view/pages"
+  "pages"
+  page-ref
+  page-row-ref
+  "Wiki pages"
+  pages-create-form-ref
+  nil)
+
+(wake/defview-model
+  revisions
+  "view/revisions"
+  "revisions"
+  revision-ref
+  revision-row-ref
+  "Revision history"
+  revisions-create-form-ref
+  nil)
+
+(wake/defroute-template pages-route "route/pages" "pages" pages-ref [] [])
+(wake/defroute-template
+  revisions-route
+  "route/revisions"
+  "revisions"
+  revisions-ref
+  []
+  [])
+
+(wake/application-root
+  application
+  "wake-demo-wiki"
+  (wake/->FramAuthority "fram")
+  []
+  [(wake/->IdentitySpec page-ref page-slug-ref)
+   (wake/->IdentitySpec revision-ref revision-id-ref)]
+  []
+  (wake/->LocalDefaultRoute pages-route-ref)
+  nil
+  [canonical-ref]
+  [pages-create-form-ref revisions-create-form-ref]
+  [])

@@ -1,0 +1,132 @@
+#lang beagle/js
+(ns wake.app
+  (:require [wake.core :as wake]))
+
+(wake/command-receipt-core)
+
+(wake/defentity-ref contact "entity/contact" "contact")
+(wake/defentity-ref note "entity/note" "note")
+
+(wake/defstate-model
+  ContactStatus
+  "state/contact-status"
+  "ContactStatus"
+  [[active "state/contact-status/value/active" "active" :active]
+   [inactive "state/contact-status/value/inactive" "inactive" :inactive]
+   [archived "state/contact-status/value/archived" "archived" :archived]]
+  active
+  [[active [inactive archived]]
+   [inactive [active archived]]
+   [archived [active]]])
+
+(wake/define-entity-model
+  contact
+  Contact
+  "entity/contact"
+  [[name "entity/contact/field/name" "name" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]
+   [email "entity/contact/field/email" "email" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    nil
+    false]
+   [company "entity/contact/field/company" "company" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]
+   [status "entity/contact/field/status" "status" Keyword
+    (wake/->StateField ContactStatus-ref)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]]
+  [[display-name
+    "entity/contact/field/display-name"
+    "display-name"
+    (wake/->ConcatDerivedExpr
+      [(wake/->FieldDerivedExpr contact-name-ref)
+       (wake/->StringDerivedExpr " @ ")
+       (wake/->FieldDerivedExpr contact-company-ref)])
+    [contact-name-ref contact-company-ref]]]
+  nil)
+
+(wake/define-entity-model
+  note
+  Note
+  "entity/note"
+  [[content "entity/note/field/content" "content" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]
+   [contact "entity/note/field/contact" "contact" (wake/Ref Contact)
+    (wake/->RefField (wake/->DeclaredEntityTarget contact-ref))
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]
+   [created-at "entity/note/field/created-at" "created-at" String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->SetWrite nil)
+    nil
+    false]]
+  []
+  nil)
+
+(wake/deflist-detail
+  contact-list-detail
+  "list-detail/contact"
+  "contact"
+  contact-ref
+  "Contacts"
+  [contact-name-ref contact-email-ref contact-company-ref contact-status-ref]
+  [contact-name-ref contact-email-ref contact-company-ref]
+  [(wake/->FieldsDetailTab
+     "Overview"
+     [contact-name-ref contact-email-ref contact-company-ref contact-status-ref])
+   (wake/->RelatedDetailTab
+     "Notes"
+     note-ref
+     note-contact-ref
+     [note-content-ref note-created-at-ref])])
+
+(wake/defform
+  add-contact
+  "form/add-contact"
+  "add-contact"
+  contact-ref
+  [contact-name-ref contact-email-ref contact-company-ref contact-status-ref]
+  [contact-name-ref contact-email-ref]
+  "Add Contact"
+  (wake/->ClearFormSuccess nil))
+
+(wake/application-root
+  application
+  "wake-demo-crm-v2"
+  (wake/->LocalStorageAuthority "wake-crm-v2")
+  []
+  [(wake/->IdentitySpec contact-ref contact-email-ref)]
+  []
+  nil
+  (wake/->ThemeSpec
+    {"background" "oklch(98% 0.002 240)"
+     "foreground" "oklch(14% 0.004 285)"
+     "muted" "oklch(93% 0.004 260)"
+     "muted-foreground" "oklch(55% 0.014 260)"
+     "border" "oklch(87% 0.006 260)"
+     "input" "oklch(87% 0.006 260)"
+     "ring" "oklch(55% 0.15 260)"
+     "primary" "oklch(42% 0.095 260)"
+     "primary-foreground" "oklch(98% 0.002 240)"})
+  []
+  [add-contact-ref]
+  [contact-list-detail-ref])
