@@ -186,6 +186,31 @@ describe("durable application receipt loader", () => {
     }
   });
 
+  test("rejects invalid or incompatible compiler metadata before querying FRAM", async () => {
+    const cases = [
+      [mutateArtifact("manifest", value => { value.compiler = null; }),
+        "compiler/invalid-metadata"],
+      [mutateArtifact("manifest", value => { value.compiler.unexpected = true; }),
+        "compiler/invalid-metadata"],
+      [mutateArtifact("manifest", value => { value.compiler.sourceCommit = "a"; }),
+        "compiler/invalid-metadata"],
+      [mutateArtifact("manifest", value => { value.compiler.version = "0.1.1"; }),
+        "compiler/incompatible"],
+    ];
+
+    for (const [changed, compilerCode] of cases) {
+      const attempt = runtime();
+      await expect(loadApplicationReceipt({
+        ...attempt.input,
+        manifest: changed.manifest,
+      })).rejects.toMatchObject({
+        cause: { code: compilerCode },
+        code: "receipt/invalid-artifact",
+      });
+      expect(attempt.calls).toHaveLength(0);
+    }
+  });
+
   test("reads one closed receipt through the fixed application-scoped query", async () => {
     const { calls, checked, input } = runtime();
     const receipt = await loadApplicationReceipt(input);

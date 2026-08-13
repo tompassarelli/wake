@@ -74,14 +74,22 @@ export function checkWakeCompilerCompatibility(value) {
   }
 
   if (value.compiler.name !== expected.compiler.name
-      || value.compiler.version !== expected.compiler.version
-      || value.manifestSchemaVersion !== expected.manifestSchemaVersion
-      || Object.entries(expected.protocols).some(([name, version]) =>
-        value.protocols[name] !== version)) {
+      || value.compiler.version !== expected.compiler.version) {
     fail(
       "compiler/incompatible",
       `Wake runtime requires compiler ${expected.compiler.name} ${expected.compiler.version}`,
     );
+  }
+  if (value.manifestSchemaVersion !== expected.manifestSchemaVersion) {
+    fail(
+      "compiler/incompatible",
+      `Wake runtime requires manifest schema ${expected.manifestSchemaVersion}`,
+    );
+  }
+  for (const [name, version] of Object.entries(expected.protocols)) {
+    if (value.protocols[name] !== version) {
+      fail("compiler/incompatible", `Wake runtime requires ${name} ${version}`);
+    }
   }
 
   return Object.freeze({

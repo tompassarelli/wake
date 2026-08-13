@@ -386,6 +386,36 @@ test("binds distinct compiler plugin schemas and rejects closure drift", () => {
   }
 });
 
+test("rejects invalid or incompatible compiler metadata before runtime composition", () => {
+  const cases = [
+    [mutatePluginArtifact("manifest", value => { value.compiler = null; }),
+      "compiler/invalid-metadata"],
+    [mutatePluginArtifact("manifest", value => { value.compiler.unexpected = true; }),
+      "compiler/invalid-metadata"],
+    [mutatePluginArtifact("manifest", value => { value.compiler.sourceCommit = "b"; }),
+      "compiler/invalid-metadata"],
+    [mutatePluginArtifact("manifest", value => { value.compiler.version = "0.1.1"; }),
+      "compiler/incompatible"],
+  ];
+
+  for (const [changed, compilerCode] of cases) {
+    const rejected = runtime(changed);
+    let error;
+    try {
+      createWakeBunAdapter(rejected);
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(WakeAdapterConfigError);
+    expect(error).toMatchObject({
+      cause: { code: compilerCode },
+      code: "adapter/invalid-manifest",
+    });
+    expect(rejected.calls.gateway).toHaveLength(0);
+    expect(rejected.calls.http).toHaveLength(0);
+  }
+});
+
 test("requires and freezes the exact checked provider registry before composition", () => {
   const providerName = "greywrought-markdown";
   const provider = () => ({ html: "<p>Greywrought</p>" });

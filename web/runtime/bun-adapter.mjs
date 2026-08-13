@@ -1,6 +1,7 @@
 import { canonicalDocument, sha256Digest } from "./canonical.mjs";
 import {
   checkWakeCompilerCompatibility,
+  WakeCompilerCompatibilityError,
   wakeRuntimeCompilerContract,
 } from "./compiler-compatibility.mjs";
 import {
@@ -24,16 +25,16 @@ const PLUGIN_CONTRIBUTIONS = new Set([
 const EXPECTED_PROTOCOLS = wakeRuntimeCompilerContract.protocols;
 
 export class WakeAdapterConfigError extends Error {
-  constructor(code, message, detail = undefined) {
-    super(message);
+  constructor(code, message, detail = undefined, options = undefined) {
+    super(message, options);
     this.name = "WakeAdapterConfigError";
     this.code = code;
     if (detail !== undefined) this.detail = detail;
   }
 }
 
-function fail(code, message, detail) {
-  throw new WakeAdapterConfigError(code, message, detail);
+function fail(code, message, detail, options) {
+  throw new WakeAdapterConfigError(code, message, detail, options);
 }
 
 function plainObject(value) {
@@ -213,17 +214,22 @@ function documentArtifact(input, label, { canonical = false } = {}) {
   return Object.freeze({ bytes, value });
 }
 
+function checkedCompilerCompatibility(compiler, manifestSchemaVersion, protocols) {
+  try {
+    return checkWakeCompilerCompatibility({ compiler, manifestSchemaVersion, protocols });
+  } catch (error) {
+    if (!(error instanceof WakeCompilerCompatibilityError)) throw error;
+    fail("adapter/invalid-manifest", error.message, undefined, { cause: error });
+  }
+}
+
 function applicationManifest(input) {
   const artifact = documentArtifact(input, "manifest", { canonical: true });
   const value = artifact.value;
   if (!plainObject(value) || value.schemaVersion !== 1) {
     fail("adapter/invalid-manifest", "expected a Wake application manifest with schemaVersion 1");
   }
-  checkWakeCompilerCompatibility({
-    compiler: value.compiler,
-    manifestSchemaVersion: value.schemaVersion,
-    protocols: value.protocols,
-  });
+  checkedCompilerCompatibility(value.compiler, value.schemaVersion, value.protocols);
   nonempty(value.applicationId, "manifest.applicationId");
   if (!plainObject(value.checkedApplication) || value.checkedApplication.schemaVersion !== 1) {
     fail("adapter/invalid-manifest", "manifest.checkedApplication is invalid");

@@ -1,5 +1,8 @@
 import { canonicalDocument, sha256Digest } from "./canonical.mjs";
-import { checkWakeCompilerCompatibility } from "./compiler-compatibility.mjs";
+import {
+  checkWakeCompilerCompatibility,
+  WakeCompilerCompatibilityError,
+} from "./compiler-compatibility.mjs";
 
 const QUERY_TIMEOUT_MS = 5_000;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -223,6 +226,15 @@ function checkedProtocols(value, label, code = "receipt/invalid-artifact") {
   return value;
 }
 
+function checkedCompilerCompatibility(compiler, manifestSchemaVersion, protocols) {
+  try {
+    return checkWakeCompilerCompatibility({ compiler, manifestSchemaVersion, protocols });
+  } catch (error) {
+    if (!(error instanceof WakeCompilerCompatibilityError)) throw error;
+    fail("receipt/invalid-artifact", error.message, undefined, { cause: error });
+  }
+}
+
 function checkedManifest(input) {
   const artifact = artifactDocument(input, "manifest", { canonical: true });
   const value = exactKeys(artifact.value, [
@@ -239,11 +251,7 @@ function checkedManifest(input) {
   if (value.schemaVersion !== 1) {
     fail("receipt/invalid-artifact", "manifest.schemaVersion must be 1");
   }
-  checkWakeCompilerCompatibility({
-    compiler: value.compiler,
-    manifestSchemaVersion: value.schemaVersion,
-    protocols: value.protocols,
-  });
+  checkedCompilerCompatibility(value.compiler, value.schemaVersion, value.protocols);
   nonempty(value.applicationId, "manifest.applicationId");
   exactKeys(value.checkedApplication, ["fingerprint", "schemaVersion"], "manifest.checkedApplication");
   if (value.checkedApplication.schemaVersion !== 1) {
