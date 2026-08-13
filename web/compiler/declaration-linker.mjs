@@ -205,9 +205,491 @@ function importedTarget(ref, expectedTag, useRef, label) {
   return ref;
 }
 
-function validateBindings(use, plugin, label) {
+function exactRef(index, ref, tag, label) {
+  if (ref?._tag !== tag || index.get(nominalKey(ref)) !== ref) {
+    fail(`${label} is not an exact ${tag} reference`);
+  }
+  return ref;
+}
+
+function nominalIndex(declarations, tag, label) {
+  const result = new Map();
+  for (const declaration of array(declarations, label)) {
+    const ref = declaration.ref;
+    if (ref?._tag !== tag) fail(`${label} contains the wrong reference type`);
+    const key = nominalKey(ref);
+    if (result.has(key)) fail(`${label} repeats '${ref.declaration_id}'`);
+    result.set(key, ref);
+  }
+  return result;
+}
+
+function valueTypeIndex(program, label) {
+  const result = new Map();
+  for (const declaration of array(program.value_types, `${label} value types`)) {
+    if (declaration?._tag !== "IrValueTypeDeclarationSpec") {
+      fail(`${label} value types contain an unsupported declaration`);
+    }
+    const definitions = array(declaration.definitions, `${label} value type definitions`);
+    for (const definition of definitions) {
+      if (definition?._tag !== "IrValueTypeDefinition"
+          || definition.ref?._tag !== "IrValueTypeRef") {
+        fail(`${label} value type definitions contain an unsupported definition`);
+      }
+      const key = nominalKey(definition.ref);
+      if (result.has(key)) {
+        fail(`${label} value type definitions repeat '${definition.ref.declaration_id}'`);
+      }
+      result.set(key, { declaration, definition });
+    }
+    const root = result.get(nominalKey(declaration.root));
+    if (declaration.root?._tag !== "IrValueTypeRef" || root?.definition.ref !== declaration.root) {
+      fail(`${label} value type root is not its exact declared definition`);
+    }
+  }
+  return result;
+}
+
+function recordEntries(value, label) {
+  if (value?._tag !== "IrRecordValue") fail(`${label} must be a record value`);
+  const result = new Map();
+  for (const entry of array(value.fields, `${label} fields`)) {
+    if (entry?._tag !== "IrValueRecordEntry") fail(`${label} has an invalid field entry`);
+    const name = nonempty(entry.name, `${label} field name`);
+    if (result.has(name)) fail(`${label} repeats field '${name}'`);
+    result.set(name, entry.value);
+  }
+  return result;
+}
+
+function closedValue(value, label) {
+  switch (value?._tag) {
+    case "IrLiteralStringValue":
+    case "IrLiteralKeywordValue":
+      return nonempty(value.value, label);
+    case "IrLiteralIntegerValue":
+      if (!Number.isSafeInteger(value.value) || Object.is(value.value, -0)) {
+        fail(`${label} must be a safe integer`);
+      }
+      return value.value;
+    case "IrLiteralBooleanValue":
+      if (typeof value.value !== "boolean") fail(`${label} must be boolean`);
+      return value.value;
+    case "IrLiteralNilValue":
+      if (value.unit !== null) fail(`${label} has an invalid nil value`);
+      return null;
+    case "IrRecordValue": {
+      const result = Object.create(null);
+      for (const [name, field] of recordEntries(value, label)) {
+        result[name] = closedValue(field, `${label}.${name}`);
+      }
+      return result;
+    }
+    case "IrListValue":
+      return array(value.items, `${label} items`)
+        .map((item, index) => closedValue(item, `${label}[${index}]`));
+    default:
+      fail(`${label} must be a closed literal value, not '${value?._tag ?? "missing"}'`);
+  }
+}
+
+function exactRole(context, ref, tag, label) {
+  if (ref?._tag !== tag) fail(`${label} has the wrong role reference type`);
+  const role = context.roles.get(nominalKey(ref));
+  if (role?.ref !== ref) fail(`${label} is not an exact declared role reference`);
+  const binding = context.bindings.get(nominalKey(ref));
+  if (binding === undefined) fail(`${label} has no exact binding`);
+  return binding;
+}
+
+function checkedBound(bound, context, label) {
+  let value;
+  switch (bound?._tag) {
+    case "IrLiteralBound":
+      value = bound.value;
+      break;
+    case "IrConfiguredBound":
+      value = exactRole(context, bound.role, "IrIntRoleRef", label).value;
+      break;
+    case "IrConfiguredProjectionBound": {
+      const projection = bound.projection;
+      if (projection?._tag !== "IrConfigProjection") {
+        fail(`${label} has an invalid configured projection`);
+      }
+      const binding = exactRole(context, projection.role, "IrValueRoleRef", label);
+      value = closedValue(binding.value, `${label} configured value`);
+      for (const part of array(projection.path, `${label} projection path`)) {
+        nonempty(part, `${label} projection path part`);
+        if (value === null || typeof value !== "object" || Array.isArray(value)
+            || !Object.hasOwn(value, part)) {
+          fail(`${label} projection misses '${part}'`);
+        }
+        value = value[part];
+      }
+      break;
+    }
+    default:
+      fail(`${label} uses unsupported bound '${bound?._tag ?? "missing"}'`);
+  }
+  if (!Number.isSafeInteger(value) || Object.is(value, -0)) {
+    fail(`${label} must resolve to a safe integer`);
+  }
+  return value;
+}
+
+function optionalBound(bound, context, label, { nonnegative = false } = {}) {
+  if (bound === null) return null;
+  const value = checkedBound(bound, context, label);
+  if (nonnegative && value < 0) fail(`${label} must be nonnegative`);
+  return value;
+}
+
+function valueMetrics(semantic, children = []) {
+  return {
+    semantic,
+    depth: children.length === 0 ? 1 : 1 + Math.max(...children.map((child) => child.depth)),
+    nodes: 1 + children.reduce((sum, child) => sum + child.nodes, 0),
+  };
+}
+
+function scalarValue(value, tag, label, validate = () => {}) {
+  if (value?._tag !== tag) fail(`${label} must be ${tag}`);
+  validate(value.value);
+  return valueMetrics(value.value);
+}
+
+function checkedLiteral(literal, label) {
+  switch (literal?._tag) {
+    case "IrStringLiteral":
+      if (typeof literal.value !== "string") fail(`${label} has an invalid string literal`);
+      return { tag: "IrLiteralStringValue", value: literal.value };
+    case "IrIntegerLiteral":
+      if (!Number.isSafeInteger(literal.value) || Object.is(literal.value, -0)) {
+        fail(`${label} has an invalid integer literal`);
+      }
+      return { tag: "IrLiteralIntegerValue", value: literal.value };
+    case "IrBooleanLiteral":
+      if (typeof literal.value !== "boolean") fail(`${label} has an invalid boolean literal`);
+      return { tag: "IrLiteralBooleanValue", value: literal.value };
+    case "IrKeywordLiteral":
+      return {
+        tag: "IrLiteralKeywordValue",
+        value: nonempty(literal.value, `${label} keyword literal`),
+      };
+    case "IrNilLiteral":
+      if (literal.unit !== null) fail(`${label} has an invalid nil literal`);
+      return { tag: "IrLiteralNilValue", value: null };
+    default:
+      fail(`${label} uses unsupported literal type '${literal?._tag ?? "missing"}'`);
+  }
+}
+
+function literalMatch(value, literal, label) {
+  const expected = checkedLiteral(literal, label);
+  if (value?._tag !== expected.tag) fail(`${label} does not match its exact literal`);
+  let actual = value.value;
+  if (expected.tag === "IrLiteralStringValue" && typeof actual !== "string") {
+    fail(`${label} has an invalid string value`);
+  }
+  if (expected.tag === "IrLiteralIntegerValue"
+      && (!Number.isSafeInteger(actual) || Object.is(actual, -0))) {
+    fail(`${label} has an invalid integer value`);
+  }
+  if (expected.tag === "IrLiteralBooleanValue" && typeof actual !== "boolean") {
+    fail(`${label} has an invalid boolean value`);
+  }
+  if (expected.tag === "IrLiteralKeywordValue") {
+    actual = nonempty(actual, `${label} keyword value`);
+  }
+  if (expected.tag === "IrLiteralNilValue") {
+    if (value.unit !== null) fail(`${label} has an invalid nil value`);
+    actual = null;
+  }
+  if (!Object.is(actual, expected.value)) {
+    fail(`${label} does not match its exact literal`);
+  }
+  return valueMetrics(expected.value);
+}
+
+function recordTypeFields(fields, label) {
+  const result = new Map();
+  for (const field of array(fields, `${label} fields`)) {
+    if (field?._tag !== "IrValueRecordField") fail(`${label} has an invalid field`);
+    const name = nonempty(field.name, `${label} field name`);
+    if (result.has(name)) fail(`${label} repeats field '${name}'`);
+    if (typeof field.required !== "boolean") fail(`${label}.${name} required flag is invalid`);
+    result.set(name, field);
+  }
+  return result;
+}
+
+function checkedRecord(value, fields, context, label, fixed = new Map()) {
+  const supplied = recordEntries(value, label);
+  const declared = recordTypeFields(fields, label);
+  for (const name of fixed.keys()) {
+    if (declared.has(name)) fail(`${label} type repeats discriminator '${name}'`);
+  }
+  for (const name of supplied.keys()) {
+    if (!declared.has(name) && !fixed.has(name)) fail(`${label} has unknown field '${name}'`);
+  }
+  const semantic = Object.create(null);
+  const children = [];
+  for (const [name, expected] of fixed) {
+    const item = supplied.get(name);
+    if (item === undefined) fail(`${label}.${name} is required`);
+    const checked = literalMatch(item, expected, `${label}.${name}`);
+    semantic[name] = checked.semantic;
+    children.push(checked);
+  }
+  for (const [name, field] of declared) {
+    const item = supplied.get(name);
+    if (item === undefined) {
+      if (field.required) fail(`${label}.${name} is required`);
+      continue;
+    }
+    const checked = checkedValue(item, field.value_type, context, `${label}.${name}`);
+    semantic[name] = checked.semantic;
+    children.push(checked);
+  }
+  return valueMetrics(semantic, children);
+}
+
+function validateEnvelope(result, envelope, context, label) {
+  if (envelope?._tag !== "IrValueEnvelopeSpec") fail(`${label} has an invalid envelope`);
+  const maximumBytes = optionalBound(
+    envelope.maximum_bytes, context, `${label} maximum bytes`, { nonnegative: true },
+  );
+  const maximumDepth = optionalBound(
+    envelope.maximum_depth, context, `${label} maximum depth`, { nonnegative: true },
+  );
+  const maximumNodes = optionalBound(
+    envelope.maximum_nodes, context, `${label} maximum nodes`, { nonnegative: true },
+  );
+  const bytes = utf8Length(canonicalJson(result.semantic));
+  if (maximumBytes !== null && bytes > maximumBytes) {
+    fail(`${label} exceeds its ${maximumBytes}-byte envelope`);
+  }
+  if (maximumDepth !== null && result.depth > maximumDepth) {
+    fail(`${label} exceeds its depth-${maximumDepth} envelope`);
+  }
+  if (maximumNodes !== null && result.nodes > maximumNodes) {
+    fail(`${label} exceeds its ${maximumNodes}-node envelope`);
+  }
+}
+
+function checkedValue(value, type, context, label) {
+  switch (type?._tag) {
+    case "IrStringValueType": {
+      const result = scalarValue(value, "IrLiteralStringValue", label, (item) => {
+        if (typeof item !== "string") fail(`${label} must contain a string`);
+      });
+      const minimum = optionalBound(type.minimum_scalars, context, `${label} minimum scalars`, {
+        nonnegative: true,
+      });
+      const maximum = optionalBound(type.maximum_scalars, context, `${label} maximum scalars`, {
+        nonnegative: true,
+      });
+      const maximumBytes = optionalBound(type.maximum_bytes, context, `${label} maximum bytes`, {
+        nonnegative: true,
+      });
+      if (minimum !== null && maximum !== null && minimum > maximum) {
+        fail(`${label} has inverted string bounds`);
+      }
+      const scalars = [...result.semantic].length;
+      if ((minimum !== null && scalars < minimum)
+          || (maximum !== null && scalars > maximum)
+          || (maximumBytes !== null && utf8Length(result.semantic) > maximumBytes)) {
+        fail(`${label} is outside its string bounds`);
+      }
+      return result;
+    }
+    case "IrIntegerValueType": {
+      const result = scalarValue(value, "IrLiteralIntegerValue", label, (item) => {
+        if (!Number.isSafeInteger(item) || Object.is(item, -0)) {
+          fail(`${label} must contain a safe integer`);
+        }
+      });
+      const minimum = optionalBound(type.minimum, context, `${label} minimum`);
+      const maximum = optionalBound(type.maximum, context, `${label} maximum`);
+      if (minimum !== null && maximum !== null && minimum > maximum) {
+        fail(`${label} has inverted integer bounds`);
+      }
+      if ((minimum !== null && result.semantic < minimum)
+          || (maximum !== null && result.semantic > maximum)) {
+        fail(`${label} is outside its integer bounds`);
+      }
+      return result;
+    }
+    case "IrBooleanValueType":
+      return scalarValue(value, "IrLiteralBooleanValue", label, (item) => {
+        if (typeof item !== "boolean") fail(`${label} must contain boolean`);
+      });
+    case "IrDigestValueType":
+      return scalarValue(value, "IrLiteralStringValue", label, (item) => {
+        if (!SHA256.test(item)) fail(`${label} must be a canonical sha256 digest`);
+      });
+    case "IrInstantValueType": {
+      const fields = recordEntries(value, label);
+      if (fields.size !== 2 || !fields.has("epochSeconds") || !fields.has("nanos")) {
+        fail(`${label} must contain exactly epochSeconds and nanos`);
+      }
+      const epochSeconds = scalarValue(
+        fields.get("epochSeconds"), "IrLiteralIntegerValue", `${label}.epochSeconds`,
+        (item) => {
+          if (!Number.isSafeInteger(item) || Object.is(item, -0)) {
+            fail(`${label}.epochSeconds must contain a safe integer`);
+          }
+        },
+      );
+      const nanos = scalarValue(
+        fields.get("nanos"), "IrLiteralIntegerValue", `${label}.nanos`,
+        (item) => {
+          if (!Number.isSafeInteger(item) || item < 0 || item > 999_999_999) {
+            fail(`${label}.nanos is outside the nanosecond range`);
+          }
+        },
+      );
+      return valueMetrics({
+        epochSeconds: epochSeconds.semantic,
+        nanos: nanos.semantic,
+      }, [epochSeconds, nanos]);
+    }
+    case "IrKeywordValueType": {
+      const result = scalarValue(value, "IrLiteralKeywordValue", label, (item) => {
+        nonempty(item, label);
+      });
+      const allowed = array(type.allowed, `${label} allowed keywords`);
+      unique(allowed, (item) => item, `${label} allowed keywords`);
+      if (!allowed.includes(result.semantic)) fail(`${label} is outside its closed keyword set`);
+      return result;
+    }
+    case "IrEnumValueType": {
+      const allowed = array(type.allowed, `${label} enum literals`);
+      allowed.forEach((literal, index) => checkedLiteral(literal, `${label} enum ${index}`));
+      unique(allowed, (literal) => canonicalJson(literal), `${label} enum literals`);
+      const literal = allowed.find((candidate) => {
+        try {
+          literalMatch(value, candidate, label);
+          return true;
+        } catch (error) {
+          if (error instanceof TypeError
+              && error.message.startsWith("wake declaration linker:")) return false;
+          throw error;
+        }
+      });
+      if (literal === undefined) fail(`${label} is outside its closed enum set`);
+      return literalMatch(value, literal, label);
+    }
+    case "IrEntityReferenceValueType":
+      exactRef(context.entities, type.entity, "IrEntityRef", `${label} entity type`);
+      return scalarValue(value, "IrLiteralStringValue", label, (item) => nonempty(item, label));
+    case "IrStateValueType": {
+      exactRef(context.states, type.state, "IrStateRef", `${label} state type`);
+      const result = scalarValue(value, "IrLiteralKeywordValue", label, (item) => nonempty(item, label));
+      const state = context.stateDeclarations.get(nominalKey(type.state));
+      if (!state.values.some((entry) => entry.value === result.semantic)) {
+        fail(`${label} is outside its exact state`);
+      }
+      return result;
+    }
+    case "IrRecordValueType":
+      return checkedRecord(value, type.fields, context, label);
+    case "IrTaggedValueType": {
+      const tagField = nonempty(type.tag_field, `${label} tag field`);
+      const variants = array(type.variants, `${label} variants`);
+      unique(variants, (variant) => variant.tag, `${label} variants`);
+      const supplied = recordEntries(value, label);
+      const discriminator = supplied.get(tagField);
+      if (discriminator?._tag !== "IrLiteralStringValue") {
+        fail(`${label}.${tagField} must be a string discriminator`);
+      }
+      const variant = variants.find((candidate) => candidate.tag === discriminator.value);
+      if (variant === undefined) fail(`${label} has unknown tag '${discriminator.value}'`);
+      return checkedRecord(
+        value,
+        variant.fields,
+        context,
+        label,
+        new Map([[tagField, { _tag: "IrStringLiteral", value: variant.tag }]]),
+      );
+    }
+    case "IrListValueType": {
+      if (value?._tag !== "IrListValue") fail(`${label} must be a list value`);
+      const items = array(value.items, `${label} items`);
+      const minimum = optionalBound(type.minimum_items, context, `${label} minimum items`, {
+        nonnegative: true,
+      });
+      const maximum = optionalBound(type.maximum_items, context, `${label} maximum items`, {
+        nonnegative: true,
+      });
+      if (minimum !== null && maximum !== null && minimum > maximum) {
+        fail(`${label} has inverted list bounds`);
+      }
+      if ((minimum !== null && items.length < minimum)
+          || (maximum !== null && items.length > maximum)) {
+        fail(`${label} is outside its list bounds`);
+      }
+      const checked = items.map((item, index) =>
+        checkedValue(item, type.item, context, `${label}[${index}]`));
+      if (type.normalization !== null) {
+        if (type.normalization?._tag !== "IrSortUniqueList") {
+          fail(`${label} uses unsupported list normalization '${type.normalization?._tag ?? "missing"}'`);
+        }
+        const keys = checked.map((item) => canonicalJson(item.semantic));
+        if (keys.some((key, index) => index > 0 && key <= keys[index - 1])) {
+          fail(`${label} is not in canonical sort-unique order`);
+        }
+      }
+      return valueMetrics(checked.map((item) => item.semantic), checked);
+    }
+    case "IrNullableValueType":
+      return value?._tag === "IrLiteralNilValue"
+        ? literalMatch(value, { _tag: "IrNilLiteral", unit: null }, label)
+        : checkedValue(value, type.value_type, context, label);
+    case "IrNamedValueType": {
+      const entry = context.valueTypes.get(nominalKey(type.value_type));
+      if (type.value_type?._tag !== "IrValueTypeRef" || entry?.definition.ref !== type.value_type) {
+        fail(`${label} names a non-exact value type reference`);
+      }
+      let active = context.activeNamed.get(value);
+      if (active === undefined) {
+        active = new Set();
+        context.activeNamed.set(value, active);
+      }
+      const key = nominalKey(type.value_type);
+      if (active.has(key)) fail(`${label} contains a non-consuming named type cycle`);
+      active.add(key);
+      try {
+        const result = checkedValue(value, entry.definition.spec, context, label);
+        if (entry.declaration.root === type.value_type && entry.declaration.envelope !== null) {
+          validateEnvelope(result, entry.declaration.envelope, context, label);
+        }
+        return result;
+      } finally {
+        active.delete(key);
+      }
+    }
+    case "IrLiteralValueType":
+      return literalMatch(value, type.literal, label);
+    case "IrExtensionValueType":
+      exactRef(
+        context.entityFieldsPorts,
+        type.port,
+        "IrEntityFieldsPortRef",
+        `${label} extension type`,
+      );
+      fail(`${label} cannot bind an extension value at compile time`);
+      break;
+    default:
+      fail(`${label} uses unsupported value type '${type?._tag ?? "missing"}'`);
+  }
+}
+
+function validateBindings(use, program, label) {
+  const plugin = program.root.plugin;
   const roles = roleIndex(plugin.configuration, `${label} plugin configuration`);
   const claimed = new Set();
+  const bindings = new Map();
   for (const [bindingField, [configField, importedTag, localTag]] of BINDING_CATEGORIES) {
     for (const binding of array(use.bindings[bindingField], `${label} ${bindingField}`)) {
       const imported = importedTarget(
@@ -220,6 +702,7 @@ function validateBindings(use, plugin, label) {
       }
       if (claimed.has(key)) fail(`${label} binds role '${imported.declaration_id}' more than once`);
       claimed.add(key);
+      bindings.set(key, binding);
       if (bindingField === "field_names") {
         const expected = role.target._tag === "IrReceiptFieldNameRoleTarget"
           ? "IrReceiptFieldDeclarationNameValue"
@@ -256,11 +739,35 @@ function validateBindings(use, plugin, label) {
     const missing = [...roles].find(([key]) => !claimed.has(key));
     fail(`${label} does not bind plugin role '${missing[1].ref.declaration_id}'`);
   }
+  const states = nominalIndex(program.states, "IrStateRef", `${label} states`);
+  const context = {
+    activeNamed: new WeakMap(),
+    bindings,
+    entities: nominalIndex(program.entities, "IrEntityRef", `${label} entities`),
+    entityFieldsPorts: nominalIndex(
+      program.entity_fields_ports,
+      "IrEntityFieldsPortRef",
+      `${label} entity-fields ports`,
+    ),
+    roles,
+    stateDeclarations: new Map(program.states.map((state) => [nominalKey(state.ref), state])),
+    states,
+    valueTypes: valueTypeIndex(program, label),
+  };
+  for (const binding of use.bindings.values) {
+    const role = roles.get(`IrValueRoleRef\u0000${binding.role.declaration_id}`);
+    checkedValue(
+      binding.value,
+      role.value_type,
+      context,
+      `${label} value binding '${binding.role.name}'`,
+    );
+  }
 }
 
 function validateComposition(composition, pluginProgram, exported, application, label) {
   const use = composition.use;
-  validateBindings(use, pluginProgram.root.plugin, label);
+  validateBindings(use, pluginProgram, label);
   for (const [field, [refField, expectedTag, exportField]] of COMPOSITION_PORTS) {
     const requiredContribution = new Map([
       ["providers", "capability"],
