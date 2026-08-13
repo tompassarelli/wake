@@ -17,7 +17,7 @@ const webRoot = join(testDir, "..");
 const beagleRoot = process.env.BEAGLE_ROOT ?? join(homedir(), "code", "beagle", "main");
 const sourceUnit = {
   source_id: "test:root",
-  path: "fram-graph.test.wake",
+  path: "fram-graph.test.bjs",
   package_id: "",
   package_version: "",
 };

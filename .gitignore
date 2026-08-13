@@ -10,7 +10,7 @@ package-lock.json
 .claude/
 # shadow-cljs build cache
 .shadow-cljs/
-# wake-compile build outputs (generated from .wake sources)
+# wake-compile build outputs (generated from Beagle sources)
 web/out/
 web/app.js
 web/dist.css

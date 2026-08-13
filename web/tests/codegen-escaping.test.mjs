@@ -53,28 +53,70 @@ function embeddedLiteral(value) {
 
 test("generated JavaScript quotes every source string without code injection", async () => {
   const outputDir = mkdtempSync(join(tmpdir(), "wake-codegen-escaping-"));
-  const namespace = "wake.'\\\u2028globalThis.__WAKE_INJECTED__=true\u2029tail";
+  const namespace = "wake.fixtures.codegen-escaping";
   const title = "Title '\" \\ newline\n\u2028\u2029; globalThis.__WAKE_INJECTED__=true; //";
   const staticText = "Static '\" \\ newline\n\u2028\u2029; globalThis.__WAKE_INJECTED__=true; //";
   const themeValue = "oklch(50% 0.1 20); '} \\ newline\n\u2028\u2029; globalThis.__WAKE_INJECTED__=true; //";
-  const sourcePath = join(outputDir, "hostile.wake");
+  const sourcePath = join(outputDir, "hostile.bjs");
   const outputPath = join(outputDir, "app.js");
 
   const wakeSource = [
-    `(ns ${namespace})`,
-    '(application :id "wake-test-codegen-escaping")',
-    "(theme",
-    `  :colors (primary ${JSON.stringify(themeValue)}))`,
-    "(entity item",
-    "  (id : String))",
-    "(component item-row",
-    "  :props [id]",
-    `  (div :text ${JSON.stringify(staticText)}))`,
-    "(view items",
-    "  :entity item",
-    "  :each item-row",
-    "  :add-form [id]",
-    `  :title ${JSON.stringify(title)})`,
+    "#lang beagle/js",
+    `(ns ${namespace}`,
+    "  (:require [wake.core :as wake]))",
+    "",
+    "(wake/command-receipt-core)",
+    '(wake/defentity-ref item "entity/item" "item")',
+    "(wake/define-entity-model",
+    "  item",
+    "  Item",
+    '  "entity/item"',
+    '  [[id "entity/item/field/id" "id" String',
+    "    (wake/->StringField nil)",
+    "    (wake/->SingleField nil)",
+    "    (wake/->IdentityWrite nil)",
+    '    "wake-test-codegen-escaping/field/item/id"',
+    "    true]]",
+    "  []",
+    '  "wake-test-codegen-escaping/entity/item")',
+    "(wake/defcomponent-model",
+    "  item-row",
+    '  "component/item-row"',
+    "  [(wake/->ComponentPropertySpec",
+    "     :id",
+    "     (wake/->StringValueType nil nil nil))]",
+    "  [(wake/->Element",
+    "     :div",
+    `     {:text (wake/->StaticAttr ${JSON.stringify(staticText)})}`,
+    "     [])])",
+    "(wake/defview-model",
+    "  items",
+    '  "view/items"',
+    '  "items"',
+    "  item-ref",
+    "  item-row-ref",
+    `  ${JSON.stringify(title)}`,
+    "  nil",
+    "  nil)",
+    "(wake/defroute-template",
+    "  items-route",
+    '  "route/items"',
+    '  "items"',
+    "  items-ref",
+    "  []",
+    "  [])",
+    "(wake/application-root",
+    "  application",
+    '  "wake-test-codegen-escaping"',
+    '  (wake/->LocalStorageAuthority "wake-test-codegen-escaping")',
+    '  [(wake/->StorageSpec item-ref "wake-test-codegen-escaping/entity/item")]',
+    "  [(wake/->IdentitySpec item-ref item-id-ref)]",
+    "  []",
+    "  (wake/->LocalDefaultRoute items-route-ref)",
+    `  (wake/->ThemeSpec {"primary" ${JSON.stringify(themeValue)}})`,
+    "  []",
+    "  []",
+    "  [])",
   ].join("\n");
 
   try {
