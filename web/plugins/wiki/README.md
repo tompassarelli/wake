@@ -4,7 +4,7 @@
 ordinary Beagle and is consumed at compile time; it is not a runtime plugin
 loader, storage adapter, authentication policy, or content parser.
 
-The 0.1 contract provides:
+The contract provides:
 
 - stable resources with immutable revisions and draft/published pointers;
 - atomic draft, replacement, abandonment, and publication commands;
