@@ -144,7 +144,7 @@ describe("plugin package raw-byte boundary", () => {
 
   test("rejects ambiguous or non-Beagle authored member paths", () => {
     const cases = [
-      [manifest(["plugin.wake"], "plugin.wake"), "must name authored Beagle .bjs source"],
+      [manifest(["plugin.txt"], "plugin.txt"), "must name authored Beagle .bjs source"],
       [manifest(["../plugin.bjs"], "../plugin.bjs"), "escapes its package"],
       [manifest(["/plugin.bjs"], "/plugin.bjs"), "package-relative POSIX path"],
       [manifest(["C:/plugin.bjs"], "C:/plugin.bjs"), "package-relative POSIX path"],

@@ -51,7 +51,7 @@ describe("W0C frozen compiler contracts", () => {
       "u",
     );
     expect(authoredSourcePattern.test("plugin.bjs")).toBe(true);
-    expect(authoredSourcePattern.test("plugin.wake")).toBe(false);
+    expect(authoredSourcePattern.test("plugin.txt")).toBe(false);
     expect(pluginSchema.required).toEqual([
       "compatibleWake",
       "durableSchemaVersion",
