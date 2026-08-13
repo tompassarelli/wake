@@ -95,8 +95,7 @@
    (max-limit Int?)
    (dependencies (Vec GQueryDependency))])
 
-(defrecord GProviderPort
-  [(name String) (input Any) (output Any)])
+(defrecord GProviderPort [(name String) (input Any) (output Any)])
 
 (defrecord GProvider
   [(name String)
@@ -447,7 +446,9 @@
         (graph-error (str label " uses unsupported literal '" tag "'")))))
 
 (defn value-type-definition
-  [(program IrDeclarationProgram) (ref IrValueTypeRef) (label String)]
+  [(program IrDeclarationProgram)
+   (ref IrValueTypeRef)
+   (label String)]
   IrValueTypeDefinition
   (let [matches
         (reduce
@@ -464,7 +465,9 @@
       (first matches))))
 
 (defn value-type-declaration
-  [(program IrDeclarationProgram) (ref IrValueTypeRef) (label String)]
+  [(program IrDeclarationProgram)
+   (ref IrValueTypeRef)
+   (label String)]
   IrValueTypeDeclarationSpec
   (let [matches
         (filterv
@@ -1522,9 +1525,7 @@
         (graph-error (str label " uses unsupported receipt field type '" tag "'")))))
 
 (defn lower-receipt-field
-  [(source IrReceiptFieldDeclarationSpec)
-   (resolver DeclarationResolver)]
-  GField
+  [(source IrReceiptFieldDeclarationSpec) (resolver DeclarationResolver)] GField
   (let [name (resolved-name resolver "receipt-field" (.-ref source))
         shape
         (receipt-field-shape source resolver (str "receipt field '" name "'"))]
@@ -1540,9 +1541,7 @@
       false [] nil)))
 
 (defn receipt-entity
-  [(application IrDeclarationProgram)
-   (plugins (Vec LoweredPlugin))]
-  GEntity?
+  [(application IrDeclarationProgram) (plugins (Vec LoweredPlugin))] GEntity?
   (let [sources
         (reduce
           (fn [result plugin] (Vec Any)
@@ -1667,8 +1666,8 @@
    (extensions (Vec ResolvedPluginExtension))]
   (Vec GEntity)
   (reduce
-    (fn [(result (Vec GEntity)) (extension ResolvedPluginExtension)]
-      (Vec GEntity)
+    (fn
+      [(result (Vec GEntity)) (extension ResolvedPluginExtension)] (Vec GEntity)
       (apply-extension
         result (.-extension extension) (.-target extension)))
     entities
@@ -2203,8 +2202,7 @@
       "resultFields" final-receipt-results}}))
 
 (defn lower-plugin-instance
-  [(instance IrLinkedPluginInstance) (application-id String)]
-  LoweredPlugin
+  [(instance IrLinkedPluginInstance) (application-id String)] LoweredPlugin
   (let [checked
         (require-ir-tag
           (.-checked instance) "IrCheckedDeclarationProgram"
