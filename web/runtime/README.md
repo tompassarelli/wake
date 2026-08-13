@@ -8,12 +8,19 @@ loader, or raw FRAM escape.
 
 ```js
 import {
+  checkWakeCompilerCompatibility,
   createWakeApplicationAdapter,
   createWakeWorkerHost,
   installApplication,
   loadApplicationReceipt,
   rejectProviderInput,
 } from "@tompassarelli/wake-runtime";
+
+const compilerCompatibility = checkWakeCompilerCompatibility({
+  compiler: parsedManifest.compiler,
+  manifestSchemaVersion: parsedManifest.schemaVersion,
+  protocols: parsedManifest.protocols,
+});
 
 const applicationReceipt = await installApplication({
   applicationId: "my-application",
@@ -91,6 +98,13 @@ artifact closure before writes, records a durable installing intent and
 compiled schema, awaits an idempotent initializer, atomically advances the
 exact intent to ready, and then re-verifies the receipt. Failed initialization
 leaves a resumable intent that `loadApplicationReceipt` will not accept.
+`checkWakeCompilerCompatibility` is the host-callable compatibility boundary.
+It requires the exact compiler metadata shape, validates the compiler source
+commit as provenance, and checks the compiler version, manifest schema, and
+protocol versions against the runtime's frozen `wakeRuntimeCompilerContract`.
+The canonical manifest and deployment receipt bind the compiler source commit;
+the source commit is deliberately not required to equal the later runtime
+package's source commit.
 
 Authentication remains host-owned. The adapter accepts only a derived actor
 and trace ID, validates the checked artifact closure before composition, and

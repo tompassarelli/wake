@@ -1,4 +1,5 @@
 import { canonicalDocument, sha256Digest } from "./canonical.mjs";
+import { checkWakeCompilerCompatibility } from "./compiler-compatibility.mjs";
 
 const QUERY_TIMEOUT_MS = 5_000;
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -238,13 +239,17 @@ function checkedManifest(input) {
   if (value.schemaVersion !== 1) {
     fail("receipt/invalid-artifact", "manifest.schemaVersion must be 1");
   }
+  checkWakeCompilerCompatibility({
+    compiler: value.compiler,
+    manifestSchemaVersion: value.schemaVersion,
+    protocols: value.protocols,
+  });
   nonempty(value.applicationId, "manifest.applicationId");
   exactKeys(value.checkedApplication, ["fingerprint", "schemaVersion"], "manifest.checkedApplication");
   if (value.checkedApplication.schemaVersion !== 1) {
     fail("receipt/invalid-artifact", "manifest.checkedApplication.schemaVersion must be 1");
   }
   digest(value.checkedApplication.fingerprint, "manifest.checkedApplication.fingerprint");
-  checkedProtocols(value.protocols, "manifest.protocols");
   exactKeys(
     value.artifacts,
     ["browserClient", "browserJavaScript", "framPlan"],

@@ -1,5 +1,9 @@
 import { canonicalDocument, sha256Digest } from "./canonical.mjs";
 import {
+  checkWakeCompilerCompatibility,
+  wakeRuntimeCompilerContract,
+} from "./compiler-compatibility.mjs";
+import {
   createWakeCursorProvider,
   createWakeCursorTransport,
 } from "./cursor-provider.mjs";
@@ -17,11 +21,7 @@ const PLUGIN_CONTRIBUTIONS = new Set([
   "schema",
   "ui",
 ]);
-const EXPECTED_PROTOCOLS = Object.freeze({
-  framPlanSchemaVersion: 2,
-  httpOperationProtocolVersion: 2,
-  pluginAbiVersion: 1,
-});
+const EXPECTED_PROTOCOLS = wakeRuntimeCompilerContract.protocols;
 
 export class WakeAdapterConfigError extends Error {
   constructor(code, message, detail = undefined) {
@@ -219,20 +219,16 @@ function applicationManifest(input) {
   if (!plainObject(value) || value.schemaVersion !== 1) {
     fail("adapter/invalid-manifest", "expected a Wake application manifest with schemaVersion 1");
   }
+  checkWakeCompilerCompatibility({
+    compiler: value.compiler,
+    manifestSchemaVersion: value.schemaVersion,
+    protocols: value.protocols,
+  });
   nonempty(value.applicationId, "manifest.applicationId");
   if (!plainObject(value.checkedApplication) || value.checkedApplication.schemaVersion !== 1) {
     fail("adapter/invalid-manifest", "manifest.checkedApplication is invalid");
   }
   digest(value.checkedApplication.fingerprint, "manifest.checkedApplication.fingerprint");
-  if (!plainObject(value.protocols)) {
-    fail("adapter/invalid-manifest", "manifest.protocols is invalid");
-  }
-  exactKeys(value.protocols, Object.keys(EXPECTED_PROTOCOLS), "manifest.protocols");
-  for (const [name, expected] of Object.entries(EXPECTED_PROTOCOLS)) {
-    if (value.protocols[name] !== expected) {
-      fail("adapter/protocol-mismatch", `manifest.protocols.${name} must be ${expected}`);
-    }
-  }
   if (!plainObject(value.artifacts)
       || !plainObject(value.artifacts.browserClient)
       || !plainObject(value.artifacts.browserJavaScript)

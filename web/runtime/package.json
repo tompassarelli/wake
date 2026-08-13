@@ -20,6 +20,7 @@
     "canonical.mjs",
     "checked-value.mjs",
     "commands.mjs",
+    "compiler-compatibility.mjs",
     "cursor-provider.mjs",
     "fram-gateway.mjs",
     "fram-http.mjs",

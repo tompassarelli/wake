@@ -55,6 +55,46 @@ export interface WakeApplicationReceipt {
   readonly storageProjectionDigest: string;
 }
 
+export interface WakeCompilerMetadata {
+  readonly name: "wake";
+  readonly sourceCommit: string;
+  readonly version: "0.1.0";
+}
+
+export interface WakeCompilerProtocols {
+  readonly framPlanSchemaVersion: 2;
+  readonly httpOperationProtocolVersion: 2;
+  readonly pluginAbiVersion: 1;
+}
+
+export interface WakeCompilerCompatibility {
+  readonly compiler: WakeCompilerMetadata;
+  readonly manifestSchemaVersion: 1;
+  readonly protocols: WakeCompilerProtocols;
+}
+
+export const wakeRuntimeCompilerContract: Readonly<{
+  compiler: Readonly<Pick<WakeCompilerMetadata, "name" | "version">>;
+  manifestSchemaVersion: 1;
+  protocols: WakeCompilerProtocols;
+}>;
+
+export class WakeCompilerCompatibilityError extends TypeError {
+  readonly code: "compiler/invalid-metadata" | "compiler/incompatible";
+  constructor(
+    code: "compiler/invalid-metadata" | "compiler/incompatible",
+    message: string,
+  );
+}
+
+export function checkWakeCompilerCompatibility(
+  input: Readonly<{
+    compiler: unknown;
+    manifestSchemaVersion: unknown;
+    protocols: unknown;
+  }>,
+): WakeCompilerCompatibility;
+
 export interface WakeAuthorizationContext {
   readonly actor: Readonly<Record<string, unknown>>;
   readonly traceId: string;

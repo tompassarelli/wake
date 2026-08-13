@@ -26,6 +26,7 @@ const expectedFiles = [
   "package/canonical.mjs",
   "package/checked-value.mjs",
   "package/commands.mjs",
+  "package/compiler-compatibility.mjs",
   "package/cursor-provider.mjs",
   "package/fram-gateway.mjs",
   "package/fram-http.mjs",
@@ -190,7 +191,7 @@ describe("@tompassarelli/wake-runtime package", () => {
         .split("\n")
         .sort();
       expect(listed).toEqual(expectedFiles);
-      expect(listed.some(path => /compiler|plugins|wiki|\.test\./u.test(path)))
+      expect(listed.some(path => /package\/(?:compiler|plugins|wiki)\/|\.test\./u.test(path)))
         .toBe(false);
       expect(receipt.files.map(file => file.path)).toEqual(expectedFiles);
 
@@ -208,7 +209,9 @@ describe("@tompassarelli/wake-runtime package", () => {
       const publicModule = await import(`${extracted}/package/index.mjs`);
       expect(Object.keys(publicModule).sort()).toEqual([
         "CheckedValueError",
+        "WakeCompilerCompatibilityError",
         "WakeWorkerConfigError",
+        "checkWakeCompilerCompatibility",
         "compileCheckedValue",
         "createWakeApplicationAdapter",
         "createWakeBunAdapter",
@@ -218,6 +221,7 @@ describe("@tompassarelli/wake-runtime package", () => {
         "normalizeCheckedValue",
         "rejectProviderInput",
         "renderSafeDocument",
+        "wakeRuntimeCompilerContract",
       ]);
       const checkedValue = publicModule.compileCheckedValue({
         kind: "string",

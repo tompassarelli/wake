@@ -1,4 +1,9 @@
 export { loadApplicationReceipt } from "./application-receipt.mjs";
+export {
+  checkWakeCompilerCompatibility,
+  WakeCompilerCompatibilityError,
+  wakeRuntimeCompilerContract,
+} from "./compiler-compatibility.mjs";
 export { installApplication } from "./application-installer.mjs";
 export {
   createWakeApplicationAdapter,
