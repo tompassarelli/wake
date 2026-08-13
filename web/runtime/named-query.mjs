@@ -13,6 +13,7 @@ const I64_MIN = -(1n << 63n);
 const I64_MAX = (1n << 63n) - 1n;
 const INTEGER = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/;
 const FLOAT64 = /^[0-9a-f]{16}$/;
+const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const NO_MATCH = Symbol("no-match");
 
 export class NamedQueryError extends Error {
@@ -179,6 +180,11 @@ function encodeLiteral(type, value, label) {
     case "String":
       if (typeof value !== "string") fail("gateway/type-mismatch", `${label} must be a string`);
       return ["string", value];
+    case "Digest":
+      if (typeof value !== "string" || !SHA256.test(value)) {
+        fail("gateway/type-mismatch", `${label} must be a canonical sha256 digest`);
+      }
+      return ["string", value];
     case "Int":
     case "Integer":
       return ["integer", canonicalInteger(value, label)];
@@ -234,6 +240,12 @@ function decodeLiteral(type, value, label) {
   switch (type) {
     case "String":
       expected("string", 2);
+      return term[1];
+    case "Digest":
+      expected("string", 2);
+      if (!SHA256.test(term[1])) {
+        fail("gateway/data-integrity", `${label} is not a canonical sha256 digest`);
+      }
       return term[1];
     case "Int":
     case "Integer":

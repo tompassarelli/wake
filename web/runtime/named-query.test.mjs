@@ -9,6 +9,7 @@ import {
 const keyword = value => ["keyword", value];
 const string = value => ["string", value];
 const triple = (t1, t2, t3) => ["triple", t1, t2, t3];
+const canonicalDigest = `sha256:${"a".repeat(64)}`;
 const storageId = (entity, field) => `example/field/${entity}/${field}`;
 const predicate = (entity, field) => triple(
   keyword("wake/field"),
@@ -53,6 +54,7 @@ const entities = [
       field("release", "id", "String"),
       field("release", "title", "String"),
       field("release", "channel", "Keyword"),
+      field("release", "digest", "Digest"),
       field("release", "tags", "String", { cardinality: "multi" }),
       field("release", "owner", "Ref", { valueKind: "ref", targetEntity: "person" }),
     ],
@@ -209,6 +211,39 @@ const oneQuery = {
     { entity: "release", field: "owner" },
     { entity: "person", field: "id" },
     { entity: "person", field: "name" },
+  ],
+};
+
+const digestQuery = {
+  name: "release-by-digest",
+  capabilities: ["release:read"],
+  parameters: [{ name: "digest", type: "Digest" }],
+  bindings: [{ name: "release", entity: "release" }],
+  where: [{
+    op: "eq",
+    left: {
+      kind: "field",
+      binding: "release",
+      entity: "release",
+      field: "digest",
+      type: "Digest",
+    },
+    right: { kind: "parameter", name: "digest", type: "Digest" },
+  }],
+  select: [{
+    name: "digest",
+    binding: "release",
+    entity: "release",
+    field: "digest",
+    type: "Digest",
+    cardinality: "single",
+    valueKind: "literal",
+  }],
+  resultProviders: [],
+  result: { kind: "one" },
+  dependencies: [
+    { entity: "release", field: "id" },
+    { entity: "release", field: "digest" },
   ],
 };
 
@@ -506,6 +541,65 @@ describe("named query plan lowering", () => {
 });
 
 describe("named query execution", () => {
+  test("roundtrips canonical Digest values as string Terms without Keyword fallback", async () => {
+    const mock = mockFram([
+      response([[subject("release", "r-1"), string(canonicalDigest)]], 19n),
+    ]);
+    const runtime = createNamedQueryRuntime([digestQuery], { fram: mock.fram, entities });
+
+    await expect(runtime.execute(
+      "release-by-digest",
+      { digest: canonicalDigest },
+      {},
+      reader,
+    )).resolves.toEqual({
+      row: { digest: canonicalDigest },
+      servedVersion: 19n,
+    });
+
+    const predicateClause = mock.calls[0].query.rules[0].body.at(-1);
+    expect(predicateClause.args[1]).toEqual(string(canonicalDigest));
+    expect(predicateClause.args[1]).not.toEqual(keyword(canonicalDigest));
+  });
+
+  test("rejects malformed Digest input before FRAM dispatch", async () => {
+    const mock = mockFram([]);
+    const runtime = createNamedQueryRuntime([digestQuery], { fram: mock.fram, entities });
+    const malformed = [
+      `sha256:${"A".repeat(64)}`,
+      "sha256:not-a-digest",
+      keyword(canonicalDigest),
+    ];
+
+    for (const digest of malformed) {
+      await expectRejectsCode(
+        runtime.execute("release-by-digest", { digest }, {}, reader),
+        "gateway/type-mismatch",
+      );
+    }
+    expect(mock.calls).toHaveLength(0);
+  });
+
+  test("rejects malformed or Keyword-backed stored Digest output as data corruption", async () => {
+    for (const stored of [
+      string(`sha256:${"A".repeat(64)}`),
+      string("sha256:not-a-digest"),
+      keyword(canonicalDigest),
+    ]) {
+      const runtime = createNamedQueryRuntime([digestQuery], {
+        entities,
+        fram: mockFram([
+          response([[subject("release", "r-1"), stored]], 19n),
+        ]).fram,
+      });
+
+      await expectRejectsCode(
+        runtime.execute("release-by-digest", { digest: canonicalDigest }, {}, reader),
+        "gateway/data-integrity",
+      );
+    }
+  });
+
   test("replaces internal hydrated fields with revalidated provider results", async () => {
     const calls = [];
     const mock = mockFram([response(
