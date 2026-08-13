@@ -106,6 +106,31 @@
    (output-type Any)
    (span SourceSpan)])
 
+(defrecord GExtension
+  [(kind String)
+   (package-id String)
+   (port String)
+   (target String)
+   (fields (Vec IrAttr))])
+
+(defrecord GFill
+  [(port String)
+   (component String)
+   (package-id String)
+   (target-component String)])
+
+(defrecord GMount
+  [(input-parameters (Vec String))
+   (package-id String)
+   (parameters (Vec String))
+   (path String)
+   (pattern String)
+   (port String)
+   (queries (Vec IrRouteQuery))
+   (required-props (Vec String))
+   (target-route String)
+   (view-name String)])
+
 (defrecord ResolvedPluginExtension
   [(instance IrLinkedPluginInstance)
    (program IrDeclarationProgram)
@@ -133,8 +158,8 @@
    (provider-ports (Vec GProviderPort))
    (providers (Vec GProvider))
    (extensions (Vec ResolvedPluginExtension))
-   (fills (Vec IrFill))
-   (mounts (Vec IrMount))
+   (fills (Vec GFill))
+   (mounts (Vec GMount))
    (components (Vec IrComponent))
    (views (Vec IrView))
    (route-templates (Vec IrRoute))
@@ -165,9 +190,9 @@
    (providers (Vec GProvider))
    (value-types (Vec Any))
    (provider-ports (Vec Any))
-   (extensions (Vec IrExtend))
-   (fills (Vec IrFill))
-   (mounts (Vec IrMount))
+   (extensions (Vec GExtension))
+   (fills (Vec GFill))
+   (mounts (Vec GMount))
    (route-templates (Vec IrRoute))
    (ns String)
    (backend IrBackend?)
@@ -215,9 +240,9 @@
    (providers (Vec GProvider))
    (value-types (Vec Any))
    (provider-ports (Vec Any))
-   (extends (Vec IrExtend))
-   (fills (Vec IrFill))
-   (mounts (Vec IrMount))
+   (extends (Vec GExtension))
+   (fills (Vec GFill))
+   (mounts (Vec GMount))
    (route-templates (Vec IrRoute))
    (layout IrLayout?)])
 
@@ -1615,6 +1640,11 @@
   IrAttr
   (let [shape (field-type-shape (.-value-type source) resolver)
         write (field-write-name (.-write source))]
+    (if (not (nonempty-string? (.-storage-id source)))
+      (graph-error
+        (str "extension field '" (.-name (.-ref source))
+             "' requires an explicit storage ID"))
+      nil)
     (ir/->IrAttr
       (.-name (.-ref source))
       (.-storage-id source)
@@ -1638,27 +1668,41 @@
         (let [port
               (plugin-port
                 program (.-port source) "entity-fields-ports" "extension port")
-              target (extension-target-name port resolver)]
+              target (extension-target-name port resolver)
+              policy (.-policy port)]
           (if (= (.-_tag (.-policy port)) "IrClosedEntityFieldsPort")
             (graph-error
               (str "extension port '" (.-name (.-ref port)) "' is closed"))
             nil)
+          (doseq [field (.-fields source)]
+            (if (not (= (.-_tag (.-write field)) (.-_tag (.-write policy))))
+              (graph-error
+                (str "extension port '" (.-name (.-ref port)) "' field '"
+                     (.-name (.-ref field)) "' must use "
+                     (field-write-name (.-write policy)) " write policy"))
+              nil))
           (->ResolvedPluginExtension
             instance program resolver source port target
             (ir/->IrExtend
               (imported-port-name (.-prefix resolver) (.-port source))
               (mapv
                 (fn [(field IrExtensionFieldSpec)] IrAttr
-                  (lower-extension-field field resolver target))
+                  (lower-extension-field field (empty-resolver) target))
                 (.-fields source))
               (ir/->SourceSpan "linked-declarations" 0 0 1 1 1 1)))))
       (.-extensions (.-composition instance)))))
 
 (defn extension-values
-  [(extensions (Vec ResolvedPluginExtension))] (Vec IrExtend)
+  [(extensions (Vec ResolvedPluginExtension))] (Vec GExtension)
   (mapv
-    (fn [(extension ResolvedPluginExtension)] IrExtend
-      (.-extension extension))
+    (fn [(extension ResolvedPluginExtension)] GExtension
+      (let [raw (.-extension extension)]
+        (->GExtension
+          "entity-fields"
+          (.-package-id (.-evidence (.-instance extension)))
+          (.-port raw)
+          (.-target extension)
+          (.-fields raw))))
     extensions))
 
 (defn apply-plugin-extensions
@@ -1708,6 +1752,108 @@
               (.-identity-field entity) (.-store-name entity)))))
       entities)))
 
+(defn lower-component-fill
+  [(source IrFillSpec)
+   (program IrDeclarationProgram)
+   (resolver DeclarationResolver)
+   (application-components (Vec IrComponent))
+   (package-id String)]
+  GFill
+  (let [slot
+        (plugin-port program (.-slot source) "component-slots" "component fill")
+        target-ref (.-target slot)
+        target
+        (declaration-with-ref
+          (.-components program) target-ref "component fill target")
+        target-name (resolved-name resolver "component" target-ref)
+        component-name (.-name (.-component source))
+        component
+        (first
+          (filterv
+            (fn [(candidate IrComponent)] Bool
+              (= (.-name candidate) component-name))
+            application-components))
+        required
+        (mapv
+          (fn [(property IrComponentPropertySpec)] String (.-name property))
+          (.-properties target))
+        provided (if (nil? component) [] (.-props component))
+        missing
+        (filterv
+          (fn [property] Bool (not (.includes provided property)))
+          required)
+        port (imported-port-name (.-prefix resolver) (.-slot source))]
+    (if (nil? component)
+      (graph-error
+        (str "component fill '" port "' names unknown application component '"
+             component-name "'"))
+      nil)
+    (if (> (count missing) 0)
+      (graph-error
+        (str "component fill '" port "' lacks required props: "
+             (.join missing ", ")))
+      nil)
+    (->GFill port component-name package-id target-name)))
+
+(defn filled-component-name [(name String) (fills (Vec GFill))] String
+  (let [matches
+        (filterv
+          (fn [(fill GFill)] Bool (= (.-target-component fill) name))
+          fills)]
+    (if (> (count matches) 1)
+      (graph-error (str "component '" name "' is filled more than once"))
+      nil)
+    (if (= (count matches) 1) (.-component (first matches)) name)))
+
+(defn apply-component-fills [(view IrView) (fills (Vec GFill))] IrView
+  (ir/->IrView
+    (.-name view)
+    (.-entity-name view)
+    (filled-component-name (.-component view) fills)
+    (.-add-fields view)
+    (.-title view)
+    (if (nil? (.-select-component view))
+      nil
+      (filled-component-name (.-select-component view) fills))
+    (.-tabs view)
+    (.-filters view)
+    (.-date-filters view)))
+
+(defn apply-component-fills-to-components
+  [(components (Vec IrComponent)) (fills (Vec GFill))] (Vec IrComponent)
+  (reduce
+    (fn [(result (Vec IrComponent)) (component IrComponent)] (Vec IrComponent)
+      (let [name (filled-component-name (.-name component) fills)
+            replacement
+            (first
+              (filterv
+                (fn [(candidate IrComponent)] Bool
+                  (= (.-name candidate) name))
+                components))]
+        (if (nil? replacement)
+          (graph-error
+            (str "component fill names missing replacement component '" name "'"))
+          nil)
+        (if (some?
+              (first
+                (filterv
+                  (fn [(candidate IrComponent)] Bool
+                    (= (.-name candidate) name))
+                  result)))
+          result
+          (conj result replacement))))
+    []
+    components))
+
+(defn route-pattern [(path String)] String
+  (if (= path "/")
+    ""
+    (.join
+      (mapv
+        (fn [segment] String (if (.startsWith segment ":") ":" segment))
+        (.split (subs path 1) "/"))
+      "/")))
+
 (defn mounted-route
   [(mount IrMountSpec)
    (program IrDeclarationProgram)
@@ -1729,13 +1875,46 @@
 (defn lowered-mount
   [(source IrMountSpec)
    (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  IrMount
-  (ir/->IrMount
-    (imported-port-name (.-prefix resolver) (.-slot source))
-    (.-path source)
-    (route-parameters (.-path source))
-    (ir/->SourceSpan "linked-declarations" 0 0 1 1 1 1)))
+   (resolver DeclarationResolver)
+   (package-id String)]
+  GMount
+  (let [slot (plugin-port program (.-slot source) "route-slots" "route slot")
+        template
+        (plugin-port program (.-target slot) "route-templates" "mounted route")
+        view
+        (declaration-with-ref
+          (.-views program) (.-view template) "mounted route view")
+        component
+        (declaration-with-ref
+          (.-components program) (.-component view) "mounted route component")
+        input-parameters
+        (mapv
+          (fn [(parameter IrRouteParameterSpec)] String (.-name parameter))
+          (.-parameters template))
+        parameters (route-parameters (.-path source))
+        port (imported-port-name (.-prefix resolver) (.-slot source))]
+    (if (not (= (count parameters) (count input-parameters)))
+      (graph-error
+        (str "mount '" port "' requires exactly "
+             (count input-parameters) " route parameters"))
+      nil)
+    (->GMount
+      input-parameters
+      package-id
+      parameters
+      (.-path source)
+      (route-pattern (.-path source))
+      port
+      (mapv
+        (fn [(query IrRouteQuerySpec)] IrRouteQuery
+          (ir/->IrRouteQuery
+            (resolved-name resolver "query" (.-query query)) (.-alias query)))
+        (.-queries template))
+      (mapv
+        (fn [(property IrComponentPropertySpec)] String (.-name property))
+        (.-properties component))
+      (resolved-name resolver "route" (.-target slot))
+      (resolved-name resolver "view" (.-view template)))))
 
 (defn command-descriptor-shape [(descriptor Any)] Any
   (let [kind (get descriptor "kind")]
@@ -2202,7 +2381,10 @@
       "resultFields" final-receipt-results}}))
 
 (defn lower-plugin-instance
-  [(instance IrLinkedPluginInstance) (application-id String)] LoweredPlugin
+  [(instance IrLinkedPluginInstance)
+   (application-id String)
+   (application-components (Vec IrComponent))]
+  LoweredPlugin
   (let [checked
         (require-ir-tag
           (.-checked instance) "IrCheckedDeclarationProgram"
@@ -2229,16 +2411,20 @@
         route?
         (contribution-allowed? (.-use instance) "IrRouteContribution")
         extensions (lower-extensions instance program resolver)
-        raw-extensions (extension-values extensions)]
+        raw-extensions (extension-values extensions)
+        package-id (.-package-id (.-evidence instance))
+        fills
+        (if ui?
+          (mapv
+            (fn [(source IrFillSpec)] GFill
+              (lower-component-fill
+                source program resolver application-components package-id))
+            (.-fills (.-composition instance)))
+          [])]
     (if (> (count (.-renderers program)) 0)
       (graph-error
         (str "plugin '" (.-alias instance)
              "' renderers await checked renderer lowering"))
-      nil)
-    (if (> (count (.-fills (.-composition instance))) 0)
-      (graph-error
-        (str "plugin '" (.-alias instance)
-             "' component fills await checked fill lowering"))
       nil)
     (->LoweredPlugin
       instance
@@ -2306,11 +2492,11 @@
         (lower-provider-bindings instance program resolver)
         [])
       extensions
-      []
+      fills
       (if route?
         (mapv
-          (fn [(mount IrMountSpec)] IrMount
-            (lowered-mount mount program resolver))
+          (fn [(mount IrMountSpec)] GMount
+            (lowered-mount mount program resolver package-id))
           (.-mounts (.-composition instance)))
         [])
       (if ui?
@@ -4034,10 +4220,24 @@
       [] fills)
     (reduce
       (fn [seen mount] (Vec String)
+        (let [port (.-port mount)]
+          (if (.includes seen port)
+            (graph-error (str "route slot '" port "' is mounted twice"))
+            (conj seen port))))
+      [] mounts)
+    (reduce
+      (fn [seen mount] (Vec String)
         (let [path (.-path mount)]
           (if (.includes seen path)
             (graph-error (str "route path '" path "' is mounted twice"))
             (conj seen path))))
+      [] mounts)
+    (reduce
+      (fn [seen mount] (Vec String)
+        (let [pattern (.-pattern mount)]
+          (if (.includes seen pattern)
+            (graph-error (str "route pattern '" pattern "' is mounted twice"))
+            (conj seen pattern))))
       [] mounts)
     nil))
 
@@ -4050,11 +4250,11 @@
         validated-declarations (validate-declaration-uniqueness prog entities)
         validated-storage-ids (validate-storage-id-uniqueness entities)
         validated (validate-backend prog entities)
+        validated-composition (check-composition prog)
         validated-ui-root (validate-ui-root-topology prog)
         validated-create-forms (validate-fram-create-forms prog entities)
         validated-ui (validate-ui-references prog entities)
         validated-defstates (validate-defstates defstates)
-        validated-composition (check-composition prog)
         fk-edges (resolve-fk-edges entities)
         state-machines
         (resolve-state-machines entities defstates)
@@ -4062,7 +4262,15 @@
         queries (resolve-queries prog entities defstates)
         list-details (resolve-list-details prog entities)
         route-templates (checked-route-templates prog queries)
-        router (checked-router prog queries)]
+        router (checked-router prog queries)
+        fills (or (.-fills prog) [])
+        components
+        (apply-component-fills-to-components
+          (or (.-components prog) []) fills)
+        views
+        (mapv
+          (fn [(view IrView)] IrView (apply-component-fills view fills))
+          (or (.-views prog) []))]
     (->CheckedApplication
       1
       app-id
@@ -4074,7 +4282,7 @@
       (or (.-value-types prog) [])
       (or (.-provider-ports prog) [])
       (or (.-extends prog) [])
-      (or (.-fills prog) [])
+      fills
       (or (.-mounts prog) [])
       route-templates
       (or (.-ns prog) "wake.app")
@@ -4090,8 +4298,8 @@
       list-details
       (or (.-forms prog) [])
       (.-theme prog)
-      (or (.-components prog) [])
-      (or (.-views prog) [])
+      components
+      views
       router
       (.-layout prog))))
 
@@ -4159,7 +4367,8 @@
           plugins
           (mapv
             (fn [(instance IrLinkedPluginInstance)] LoweredPlugin
-              (lower-plugin-instance instance app-id))
+              (lower-plugin-instance
+                instance app-id application-components))
             (.-plugins linked))
           plugin-extensions
           (reduce
@@ -4320,9 +4529,12 @@
               (into result (.-provider-ports plugin)))
             [] plugins)
           (extension-values plugin-extensions)
-          []
           (reduce
-            (fn [result plugin] (Vec IrMount)
+            (fn [result plugin] (Vec GFill)
+              (into result (.-fills plugin)))
+            [] plugins)
+          (reduce
+            (fn [result plugin] (Vec GMount)
               (into result (.-mounts plugin)))
             [] plugins)
           (reduce

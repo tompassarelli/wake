@@ -147,6 +147,9 @@ const application = `#lang beagle/js
      (wake/->StringValueType nil nil nil))
    (wake/->ComponentPropertySpec
      :current-state
+     (wake/->StringValueType nil nil nil))
+   (wake/->ComponentPropertySpec
+     :application-only
      (wake/->StringValueType nil nil nil))]
   [(wake/->Element
      :div
@@ -303,6 +306,8 @@ describe("W3 checked application composition", () => {
     });
     expect(plan.composition.fills[0]).toMatchObject({
       component: "application-release-card",
+      package_id: "wake-composition-plugin",
+      port: "release-plugin.release-card",
       target_component: "release-plugin.release-card",
     });
     expect(plan.composition.mounts[0]).toMatchObject({
@@ -380,16 +385,26 @@ describe("W3 checked application composition", () => {
   test("rejects undeclared ports, duplicate route patterns, and missing extension targets", async () => {
     for (const [change, expected] of [
       [
-        source => source.replace("release-plugin.release-summary", "release-plugin.unknown-provider"),
-        "unexported provider port 'unknown-provider'",
+        source => source.replace(
+          '(wake/bind-provider\n  release-summary-provider\n  release-plugin-ref\n  "release-summary"',
+          '(wake/bind-provider\n  release-summary-provider\n  release-plugin-ref\n  "unknown-provider"',
+        ),
+        "providers names unexported 'unknown-provider'",
       ],
       [
-        source => `${source}(mount release-plugin.release-detail :path "/releases/:other-id")\n`,
+        source => source
+          .replace(
+            "  [release-detail-mount])",
+            "  [release-detail-mount release-detail-mount])",
+          ),
         "route slot 'release-plugin.release-detail' is mounted twice",
       ],
       [
-        source => source.replace("release-plugin.release-fields", "release-plugin.unknown-fields"),
-        "unknown extension port 'unknown-fields'",
+        source => source.replace(
+          '(wake/extend-entity-fields\n  release-fields-extension\n  release-plugin-ref\n  "release-fields"',
+          '(wake/extend-entity-fields\n  release-fields-extension\n  release-plugin-ref\n  "unknown-fields"',
+        ),
+        "extensions names unexported 'unknown-fields'",
       ],
     ]) {
       const root = await fixture(change(application));
@@ -399,18 +414,27 @@ describe("W3 checked application composition", () => {
     }
   }, 60_000);
 
-  test("rejects missing storage identity and incompatible component fills", async () => {
+  test("rejects invalid extension fields and incompatible component fills", async () => {
     const withoutStorage = application.replace(
-      '    :storage-id "wake-composition-fixture/field/release/channel"\n',
-      "",
+      '    "wake-composition-fixture/field/release/channel"',
+      '    ""',
     );
     let root = await fixture(withoutStorage);
     let result = runCompile(root);
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr.toString()).toContain("requires :storage-id");
+    expect(result.stderr.toString()).toContain("requires an explicit storage ID");
+
+    const wrongWritePolicy = application.replace(
+      "    (wake/->CreateWrite nil)\n    \"wake-composition-fixture/field/release/channel\"",
+      "    (wake/->ServerWrite nil)\n    \"wake-composition-fixture/field/release/channel\"",
+    );
+    root = await fixture(wrongWritePolicy);
+    result = runCompile(root);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain("must use create write policy");
 
     const incompatible = application
-      .replace(":props [current-id current-state]", ":props [current-id]");
+      .replaceAll(":current-state", ":application-state");
     root = await fixture(incompatible);
     result = runCompile(root);
     expect(result.exitCode).not.toBe(0);
