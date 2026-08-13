@@ -2,6 +2,8 @@
 (ns wake.fixtures.macro-provenance.application
   (:require [wake.core :as wake]))
 
+(wake/command-receipt-core)
+
 (wake/defstate-model
   publication-state
   "host/state/publication"

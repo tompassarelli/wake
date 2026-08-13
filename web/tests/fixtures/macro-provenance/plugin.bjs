@@ -2,6 +2,8 @@
 (ns wake.fixtures.macro-provenance.plugin
   (:require [wake.core :as wake]))
 
+(wake/command-receipt-core)
+
 (wake/defcapability
   browse-published
   "capability/browse-published"

@@ -104,6 +104,14 @@ function record(name) {
 }
 
 const pluginInventory = [
+  ["command-receipt-core", [
+    def("wake-command-receipt-ref", "ReceiptEntityRef"),
+    def("wake-command-receipt", "ReceiptEntitySpec"),
+    ...["id", "actor", "command", "input-digest", "created-at"].flatMap((name) => [
+      def(`wake-command-receipt-${name}-ref`, "ReceiptFieldRef"),
+      def(`wake-command-receipt-${name}`, "ReceiptFieldDeclarationSpec"),
+    ]),
+  ]],
   ["defcapability", [
     def("browse-published-ref", "CapabilityRef"),
     def("browse-published", "CapabilitySpec"),
@@ -227,6 +235,14 @@ const pluginInventory = [
 ];
 
 const applicationInventory = [
+  ["command-receipt-core", [
+    def("wake-command-receipt-ref", "ReceiptEntityRef"),
+    def("wake-command-receipt", "ReceiptEntitySpec"),
+    ...["id", "actor", "command", "input-digest", "created-at"].flatMap((name) => [
+      def(`wake-command-receipt-${name}-ref`, "ReceiptFieldRef"),
+      def(`wake-command-receipt-${name}`, "ReceiptFieldDeclarationSpec"),
+    ]),
+  ]],
   ["defstate-model", [
     def("publication-state-ref", "StateRef"),
     def("publication-state-working-ref", "StateValueRef"),
@@ -387,6 +403,8 @@ const tokenPrefixes = new Map([
   ["PublicationRef", "publication"],
   ["FormRef", "form"],
   ["ListDetailRef", "list-detail"],
+  ["ReceiptEntityRef", "receipt-entity"],
+  ["ReceiptFieldRef", "receipt-field"],
   ["EntityFieldsPortRef", "entity-fields-port"],
   ["ComponentSlotRef", "component-slot"],
   ["RouteSlotRef", "route-slot"],
