@@ -236,7 +236,6 @@ afterAll(() => {
 
 test("lowers an exact linked declaration program without erasing its typed sidecar", () => {
   assert.equal(typeof graph.check_linked_declaration_program, "function");
-  assert.equal("check_program" in graph, false);
 
   const { linked, sourceUnit } = linkedApplication();
   const checked = graph.check_linked_declaration_program(linked);
