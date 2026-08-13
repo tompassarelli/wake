@@ -17,7 +17,7 @@ function artifacts() {
     alias: "fixture",
     artifactDigest: `sha256:${"7".repeat(64)}`,
     packageId: "neutral-plugin",
-    version: "1.0.0",
+    version: "0.1.0",
   };
   const planValue = {
     applicationId,

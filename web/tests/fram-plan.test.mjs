@@ -63,7 +63,7 @@ const pluginClosure = [{
   durableSchemaVersion: 1,
   migrationOrdinal: 0,
   packageId: "wake-wiki-core",
-  version: "1.0.0",
+  version: "0.1.0",
 }];
 
 const checkedWiki = {
