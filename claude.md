@@ -57,7 +57,7 @@ not invoke bare Racket or patch generated JavaScript.
 | Source | Responsibility |
 | --- | --- |
 | `wake:web/compiler/ir.bjs` | typed compiler IR records |
-| `wake:web/compiler/checked-beagle.mjs` | checked Beagle declarations to Wake IR |
+| `wake:web/compiler/checked-declarations.mjs` | checked Beagle bundles to typed Wake declarations |
 | `wake:web/compiler/graph.bjs` | semantic validation and checked graph |
 | `wake:web/compiler/ui.bjs` | UI expansion |
 | `wake:web/compiler/codegen.bjs` | direct-DOM and browser connector output |
