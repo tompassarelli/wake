@@ -728,11 +728,24 @@ describe("wake-wiki K0C data contract", () => {
       await compileSubstratePlan();
     expect(plan.applicationId).toBe("wake-wiki-substrate-fixture");
     expect(plan.pluginClosure).toHaveLength(1);
-    expect(plan.pluginClosure[0]).toMatchObject({
-      alias: "wiki",
+    const manifestPlugin = applicationManifest.plugins[0];
+    expect(manifestPlugin).toMatchObject({
       allowedContributions: ["schema", "query", "command", "capability", "ui", "route"],
       packageId: "wake-wiki",
       version: "0.1.0",
+    });
+    expect(plan.pluginClosure[0]).toEqual({
+      alias: manifestPlugin.alias,
+      artifact_digest: manifestPlugin.artifactDigest,
+      artifact_path: "wake-wiki.wakepkg.json",
+      configuration_digest: manifestPlugin.configurationDigest,
+      durable_schema_version: manifestPlugin.durableSchemaVersion,
+      entry_path: "plugin.bjs",
+      migration_ordinal: manifestPlugin.migrationOrdinal,
+      package_id: manifestPlugin.packageId,
+      source_kind: manifestPlugin.source.kind,
+      source_revision: manifestPlugin.source.commit,
+      version: manifestPlugin.version,
     });
     expect(plan.entities.map((entity) => entity.name)).toEqual([
       "member",
