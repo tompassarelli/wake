@@ -154,7 +154,7 @@ const expectedRepository = {
   directory: "web/runtime",
 };
 if (packageJson.name !== "@tompassarelli/wake-runtime"
-    || packageJson.version !== "0.1.1"
+    || packageJson.version !== "0.1.2"
     || packageJson.type !== "module"
     || packageJson.types !== "./index.d.ts"
     || packageJson.sideEffects !== false
@@ -162,7 +162,7 @@ if (packageJson.name !== "@tompassarelli/wake-runtime"
     || !sameValues(packageJson.exports, expectedExports)
     || !sameValues(packageJson.files, expectedFiles)
     || !sameValues(packageJson.repository, expectedRepository)) {
-  throw new Error("runtime package manifest differs from the closed 0.1.1 release contract");
+  throw new Error("runtime package manifest differs from the closed 0.1.2 release contract");
 }
 for (const relative of ["package.json", ...expectedFiles]) {
   const entry = text([
