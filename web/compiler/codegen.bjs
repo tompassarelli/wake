@@ -218,15 +218,15 @@
 
 
 (defn compile-derived-expr [(expr Any) (subst Any)] String
-  (let [kind (.-kind expr)]
+  (let [tag (.-_tag expr)]
     (cond
-      (= kind "field")
-        (let [name (.-field expr)]
+      (= tag "IrFieldDerivedExpr")
+        (let [name (.-name (.-field expr))]
           (if (and (not (nil? subst)) (not (nil? (get subst name))))
             (get subst name)
             (str "(entity[" (q name) "] || '')")))
-      (= kind "string") (q (.-value expr))
-      (= kind "concat")
+      (= tag "IrStringDerivedExpr") (q (.-value expr))
+      (= tag "IrConcatDerivedExpr")
         (.join
           (mapv (fn [part] String (compile-derived-expr part subst)) (.-parts expr))
           " + ")

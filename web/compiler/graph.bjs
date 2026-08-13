@@ -4,7 +4,7 @@
 
 ;; Checked Entity Graph
 ;;
-;; Takes raw IrProgram from the reader and produces an analyzed graph.
+;; Resolves a linked typed declaration program into one analyzed graph.
 ;; Every emitter reads this graph instead of re-deriving relationships.
 
 ;; --- Graph records ---
@@ -115,6 +115,7 @@
    (application-id String)
    (source-units (Vec IrSourceUnit))
    (plugin-closure (Vec Any))
+   (linked-declarations IrLinkedDeclarationProgram)
    (semantic-fingerprint String?)
    (providers (Vec IrProvider))
    (value-types (Vec Any))
@@ -140,6 +141,1092 @@
    (views (Vec IrView))
    (router IrRouter?)
    (layout IrLayout?)])
+
+;; Exact nominal resolution happens before the existing graph analyses.  This
+;; is a graph input, not a public/source IR: its linked declaration sidecar is
+;; retained and every string name below has already been resolved from a
+;; concrete nominal reference.
+(defrecord ResolvedDeclarationProgram
+  [(linked-declarations IrLinkedDeclarationProgram)
+   (application-id String)
+   (source-unit IrSourceUnit)
+   (source-units (Vec IrSourceUnit))
+   (plugin-closure (Vec Any))
+   (declaration-provenance (Vec IrDeclarationProvenance))
+   (ns String)
+   (backend IrBackend?)
+   (entities (Vec GEntity))
+   (persist IrPersist?)
+   (defstates (Vec IrDefstate))
+   (publications (Vec IrPublication))
+   (queries (Vec IrQuery))
+   (commands (Vec Any))
+   (list-details (Vec IrListDetail))
+   (forms (Vec IrSmartForm))
+   (theme IrTheme?)
+   (components (Vec IrComponent))
+   (views (Vec IrView))
+   (router IrRouter?)
+   (providers (Vec IrProvider))
+   (value-types (Vec Any))
+   (provider-ports (Vec Any))
+   (extends (Vec IrExtend))
+   (fills (Vec IrFill))
+   (mounts (Vec IrMount))
+   (route-templates (Vec IrRoute))
+   (layout IrLayout?)])
+
+;; --- Checked declaration lowering ---
+
+(defn require-ir-tag [(value Any) (tag String) (label String)] Any
+  (if (or (nil? value) (not (= (.-_tag value) tag)))
+    (graph-error
+      (str label " must be " tag ", got "
+           (if (nil? value) "nil" (or (.-_tag value) "untagged"))))
+    value))
+
+(defn same-nominal? [(left Any) (right Any)] Bool
+  (and
+    (some? left)
+    (some? right)
+    (= (.-_tag left) (.-_tag right))
+    (= (.-declaration-id left) (.-declaration-id right))))
+
+(defrecord DeclarationResolver
+  [(prefix String)
+   (package-id String)
+   (bindings IrPluginBindings?)
+   (entity-names Any)
+   (field-names Any)
+   (state-names Any)
+   (state-values Any)
+   (receipt-field-names Any)
+   (value-bindings Any)
+   (provider-bindings Any)])
+
+(defn empty-resolver [] DeclarationResolver
+  (->DeclarationResolver "" "application" nil {} {} {} {} {} {} {}))
+
+(defn ref-key [(ref Any)] String
+  (or (.-declaration-id ref) ""))
+
+(defn resolved-local-name
+  [(resolver DeclarationResolver) (kind String) (ref Any)] String
+  (let [renames
+        (cond
+          (= kind "entity") (.-entity-names resolver)
+          (= kind "field") (.-field-names resolver)
+          (= kind "state") (.-state-names resolver)
+          (= kind "state-value") (.-state-values resolver)
+          (= kind "receipt-field") (.-receipt-field-names resolver)
+          :else {})]
+    (or (get renames (ref-key ref)) (.-name ref))))
+
+(defn resolved-name
+  [(resolver DeclarationResolver) (kind String) (ref Any)] String
+  (let [name (resolved-local-name resolver kind ref)]
+    (if (or (= (.-prefix resolver) "")
+            (= kind "field")
+            (= kind "state-value")
+            (= kind "receipt-field"))
+      name
+      (str (.-prefix resolver) "." name))))
+
+(defn binding-for-role [(items Any) (role Any) (label String)] Any
+  (let [matches
+        (filterv
+          (fn [(binding Any)] Bool
+            (= (ref-key (.-role binding)) (ref-key role)))
+          (or items []))]
+    (if (not (= (count matches) 1))
+      (graph-error
+        (str label " requires exactly one binding for role '" (ref-key role) "'"))
+      (first matches))))
+
+(defn role-renames
+  [(specs Any) (bindings Any) (target-fn Any) (value-fn Any) (label String)] Any
+  (reduce
+    (fn [result spec] Any
+      (let [binding (binding-for-role bindings (.-ref spec) label)
+            target (target-fn spec)
+            key (ref-key target)]
+        (if (some? (get result key))
+          (graph-error (str label " repeats target '" key "'"))
+          (assoc result key (value-fn binding)))))
+    {}
+    (or specs [])))
+
+(defn plugin-resolver
+  [(instance IrLinkedPluginInstance)
+   (program IrDeclarationProgram)]
+  DeclarationResolver
+  (let [plugin (.-plugin (.-root program))
+        schema (.-configuration plugin)
+        bindings (.-bindings (.-use instance))
+        entity-names
+        (role-renames
+          (.-entity-names schema) (.-entity-names bindings)
+          (fn [(spec IrEntityNameRoleSpec)] Any (.-target spec))
+          (fn [(binding IrEntityNameBinding)] String (.-value (.-value binding)))
+          "plugin entity-name configuration")
+        field-names
+        (role-renames
+          (filterv
+            (fn [(spec IrFieldNameRoleSpec)] Bool
+              (= (.-_tag (.-target spec)) "IrEntityFieldNameRoleTarget"))
+            (.-field-names schema))
+          (.-field-names bindings)
+          (fn [(spec IrFieldNameRoleSpec)] Any (.-field (.-target spec)))
+          (fn [(binding IrFieldNameBinding)] String
+            (.-value (.-name (.-value binding))))
+          "plugin field-name configuration")
+        receipt-field-names
+        (role-renames
+          (filterv
+            (fn [(spec IrFieldNameRoleSpec)] Bool
+              (= (.-_tag (.-target spec)) "IrReceiptFieldNameRoleTarget"))
+            (.-field-names schema))
+          (.-field-names bindings)
+          (fn [(spec IrFieldNameRoleSpec)] Any (.-field (.-target spec)))
+          (fn [(binding IrFieldNameBinding)] String
+            (.-value (.-name (.-value binding))))
+          "plugin receipt-field-name configuration")
+        state-names
+        (role-renames
+          (.-state-names schema) (.-state-names bindings)
+          (fn [(spec IrStateNameRoleSpec)] Any (.-target spec))
+          (fn [(binding IrStateNameBinding)] String (.-value (.-value binding)))
+          "plugin state-name configuration")
+        state-values
+        (role-renames
+          (.-state-value-names schema) (.-state-value-names bindings)
+          (fn [(spec IrStateValueNameRoleSpec)] Any (.-target spec))
+          (fn [(binding IrStateValueNameBinding)] String
+            (strip-colon (.-value (.-value binding))))
+          "plugin state-value-name configuration")
+        values
+        (reduce
+          (fn [result binding] Any
+            (assoc result (ref-key (.-role binding)) (.-value binding)))
+          {}
+          (.-values bindings))
+        providers
+        (reduce
+          (fn [result binding] Any
+            (assoc result (ref-key (.-port binding)) (.-name binding)))
+          {}
+          (.-providers (.-composition instance)))]
+    (->DeclarationResolver
+      (.-alias instance)
+      (.-package-id (.-evidence instance))
+      bindings
+      entity-names field-names state-names state-values receipt-field-names
+      values providers)))
+
+(defn value-expression-literal
+  [(expr IrValueExpr) (resolver DeclarationResolver) (label String)] Any
+  (let [tag (.-_tag expr)]
+    (cond
+      (= tag "IrLiteralStringValue") (.-value expr)
+      (= tag "IrLiteralIntegerValue") (.-value expr)
+      (= tag "IrLiteralBooleanValue") (.-value expr)
+      (= tag "IrLiteralKeywordValue") (strip-colon (.-value expr))
+      (= tag "IrLiteralNilValue") nil
+      (= tag "IrRecordValue")
+        (reduce
+          (fn [result field] Any
+            (assoc result (.-name field)
+                   (value-expression-literal (.-value field) resolver label)))
+          {}
+          (.-fields expr))
+      (= tag "IrListValue")
+        (mapv
+          (fn [(item IrValueExpr)] Any
+            (value-expression-literal item resolver label))
+          (.-items expr))
+      (= tag "IrConfigValue")
+        (let [bound (get (.-value-bindings resolver) (ref-key (.-role expr)))]
+          (if (nil? bound)
+            (graph-error (str label " names an unbound configured value"))
+            (value-expression-literal bound resolver label)))
+      (= tag "IrConfigProjectionValue")
+        (let [projection (.-projection expr)
+              bound (get (.-value-bindings resolver) (ref-key (.-role projection)))
+              root
+              (if (nil? bound)
+                (graph-error (str label " names an unbound configured projection"))
+                (value-expression-literal bound resolver label))]
+          (reduce
+            (fn [value part] Any
+              (let [next (if (nil? value) nil (get value part))]
+                (if (nil? next)
+                  (graph-error
+                    (str label " configuration projection misses '" part "'"))
+                  next)))
+            root
+            (.-path projection)))
+      (= tag "IrBoundFieldValue")
+        (graph-error (str label " cannot use a bound field as a constant"))
+      :else
+        (graph-error (str label " uses unsupported value expression '" tag "'")))))
+
+(defn resolved-bound-int
+  [(bound IrBoundInt) (resolver DeclarationResolver) (label String)] Int
+  (let [tag (.-_tag bound)
+        value
+        (cond
+          (= tag "IrLiteralBound") (.-value bound)
+          (= tag "IrConfiguredBound")
+            (let [binding
+                  (binding-for-role
+                    (.-ints (.-bindings resolver)) (.-role bound) label)]
+              (.-value binding))
+          (= tag "IrConfiguredProjectionBound")
+            (value-expression-literal
+              (ir/->IrConfigProjectionValue (.-projection bound)) resolver label)
+          :else (graph-error (str label " uses unsupported bound '" tag "'")))]
+    (if (or (not (number? value)) (not (js/Number.isSafeInteger value)))
+      (graph-error (str label " must resolve to a safe integer"))
+      value)))
+
+(defn declaration-with-ref [(items Any) (ref Any) (label String)] Any
+  (let [matches
+        (filterv
+          (fn [(item Any)] Bool
+            (same-nominal? (or (.-ref item) (.-root item)) ref))
+          items)]
+    (if (not (= (count matches) 1))
+      (graph-error
+        (str label " must resolve to exactly one declaration, found "
+             (count matches)))
+      (first matches))))
+
+(defn root-storage-id
+  [(root IrApplicationRootSpec) (entity IrEntityRef)] String?
+  (let [matches
+        (filterv
+          (fn [(storage IrStorageSpec)] Bool
+            (same-nominal? (.-entity storage) entity))
+          (.-storage root))]
+    (if (> (count matches) 1)
+      (graph-error
+        (str "application storage repeats entity '" (.-name entity) "'"))
+      nil)
+    (if (= (count matches) 0) nil (.-storage-id (first matches)))))
+
+(defn root-identity-field
+  [(root IrApplicationRootSpec) (entity IrEntityRef)] IrFieldRef?
+  (let [matches
+        (filterv
+          (fn [(identity IrIdentitySpec)] Bool
+            (same-nominal? (.-entity identity) entity))
+          (.-identities root))]
+    (if (> (count matches) 1)
+      (graph-error
+        (str "application identities repeat entity '" (.-name entity) "'"))
+      nil)
+    (if (= (count matches) 0) nil (.-field (first matches)))))
+
+(defn field-cardinality-name [(cardinality IrFieldCardinality)] String
+  (let [tag (.-_tag cardinality)]
+    (cond
+      (= tag "IrSingleField") "single"
+      (= tag "IrManyField") "multi"
+      :else
+        (graph-error
+          (str "field cardinality uses unsupported constructor '" tag "'")))))
+
+(defn field-write-name [(write IrFieldWriteMode)] String
+  (let [tag (.-_tag write)]
+    (cond
+      (= tag "IrIdentityWrite") "identity"
+      (= tag "IrCreateWrite") "create"
+      (= tag "IrSetWrite") "set"
+      (= tag "IrCommandFieldWrite") "command"
+      (= tag "IrServerWrite") "server"
+      :else
+        (graph-error
+          (str "field write mode uses unsupported constructor '" tag "'")))))
+
+(defn external-entity-binding
+  [(bindings IrPluginBindings) (role IrExternalEntityRoleRef)] IrEntityRef
+  (let [matches
+        (filterv
+          (fn [(binding IrExternalEntityBinding)] Bool
+            (= (.-declaration-id (.-role binding)) (.-declaration-id role)))
+          (.-external-entities bindings))]
+    (if (not (= (count matches) 1))
+      (graph-error
+        (str "external entity role '" (.-declaration-id role)
+             "' must have exactly one checked binding"))
+      (.-value (first matches)))))
+
+(defn field-type-shape
+  [(value-type IrFieldValueType) (resolver DeclarationResolver)] Any
+  (let [tag (.-_tag value-type)]
+    (cond
+      (= tag "IrStringField") ["String" "literal" nil]
+      (= tag "IrIntField") ["Int" "literal" nil]
+      (= tag "IrBoolField") ["Bool" "literal" nil]
+      (= tag "IrKeywordField") ["Keyword" "literal" nil]
+      (= tag "IrInstantField") ["Instant" "literal" nil]
+      (= tag "IrDigestField") ["Digest" "literal" nil]
+      (= tag "IrStateField")
+        [(resolved-name resolver "state" (.-state value-type)) "literal" nil]
+      (= tag "IrValueField")
+        [(resolved-name resolver "value-type" (.-value-type value-type)) "literal" nil]
+      (= tag "IrRefField")
+        (let [target (.-target value-type)
+              target-tag (.-_tag target)]
+          (cond
+            (= target-tag "IrDeclaredEntityTarget")
+              ["Ref" "ref" (resolved-name resolver "entity" (.-entity target))]
+            (= target-tag "IrExternalEntityTarget")
+              (if (nil? (.-bindings resolver))
+                (graph-error "application field cannot use an unbound external entity role")
+                ["Ref" "ref"
+                 (.-name
+                   (external-entity-binding
+                     (.-bindings resolver) (.-role target)))])
+            :else
+              (graph-error
+                (str "reference field uses unsupported target '" target-tag "'"))))
+      :else
+        (graph-error
+          (str "field uses unsupported value type '" tag "'")))))
+
+(defn lower-stored-field
+  [(field IrFieldSpec)
+   (entity IrEntityDeclarationSpec)
+   (resolver DeclarationResolver)
+   (application-id String)
+   (entity-local Bool)
+   (entity-name String)]
+  GField
+  (if (not (same-nominal? (.-owner field) (.-ref entity)))
+    (graph-error
+      (str "field '" (.-name (.-ref field)) "' has a foreign entity owner"))
+    nil)
+  (let [name (resolved-name resolver "field" (.-ref field))
+        shape (field-type-shape (.-value-type field) resolver)
+        write (field-write-name (.-write field))
+        storage-id
+        (required-storage-id
+          (.-storage-id field)
+          (str "field '" entity-name "." name "'")
+          (str "app:" application-id "/entity:" entity-name "/field:" name)
+          entity-local)]
+    (->GField
+      name
+      storage-id
+      (nth shape 0)
+      (= write "identity")
+      (field-cardinality-name (.-cardinality field))
+      (nth shape 1)
+      (nth shape 2)
+      (if (= write "identity") "set" write)
+      false
+      []
+      nil)))
+
+(defn derived-expression-dependencies [(expr IrDerivedExpr)] (Vec String)
+  (let [tag (.-_tag expr)]
+    (cond
+      (= tag "IrFieldDerivedExpr") [(.-name (.-field expr))]
+      (= tag "IrStringDerivedExpr") []
+      (= tag "IrConcatDerivedExpr")
+        (reduce
+          (fn [(result (Vec String)) (part IrDerivedExpr)] (Vec String)
+            (append-unique-derived-deps
+              result (derived-expression-dependencies part)))
+          []
+          (.-parts expr))
+      :else
+        (graph-error
+          (str "derived expression uses unsupported constructor '" tag "'")))))
+
+(defn lower-derived-field
+  [(field IrDerivedFieldSpec)
+   (entity IrEntityDeclarationSpec)
+   (application-id String)
+   (entity-name String)]
+  GField
+  (if (not (same-nominal? (.-owner field) (.-ref entity)))
+    (graph-error
+      (str "derived field '" (.-name (.-ref field))
+           "' has a foreign entity owner"))
+    nil)
+  (let [name (.-name (.-ref field))
+        declared (mapv (fn [(ref IrFieldRef)] String (.-name ref))
+                       (.-dependencies field))
+        actual (derived-expression-dependencies (.-expression field))]
+    (if (not (= declared actual))
+      (graph-error
+        (str "derived field '" entity-name "." name
+             "' dependencies do not exactly match its expression"))
+      nil)
+    (->GField
+      name
+      (str "app:" application-id "/entity:" entity-name "/derived:" name)
+      "Derived"
+      false
+      "single"
+      "literal"
+      nil
+      "set"
+      true
+      declared
+      (.-expression field))))
+
+(defn lower-entity-declaration
+  [(entity IrEntityDeclarationSpec)
+   (root IrApplicationRootSpec?)
+   (resolver DeclarationResolver)
+   (application-id String)
+   (entity-local Bool)]
+  GEntity
+  (let [name (resolved-name resolver "entity" (.-ref entity))
+        root-storage (if (nil? root) nil (root-storage-id root (.-ref entity)))
+        declared-storage (.-storage-id entity)
+        storage-id
+        (do
+          (if (and (some? root-storage) (some? declared-storage)
+                   (not (= root-storage declared-storage)))
+            (graph-error
+              (str "entity '" name "' has conflicting fixed storage IDs"))
+            nil)
+          (required-storage-id
+            (or root-storage declared-storage)
+            (str "entity '" name "'")
+            (str "app:" application-id "/entity:" name)
+            entity-local))
+        stored
+        (mapv
+          (fn [(field IrFieldSpec)] GField
+            (lower-stored-field
+              field entity resolver application-id entity-local name))
+          (.-fields entity))
+        derived
+        (mapv
+          (fn [(field IrDerivedFieldSpec)] GField
+            (lower-derived-field field entity application-id name))
+          (.-derived-fields entity))
+        fields (into stored derived)
+        field-names (mapv (fn [(field GField)] String (.-name field)) fields)
+        identity-fields (filterv (fn [(field GField)] Bool (.-identity field)) stored)
+        root-identity (if (nil? root) nil (root-identity-field root (.-ref entity)))]
+    (validate-distinct-names field-names (str "entity '" name "' field"))
+    (if (some? root-identity)
+      (let [resolved
+            (filterv
+              (fn [(field IrFieldSpec)] Bool
+                (same-nominal? (.-ref field) root-identity))
+              (.-fields entity))]
+        (if (not (= (count resolved) 1))
+          (graph-error
+            (str "entity '" name "' identity names a foreign field"))
+          nil)
+        (if (not (= (field-write-name (.-write (first resolved))) "identity"))
+          (graph-error
+            (str "entity '" name
+                 "' identity field must use IdentityWrite"))
+          nil))
+      nil)
+    (if (and (some? root) (= (count identity-fields) 1)
+             (nil? root-identity))
+      (graph-error
+        (str "application entity '" name
+             "' has IdentityWrite but no matching IdentitySpec"))
+      nil)
+    (validate-derived-fields name fields)
+    (->GEntity
+      name
+      storage-id
+      fields
+      stored
+      derived
+      (filterv (fn [(field GField)] Bool (= (.-value-kind field) "ref")) fields)
+      (if (= (count identity-fields) 1) (first identity-fields) nil)
+      (str name "s"))))
+
+(defn state-value-spec
+  [(program IrDeclarationProgram)
+   (ref IrStateValueRef)
+   (label String)]
+  IrStateValueSpec
+  (let [matches
+        (reduce
+          (fn [result state] (Vec IrStateValueSpec)
+            (into result
+              (filterv
+                (fn [(value IrStateValueSpec)] Bool
+                  (same-nominal? (.-ref value) ref))
+                (.-values state))))
+          []
+          (.-states program))]
+    (if (not (= (count matches) 1))
+      (graph-error (str label " must resolve one state value"))
+      (first matches))))
+
+(defn resolved-state-value
+  [(program IrDeclarationProgram)
+   (resolver DeclarationResolver)
+   (ref IrStateValueRef)
+   (label String)]
+  String
+  (let [renamed (get (.-state-values resolver) (ref-key ref))]
+    (if (some? renamed)
+      renamed
+      (strip-colon (.-value (state-value-spec program ref label))))))
+
+(defn lower-state-declaration
+  [(state IrStateDeclarationSpec)
+   (program IrDeclarationProgram)
+   (resolver DeclarationResolver)]
+  IrDefstate
+  (let [name (resolved-name resolver "state" (.-ref state))
+        transitions
+        (reduce
+          (fn [result transition] Any
+            (assoc result
+              (resolved-state-value
+                program resolver (.-from transition) (str "state '" name "'"))
+              (mapv
+                (fn [(target IrStateValueRef)] String
+                  (resolved-state-value
+                    program resolver target (str "state '" name "'")))
+                (.-to transition))))
+          {}
+          (.-transitions state))
+        initial
+        (resolved-state-value
+          program resolver (.-initial state) (str "state '" name "' initial"))]
+    (ir/->IrDefstate name transitions initial)))
+
+(defn authority-shape [(authority IrAuthoritySpec)] Any
+  (let [tag (.-_tag authority)]
+    (cond
+      (= tag "IrFramAuthority") [(ir/->IrBackend "fram") nil]
+      (= tag "IrLocalStorageAuthority")
+        [nil (ir/->IrPersist "local-storage" (.-namespace authority))]
+      (= tag "IrMemoryAuthority") [nil nil]
+      :else
+        (graph-error (str "application uses unsupported authority '" tag "'")))))
+
+(defn lower-publication
+  [(source IrPublicationDeclarationSpec)
+   (program IrDeclarationProgram)
+   (resolver DeclarationResolver)]
+  IrPublication
+  (ir/->IrPublication
+    (resolved-name resolver "publication" (.-ref source))
+    (resolved-name resolver "entity" (.-owner source))
+    (resolved-name resolver "field" (.-pointer source))
+    (resolved-name resolver "entity" (.-revision source))
+    (resolved-name resolver "field" (.-owner-field source))
+    (resolved-name resolver "field" (.-state-field source))
+    (resolved-state-value program resolver (.-draft source) "publication draft")
+    (resolved-state-value program resolver (.-published source) "publication published")
+    (resolved-state-value program resolver (.-retired source) "publication retired")))
+
+(defn lower-form
+  [(source IrFormDeclarationSpec) (resolver DeclarationResolver)] IrSmartForm
+  (let [success (.-_tag (.-on-success source))]
+    (if (not (= success "IrClearFormSuccess"))
+      (graph-error (str "form uses unsupported success action '" success "'"))
+      (ir/->IrSmartForm
+        (resolved-name resolver "form" (.-ref source))
+        (resolved-name resolver "entity" (.-entity source))
+        (mapv
+          (fn [(field IrFieldRef)] String (resolved-name resolver "field" field))
+          (.-fields source))
+        (mapv
+          (fn [(field IrFieldRef)] String (resolved-name resolver "field" field))
+          (.-required source))
+        (.-submit-label source)
+        "clear"))))
+
+(defn lower-list-detail
+  [(source IrListDetailDeclarationSpec)
+   (resolver DeclarationResolver)]
+  IrListDetail
+  (let [entity (resolved-name resolver "entity" (.-entity source))
+        field-names
+        (fn [fields] (Vec String)
+          (mapv
+            (fn [(field IrFieldRef)] String (resolved-name resolver "field" field))
+            fields))
+        tabs
+        (mapv
+          (fn [tab] IrDetailTab
+            (let [tag (.-_tag tab)]
+              (cond
+                (= tag "IrFieldsDetailTab")
+                  (ir/->IrDetailTab
+                    (.-label tab) "fields" (field-names (.-fields tab))
+                    nil nil false [])
+                (= tag "IrRelatedDetailTab")
+                  (ir/->IrDetailTab
+                    (.-label tab) "related" []
+                    (resolved-name resolver "entity" (.-entity tab))
+                    (resolved-name resolver "field" (.-relation tab))
+                    false
+                    (field-names (.-display tab)))
+                :else
+                  (graph-error
+                    (str "list detail uses unsupported tab '" tag "'")))))
+          (.-detail-tabs source))]
+    (ir/->IrListDetail
+      entity (.-title source)
+      (field-names (.-columns source))
+      (field-names (.-search source))
+      tabs)))
+
+(defn lower-ui-value
+  [(value IrValueExpr) (resolver DeclarationResolver) (label String)] Any
+  (if (= (.-_tag value) "IrBoundFieldValue")
+    {"kind" "prop" "name" (resolved-name resolver "field" (.-field value))}
+    {"kind" "literal" "value" (value-expression-literal value resolver label)}))
+
+(defn lower-ui-action
+  [(action IrUiAction) (resolver DeclarationResolver) (label String)] IrAction
+  (let [tag (.-_tag action)]
+    (if (= tag "IrSetFieldAction")
+      (ir/->IrAction
+        "set"
+        [{"kind" "tag"
+          "name" (resolved-name resolver "field" (.-field action))}
+         (lower-ui-value (.-value action) resolver label)])
+      (graph-error (str label " uses unsupported UI action '" tag "'")))))
+
+(defn lower-ui-node
+  [(node IrDeclarationUiNode) (resolver DeclarationResolver) (label String)] Any
+  (let [tag (.-_tag node)]
+    (cond
+      (= tag "IrDeclarationElement")
+        (let [attrs
+              (reduce
+                (fn [result name] Any
+                  (let [attr (get (.-attrs node) name)
+                        attr-tag (.-_tag attr)
+                        lowered
+                        (cond
+                          (= attr-tag "IrStaticUiAttr")
+                            {"type" "static" "value" (.-value attr)}
+                          (= attr-tag "IrBoundUiAttr")
+                            {"type" "bind" "prop" (.-prop attr)}
+                          (= attr-tag "IrActionAttr")
+                            (if (.startsWith name "on-")
+                              {"type" "action"
+                               "event" (subs name 3)
+                               "action"
+                               (lower-ui-action (.-action attr) resolver label)}
+                              (graph-error
+                                (str label " action attribute '" name
+                                     "' must begin on-")))
+                          :else
+                            (graph-error
+                              (str label " uses unsupported UI attribute '"
+                                   attr-tag "'")))]
+                    (assoc result name lowered)))
+                {}
+                (keys (.-attrs node)))]
+          (ir/->IrElement
+            (.-tag node)
+            attrs
+            (mapv
+              (fn [(child IrDeclarationUiNode)] IrNode
+                (lower-ui-node child resolver label))
+              (.-children node))))
+      (= tag "IrDeclarationWhen")
+        (let [condition (.-condition node)
+              condition-tag (.-_tag condition)]
+          (if (not (= condition-tag "IrUiPropertyPresent"))
+            (graph-error
+              (str label " uses unsupported UI condition '" condition-tag "'"))
+            (ir/->IrWhen
+              (.-prop condition)
+              (mapv
+                (fn [(child IrDeclarationUiNode)] IrNode
+                  (lower-ui-node child resolver label))
+                (.-children node)))))
+      :else (graph-error (str label " uses unsupported UI node '" tag "'")))))
+
+(defn lower-component
+  [(source IrComponentDeclarationSpec)
+   (resolver DeclarationResolver)]
+  IrComponent
+  (let [name (resolved-name resolver "component" (.-ref source))]
+    (ir/->IrComponent
+      name
+      (mapv (fn [(prop IrComponentPropertySpec)] String (.-name prop))
+            (.-properties source))
+      (mapv
+        (fn [(node IrDeclarationUiNode)] IrElement
+          (lower-ui-node node resolver (str "component '" name "'")))
+        (.-body source)))))
+
+(defn form-by-ref [(forms Any) (ref IrFormRef)] IrFormDeclarationSpec
+  (declaration-with-ref forms ref "view create form"))
+
+(defn lower-view
+  [(source IrViewDeclarationSpec)
+   (program IrDeclarationProgram)
+   (resolver DeclarationResolver)]
+  IrView
+  (let [form (if (nil? (.-create-form source))
+               nil
+               (form-by-ref (.-forms program) (.-create-form source)))]
+    (ir/->IrView
+      (resolved-name resolver "view" (.-ref source))
+      (resolved-name resolver "entity" (.-entity source))
+      (resolved-name resolver "component" (.-component source))
+      (if (nil? form)
+        []
+        (mapv
+          (fn [(field IrFieldRef)] String (resolved-name resolver "field" field))
+          (.-fields form)))
+      (.-title source)
+      (if (nil? (.-select-component source))
+        nil
+        (resolved-name resolver "component" (.-select-component source)))
+      [] [] [])))
+
+(defn value-type-name-for-query
+  [(value-type IrValueTypeSpec)
+   (resolver DeclarationResolver)
+   (label String)]
+  String
+  (let [tag (.-_tag value-type)]
+    (cond
+      (= tag "IrStringValueType") "String"
+      (= tag "IrIntegerValueType") "Int"
+      (= tag "IrBooleanValueType") "Bool"
+      (= tag "IrDigestValueType") "Digest"
+      (= tag "IrInstantValueType") "Instant"
+      (= tag "IrKeywordValueType") "Keyword"
+      (= tag "IrStateValueType")
+        (resolved-name resolver "state" (.-state value-type))
+      :else
+        (graph-error
+          (str label " uses unsupported query value type '" tag "'")))))
+
+(defn query-expression
+  [(expr IrQueryValueExpr)
+   (program IrDeclarationProgram)
+   (resolver DeclarationResolver)
+   (label String)]
+  IrQueryOperand
+  (let [tag (.-_tag expr)]
+    (cond
+      (= tag "IrQueryFieldValue")
+        (ir/->IrQueryOperand
+          "field" nil (.-binding expr)
+          (resolved-name resolver "field" (.-field expr)) nil)
+      (= tag "IrQueryParameterValue")
+        (ir/->IrQueryOperand "parameter" (.-name expr) nil nil nil)
+      (= tag "IrQueryBindingValue")
+        (ir/->IrQueryOperand "binding" nil (.-name expr) nil nil)
+      (= tag "IrQueryStringValue")
+        (ir/->IrQueryOperand "literal" "String" nil nil (.-value expr))
+      (= tag "IrQueryIntegerValue")
+        (ir/->IrQueryOperand "literal" "Int" nil nil (.-value expr))
+      (= tag "IrQueryBooleanValue")
+        (ir/->IrQueryOperand "literal" "Bool" nil nil (.-value expr))
+      (= tag "IrQueryKeywordValue")
+        (ir/->IrQueryOperand
+          "literal" "Keyword" nil nil (strip-colon (.-value expr)))
+      (= tag "IrQueryNilValue")
+        (ir/->IrQueryOperand "literal" "String" nil nil nil)
+      (= tag "IrQueryStateValue")
+        (ir/->IrQueryOperand
+          "literal" "Keyword" nil nil
+          (resolved-state-value program resolver (.-value expr) label))
+      (= tag "IrQueryConfiguredValue")
+        (let [value
+              (value-expression-literal
+                (ir/->IrConfigProjectionValue (.-projection expr)) resolver label)
+              type
+              (cond
+                (string? value) "String"
+                (boolean? value) "Bool"
+                (number? value) "Int"
+                :else
+                  (graph-error
+                    (str label " configured query value must be scalar")))]
+          (ir/->IrQueryOperand "literal" type nil nil value))
+      :else
+        (graph-error
+          (str label " uses unsupported query expression '" tag "'")))))
+
+(defn lower-query-predicate
+  [(source IrQueryPredicateSpec)
+   (program IrDeclarationProgram)
+   (resolver DeclarationResolver)
+   (label String)]
+  IrQueryPredicate
+  (let [tag (.-_tag source)]
+    (if (= tag "IrQueryEqualPredicate")
+      (ir/->IrQueryPredicate
+        "eq"
+        (query-expression (.-left source) program resolver label)
+        (query-expression (.-right source) program resolver label))
+      (graph-error (str label " uses unsupported query predicate '" tag "'")))))
+
+(defn lower-query
+  [(source IrQueryDeclarationSpec)
+   (program IrDeclarationProgram)
+   (resolver DeclarationResolver)
+   (extensions Any)]
+  IrQuery
+  (let [name (resolved-name resolver "query" (.-ref source))
+        label (str "query '" name "'")
+        params
+        (mapv
+          (fn [(param IrQueryParameterSpec)] IrQueryParam
+            (ir/->IrQueryParam
+              (.-name param)
+              (value-type-name-for-query (.-value-type param) resolver label)))
+          (.-parameters source))
+        bindings
+        (mapv
+          (fn [(binding IrQueryBindingSpec)] IrQueryBinding
+            (ir/->IrQueryBinding
+              (.-name binding)
+              (resolved-name resolver "entity" (.-entity binding))))
+          (.-bindings source))
+        predicates
+        (mapv
+          (fn [(predicate IrQueryPredicateSpec)] IrQueryPredicate
+            (lower-query-predicate predicate program resolver label))
+          (.-predicates source))
+        selection
+        (reduce
+          (fn [result item] Any
+            (let [tag (.-_tag item)]
+              (cond
+                (= tag "IrQueryValueSelection")
+                  (let [value (.-value item)]
+                    (if (not (= (.-_tag value) "IrQueryFieldValue"))
+                      (graph-error
+                        (str label " value selection must select a field"))
+                      (conj result
+                        (ir/->IrQuerySelect
+                          (.-name item)
+                          (.-binding value)
+                          (resolved-name resolver "field" (.-field value))))))
+                (= tag "IrQueryExtensionSelection")
+                  (let [port-name
+                        (str (.-prefix resolver) "." (.-name (.-port item)))
+                        extension
+                        (first
+                          (filterv
+                            (fn [candidate] Bool (= (.-port candidate) port-name))
+                            extensions))]
+                    (if (nil? extension)
+                      result
+                      (into result
+                        (mapv
+                          (fn [field] IrQuerySelect
+                            (ir/->IrQuerySelect
+                              (.-name field) (.-binding item) (.-name field)))
+                          (.-fields extension)))))
+                (= tag "IrQueryProviderSelection")
+                  (graph-error
+                    (str label " provider selections await provider descriptor lowering"))
+                :else
+                  (graph-error
+                    (str label " uses unsupported query selection '" tag "'")))))
+          []
+          (.-selection source))
+        result (.-result source)
+        result-tag (.-_tag result)
+        page
+        (if (= result-tag "IrQueryPageResult")
+          (ir/->IrQueryPage
+            (resolved-bound-int (.-default-limit result) resolver label)
+            (resolved-bound-int (.-max-limit result) resolver label))
+          nil)
+        result-kind
+        (cond
+          (= result-tag "IrQueryPageResult") "page"
+          (= result-tag "IrQueryOptionalResult") "optional"
+          (= result-tag "IrQueryOneResult") "one"
+          :else (graph-error (str label " uses unsupported result '" result-tag "'")))]
+    (ir/->IrQuery
+      name
+      (mapv
+        (fn [(capability IrCapabilityRef)] String
+          (str (.-package-id resolver) "/cap/" (.-name capability)))
+        (.-capabilities source))
+      params bindings predicates selection result-kind page)))
+
+(defn lower-route-template
+  [(source IrRouteTemplateSpec) (resolver DeclarationResolver)] IrRoute
+  (ir/->IrRoute
+    (resolved-name resolver "route" (.-ref source))
+    (resolved-name resolver "view" (.-view source))
+    (mapv
+      (fn [(query IrRouteQuerySpec)] IrRouteQuery
+        (ir/->IrRouteQuery
+          (resolved-name resolver "query" (.-query query)) (.-alias query)))
+      (.-queries source))
+    (mapv (fn [(param IrRouteParameterSpec)] String (.-name param))
+          (.-parameters source))
+    (mapv (fn [(param IrRouteParameterSpec)] String (.-name param))
+          (.-parameters source))
+    []))
+
+(defn route-parameters [(path String)] (Vec String)
+  (if (= path "/")
+    []
+    (reduce
+      (fn [result segment] (Vec String)
+        (if (.startsWith segment ":")
+          (let [name (subs segment 1)]
+            (if (= name "")
+              (graph-error (str "route path '" path "' has an empty parameter"))
+              (conj result name)))
+          result))
+      []
+      (.split (subs path 1) "/"))))
+
+(defn plugin-evidence [(instance IrLinkedPluginInstance)] Any
+  (let [evidence (.-evidence instance)]
+    {:package_id (.-package-id evidence)
+     :version (.-version evidence)
+     :alias (.-alias instance)
+     :artifact_digest (.-artifact-digest evidence)
+     :source_kind (.-source-kind evidence)
+     :source_revision (.-source-revision evidence)
+     :artifact_path (.-artifact-path evidence)
+     :entry_path (.-entry-path evidence)
+     :configuration_digest (.-configuration-digest evidence)
+     :durable_schema_version (.-durable-schema-version evidence)
+     :migration_ordinal (.-migration-ordinal evidence)}))
+
+(defn contribution-allowed? [(use IrPluginUseSpec) (tag String)] Bool
+  (some?
+    (first
+      (filterv (fn [item] Bool (= (.-_tag item) tag)) (.-allow use)))))
+
+(defn imported-port-name [(prefix String) (ref Any)] String
+  (str prefix "." (.-name ref)))
+
+(defn plugin-port
+  [(program IrDeclarationProgram) (ref Any) (field String) (label String)] Any
+  (declaration-with-ref (get program field) ref label))
+
+(defn extension-target-name
+  [(port IrEntityFieldsPortSpec) (resolver DeclarationResolver)] String
+  (let [target (.-target port)
+        tag (.-_tag target)]
+    (cond
+      (= tag "IrDeclaredEntityFieldsTarget")
+        (resolved-name resolver "entity" (.-entity target))
+      (= tag "IrReceiptEntityFieldsTarget") "wake.core/command-receipt"
+      :else
+        (graph-error (str "extension port uses unsupported target '" tag "'")))))
+
+(defn lower-extension-field
+  [(source IrExtensionFieldSpec)
+   (resolver DeclarationResolver)
+   (target String)]
+  IrAttr
+  (let [shape (field-type-shape (.-value-type source) resolver)
+        write (field-write-name (.-write source))]
+    (ir/->IrAttr
+      (.-name (.-ref source))
+      (.-storage-id source)
+      (nth shape 0)
+      {"many" (= (field-cardinality-name (.-cardinality source)) "multi")
+       "required" (.-required source)
+       "server" (= write "server")
+       "write" (if (= write "server") "command" write)
+       "target-entity" (nth shape 2)})))
+
+(defn lower-extensions
+  [(instance IrLinkedPluginInstance)
+   (program IrDeclarationProgram)
+   (resolver DeclarationResolver)]
+  (Vec IrExtend)
+  (if (and (> (count (.-extensions (.-composition instance))) 0)
+           (not (contribution-allowed? (.-use instance) "IrSchemaContribution")))
+    (graph-error (str "plugin '" (.-alias instance) "' extensions require schema"))
+    (mapv
+      (fn [(source IrExtendSpec)] IrExtend
+        (let [port
+              (plugin-port
+                program (.-port source) "entity-fields-ports" "extension port")
+              target (extension-target-name port resolver)]
+          (if (= (.-_tag (.-policy port)) "IrClosedEntityFieldsPort")
+            (graph-error
+              (str "extension port '" (.-name (.-ref port)) "' is closed"))
+            nil)
+          (ir/->IrExtend
+            (imported-port-name (.-prefix resolver) (.-port source))
+            (mapv
+              (fn [(field IrExtensionFieldSpec)] IrAttr
+                (lower-extension-field field resolver target))
+              (.-fields source))
+            (ir/->SourceSpan "linked-declarations" 0 0 1 1 1 1))))
+      (.-extensions (.-composition instance)))))
+
+(defn apply-extension
+  [(entities (Vec GEntity)) (extension IrExtend) (target String)] (Vec GEntity)
+  (let [matches
+        (filterv (fn [(entity GEntity)] Bool (= (.-name entity) target)) entities)]
+    (if (not (= (count matches) 1))
+      (graph-error (str "extension '" (.-port extension) "' has no exact target"))
+      nil)
+    (mapv
+      (fn [(entity GEntity)] GEntity
+        (if (not (= (.-name entity) target))
+          entity
+          (let [additions
+                (mapv
+                  (fn [field] GField
+                    (let [opts (.-opts field)
+                          value-kind (if (= (.-type field) "Ref") "ref" "literal")]
+                      (->GField
+                        (.-name field) (or (.-storage-id field) "") (.-type field)
+                        false (if (= (get opts "many") true) "multi" "single")
+                        value-kind
+                        (if (= value-kind "ref") (get opts "target-entity") nil)
+                        (or (get opts "write") "create") false [] nil)))
+                  (.-fields extension))
+                fields (into (.-fields entity) additions)
+                stored (into (.-stored-fields entity) additions)]
+            (validate-distinct-names
+              (mapv (fn [(field GField)] String (.-name field)) fields)
+              (str "entity '" target "' field"))
+            (->GEntity
+              (.-name entity) (.-storage-id entity) fields stored
+              (.-derived-fields entity)
+              (filterv (fn [(field GField)] Bool (= (.-value-kind field) "ref")) fields)
+              (.-identity-field entity) (.-store-name entity)))))
+      entities)))
+
+(defn mounted-route
+  [(mount IrMountSpec)
+   (program IrDeclarationProgram)
+   (resolver DeclarationResolver)]
+  IrRoute
+  (let [slot (plugin-port program (.-slot mount) "route-slots" "route slot")
+        template
+        (plugin-port program (.-target slot) "route-templates" "mounted route")
+        lowered (lower-route-template template resolver)
+        parameters (route-parameters (.-path mount))
+        inputs (.-input-parameters lowered)]
+    (if (not (= (count parameters) (count inputs)))
+      (graph-error
+        (str "mount '" (.-path mount) "' parameter arity does not match route"))
+      (ir/->IrRoute
+        (.-path mount) (.-view-name lowered) (.-queries lowered)
+        parameters inputs []))))
+
+(defn lower-theme [(theme IrThemeSpec?)] IrTheme?
+  (if (nil? theme) nil (ir/->IrTheme (.-colors theme))))
 
 ;; --- Shared utilities ---
 
@@ -168,7 +1255,7 @@
     nil))
 
 (defn validate-generated-names
-  [(prog IrProgram) (entities (Vec GEntity)) (defstates (Vec IrDefstate))] Any
+  [(prog Any) (entities (Vec GEntity)) (defstates (Vec IrDefstate))] Any
   (doseq [entity entities]
     (validate-generated-name "entity" (.-name entity))
     (doseq [field (.-fields entity)]
@@ -206,8 +1293,7 @@
     []
     names))
 
-(defn validate-declaration-uniqueness
-  [(prog IrProgram) (entities (Vec GEntity))] Any
+(defn validate-declaration-uniqueness [(prog Any) (entities (Vec GEntity))] Any
   (validate-unique-declaration-names
     (mapv (fn [entity] String (.-name entity)) entities)
     "entity")
@@ -218,7 +1304,7 @@
     (mapv (fn [view] String (.-name view)) (or (.-views prog) []))
     "view"))
 
-(defn validate-ui-references [(prog IrProgram) (entities (Vec GEntity))] Any
+(defn validate-ui-references [(prog Any) (entities (Vec GEntity))] Any
   (let [components (or (.-components prog) [])
         views (or (.-views prog) [])
         entity-names (mapv (fn [entity] String (.-name entity)) entities)
@@ -276,25 +1362,6 @@
 (defn nonempty-string? [(value Any)] Bool
   (and (string? value) (> (count value) 0)))
 
-(defn declaration-local? [(prog Any) (kind String) (name String)] Bool
-  (let [plugin-closure (or (.-plugin-closure prog) [])
-        root-source (.-source-unit prog)
-        declarations (or (.-declaration-provenance prog) [])
-        declaration
-        (first
-          (filterv
-            (fn [entry] Bool
-              (and (= (.-kind entry) kind)
-                   (= (.-name entry) name)))
-            declarations))]
-    (if (= (count plugin-closure) 0)
-      true
-      (and
-        (some? root-source)
-        (some? declaration)
-        (= (.-source-id root-source)
-           (.-source-id (.-source (.-provenance declaration))))))))
-
 (defn required-storage-id
   [(value Any) (label String) (fallback String) (local Bool)] String
   (if (nonempty-string? value)
@@ -303,77 +1370,6 @@
       fallback
       (graph-error
         (str "plugin " label " requires a nonempty fixed storage ID")))))
-
-(defn analyze-field
-  [(attr Any)
-   (entity-name String)
-   (entity-local Bool)
-   (application-id String)]
-  GField
-  (let [name (.-name attr)
-        storage-id
-        (required-storage-id
-          (.-storage-id attr)
-          (str "field '" entity-name "." name "'")
-          (str "app:" application-id "/entity:" entity-name "/field:" name)
-          entity-local)
-        type (.-type attr)
-        opts (.-opts attr)
-        identity (= true (get opts "identity"))
-        cardinality (if (= true (get opts "many")) "multi" "single")
-        value-kind (if (= type "Ref") "ref" "literal")
-        target-entity (get opts "target-entity")
-        write-policy (or (get opts "write") "set")
-        derived (= type "Derived")]
-    (if (and derived (= cardinality "multi"))
-      (graph-error (str "Derived field '" name "' cannot declare :many"))
-      nil)
-    (if (and (not (= type "Ref")) (some? target-entity))
-      (graph-error (str "only Ref field '" name "' may declare :to"))
-      nil)
-    (if (and identity
-             (or derived
-                 (not (= cardinality "single"))
-                 (not (= value-kind "literal"))))
-      (graph-error
-        (str "identity field '" name
-             "' must be stored, single-cardinality, and literal"))
-      nil)
-    (if (and identity (some? (get opts "write")))
-      (graph-error
-        (str "identity field '" name "' is immutable and cannot declare :write"))
-      nil)
-    (->GField
-      name
-      storage-id
-      type
-      identity
-      cardinality
-      value-kind
-      target-entity
-      write-policy
-      derived
-      (if derived (or (get opts "deps") []) [])
-      (if derived (get opts "expr") nil))))
-
-(def derived-expr-keys (Vec String)
-  ["_tag" "kind" "field" "value" "parts"])
-
-(defn require-derived-expr-shape [(expr Any) (label String)] Any
-  (if (nil? expr)
-    (graph-error (str label " requires a closed derived expression"))
-    nil)
-  (let [actual (Object/keys expr)]
-    (if (not (= (count actual) (count derived-expr-keys)))
-      (graph-error (str label " derived expression has unsupported fields"))
-      nil)
-    (doseq [key derived-expr-keys]
-      (if (not (.includes actual key))
-        (graph-error (str label " derived expression has unsupported fields"))
-        nil)))
-  (if (not (= (.-_tag expr) "IrDerivedExpr"))
-    (graph-error (str label " must use an IrDerivedExpr value"))
-    nil))
 
 (defn append-unique-derived-deps
   [(deps (Vec String)) (additions (Vec String))] (Vec String)
@@ -386,37 +1382,21 @@
     additions))
 
 (defn validate-derived-expression [(expr Any) (label String)] (Vec String)
-  (require-derived-expr-shape expr label)
-  (let [kind (.-kind expr)
-        field (.-field expr)
-        value (.-value expr)
-        parts (.-parts expr)]
-    (if (not (vector? parts))
-      (graph-error (str label " derived expression parts must be a vector"))
-      nil)
+  (if (nil? expr)
+    (graph-error (str label " requires a closed derived expression"))
+    nil)
+  (let [tag (.-_tag expr)]
     (cond
-      (= kind "field")
+      (= tag "IrFieldDerivedExpr")
+        [(.-name (.-field expr))]
+      (= tag "IrStringDerivedExpr")
+        (if (string? (.-value expr))
+          []
+          (graph-error (str label " has an invalid string expression")))
+      (= tag "IrConcatDerivedExpr")
         (do
-          (if (or (not (nonempty-string? field))
-                  (some? value)
-                  (not (= (count parts) 0)))
-            (graph-error (str label " has an invalid field derived expression"))
-            nil)
-          [(or field "")])
-      (= kind "string")
-        (do
-          (if (or (some? field)
-                  (not (string? value))
-                  (not (= (count parts) 0)))
-            (graph-error (str label " has an invalid string derived expression"))
-            nil)
-          [])
-      (= kind "concat")
-        (do
-          (if (or (some? field)
-                  (some? value)
-                  (= (count parts) 0))
-            (graph-error (str label " has an invalid concat derived expression"))
+          (if (= (count (.-parts expr)) 0)
+            (graph-error (str label " concat expression cannot be empty"))
             nil)
           (reduce
             (fn [deps part] (Vec String)
@@ -424,10 +1404,10 @@
                 deps
                 (validate-derived-expression part label)))
             []
-            parts))
+            (.-parts expr)))
       :else
         (graph-error
-          (str label " has unknown derived expression kind '" kind "'")))))
+          (str label " uses unsupported derived expression '" tag "'")))))
 
 (defn validate-derived-fields [(entity-name String) (fields (Vec GField))] Any
   (doseq [field fields]
@@ -467,33 +1447,6 @@
               nil))))
       nil))
   nil)
-
-;; --- Entity analysis ---
-
-(defn analyze-entity [(prog Any) (entity Any) (application-id String)] GEntity
-  (let [name (.-name entity)
-        local (declaration-local? prog "entity" name)
-        storage-id
-        (required-storage-id
-          (.-storage-id entity)
-          (str "entity '" name "'")
-          (str "app:" application-id "/entity:" name)
-          local)
-        fields
-        (mapv
-          (fn [attr] GField
-            (analyze-field attr name local application-id))
-          (.-attrs entity))
-        validated-derived (validate-derived-fields name fields)
-        stored-fields (filterv (fn [f] Bool (not (.-derived f))) fields)
-        derived-fields (filterv (fn [f] Bool (.-derived f)) fields)
-        ref-fields (filterv (fn [f] Bool (= (.-type f) "Ref")) fields)
-        identity-fields (filterv (fn [f] Bool (.-identity f)) stored-fields)
-        identity-field (if (= (count identity-fields) 1)
-                         (first identity-fields)
-                         nil)]
-    (->GEntity name storage-id fields stored-fields derived-fields ref-fields
-               identity-field (str name "s"))))
 
 (defn validate-storage-id-uniqueness [(entities (Vec GEntity))] Any
   (reduce
@@ -575,7 +1528,7 @@
           (first
             (filterv (fn [state] Bool (= (.-name state) type)) defstates))))))
 
-(defn validate-backend [(prog IrProgram) (entities (Vec GEntity))] Any
+(defn validate-backend [(prog Any) (entities (Vec GEntity))] Any
   (let [backend (.-backend prog)
         defstates (or (.-defstates prog) [])]
     (if (and (some? backend) (not (= (.-kind backend) "fram")))
@@ -770,7 +1723,7 @@
         (graph-error (str label " has unknown content type '" content-type "'"))))))
 
 (defn resolve-list-details
-  [(prog IrProgram) (entities (Vec GEntity))] (Vec GListDetail)
+  [(prog Any) (entities (Vec GEntity))] (Vec GListDetail)
   (let [details (or (.-list-details prog) [])]
     (if (> (count details) 1)
       (graph-error "program may declare at most one list detail")
@@ -860,7 +1813,7 @@
                 resolved-tabs)))))
       details)))
 
-(defn validate-ui-root-topology [(prog IrProgram)] Any
+(defn validate-ui-root-topology [(prog Any)] Any
   (let [views (or (.-views prog) [])
         details (or (.-list-details prog) [])
         forms (or (.-forms prog) [])
@@ -961,7 +1914,7 @@
                    field-name "'"))
             nil))))))
 
-(defn validate-fram-create-forms [(prog IrProgram) (entities (Vec GEntity))] Any
+(defn validate-fram-create-forms [(prog Any) (entities (Vec GEntity))] Any
   (if (some? (.-backend prog))
     (do
       (doseq [view (or (.-views prog) [])]
@@ -1128,7 +2081,7 @@
             (strip-colon retired-state)))))))
 
 (defn resolve-publications
-  [(prog IrProgram)
+  [(prog Any)
    (entities (Vec GEntity))
    (machines (Vec StateMachine))]
   (Vec PublicationPolicy)
@@ -1161,8 +2114,12 @@
 ;; --- Main: build checked application ---
 
 (defn application-id [(prog Any)] String
-  (let [application (.-application prog)
-        application-id (if (nil? application) nil (.-id application))]
+  (let [resolved (.-application-id prog)
+        application (.-application prog)
+        application-id
+        (if (nonempty-string? resolved)
+          resolved
+          (if (nil? application) nil (.-id application)))]
     (if (nonempty-string? application-id)
       (or application-id "")
       (do
@@ -1804,7 +2761,7 @@
         (query-dependencies raw-bindings binding-entities predicates columns)))))
 
 (defn resolve-queries
-  [(prog IrProgram)
+  [(prog Any)
    (entities (Vec GEntity))
    (defstates (Vec IrDefstate))]
   (Vec GQuery)
@@ -1828,11 +2785,7 @@
   (first (filterv (fn [component] Bool (= (.-name component) name)) components)))
 
 (defn checked-query-route
-  [(prog IrProgram)
-   (queries (Vec GQuery))
-   (route IrRoute)
-   (label String)]
-  IrRoute
+  [(prog Any) (queries (Vec GQuery)) (route IrRoute) (label String)] IrRoute
   (let [view (view-named (or (.-views prog) []) (.-view-name route))
         parameters (or (.-parameters route) [])
         input-parameters (or (.-input-parameters route) parameters)
@@ -1919,15 +2872,14 @@
           input-parameters
           (.-props checked-component))))))
 
-(defn checked-route-templates
-  [(prog IrProgram) (queries (Vec GQuery))] (Vec IrRoute)
+(defn checked-route-templates [(prog Any) (queries (Vec GQuery))] (Vec IrRoute)
   (mapv
     (fn [route] IrRoute
       (checked-query-route
         prog queries route (str "route template '" (.-path route) "'")))
     (or (.-route-templates prog) [])))
 
-(defn checked-router [(prog IrProgram) (queries (Vec GQuery))] IrRouter?
+(defn checked-router [(prog Any) (queries (Vec GQuery))] IrRouter?
   (let [router (.-router prog)]
     (if (nil? router)
       nil
@@ -1977,13 +2929,10 @@
       [] mounts)
     nil))
 
-(defn check-program [(prog Any)] CheckedApplication
+(defn check-resolved-declaration-program
+  [(prog ResolvedDeclarationProgram)] CheckedApplication
   (let [app-id (application-id prog)
-        entities
-        (mapv
-          (fn [entity] GEntity
-            (analyze-entity prog entity app-id))
-          (.-entities prog))
+        entities (.-entities prog)
         defstates (or (.-defstates prog) [])
         validated-names (validate-generated-names prog entities defstates)
         validated-declarations (validate-declaration-uniqueness prog entities)
@@ -2007,6 +2956,7 @@
       app-id
       (checked-source-units prog)
       (or (.-plugin-closure prog) [])
+      (.-linked-declarations prog)
       (.-semantic-fingerprint prog)
       (or (.-providers prog) [])
       (or (.-value-types prog) [])
@@ -2032,3 +2982,134 @@
       (or (.-views prog) [])
       router
       (.-layout prog))))
+
+(defn lower-linked-declaration-program
+  [(linked IrLinkedDeclarationProgram)] ResolvedDeclarationProgram
+  (do
+    (require-ir-tag linked "IrLinkedDeclarationProgram" "linked declarations")
+    (let [checked
+          (require-ir-tag
+            (.-application linked) "IrCheckedDeclarationProgram"
+            "application declarations")
+          program
+          (require-ir-tag
+            (.-program checked) "IrDeclarationProgram"
+            "application declaration program")
+          root-value
+          (require-ir-tag
+            (.-root program) "IrApplicationDeclarationRoot"
+            "application declaration root")
+          root (.-application root-value)
+          app-id (.-id root)
+          application-resolver (empty-resolver)
+          authority (authority-shape (.-authority root))
+          application-entities
+          (mapv
+            (fn [(entity IrEntityDeclarationSpec)] GEntity
+              (lower-entity-declaration
+                entity root application-resolver app-id true))
+            (.-entities program))
+          application-states
+          (mapv
+            (fn [(state IrStateDeclarationSpec)] IrDefstate
+              (lower-state-declaration state program application-resolver))
+            (.-states program))
+          application-publications
+          (mapv
+            (fn [(publication IrPublicationDeclarationSpec)] IrPublication
+              (lower-publication publication program application-resolver))
+            (.-publications program))
+          application-forms
+          (mapv
+            (fn [(form IrFormDeclarationSpec)] IrSmartForm
+              (lower-form form application-resolver))
+            (.-forms program))
+          application-details
+          (mapv
+            (fn [(detail IrListDetailDeclarationSpec)] IrListDetail
+              (lower-list-detail detail application-resolver))
+            (.-list-details program))
+          application-components
+          (mapv
+            (fn [(component IrComponentDeclarationSpec)] IrComponent
+              (lower-component component application-resolver))
+            (.-components program))
+          application-views
+          (mapv
+            (fn [(view IrViewDeclarationSpec)] IrView
+              (lower-view view program application-resolver))
+            (.-views program))
+          application-routes
+          (mapv
+            (fn [(route IrRouteTemplateSpec)] IrRoute
+              (lower-route-template route application-resolver))
+            (.-route-templates program))]
+      (if (not (nonempty-string? app-id))
+        (graph-error "application requires a nonempty ID")
+        nil)
+      (if (> (count (.-renderers program)) 0)
+        (graph-error "application renderers await checked renderer lowering")
+        nil)
+      (if (> (count (.-commands program)) 0)
+        (graph-error "application commands await checked command lowering")
+        nil)
+      (if (> (count (.-provider-ports program)) 0)
+        (graph-error "application provider ports await checked provider lowering")
+        nil)
+      (if (> (count (.-value-types program)) 0)
+        (graph-error "application value types await checked descriptor lowering")
+        nil)
+      (if (> (count (.-plugins linked)) 0)
+        (graph-error "linked plugin declarations await composition lowering")
+        nil)
+      (let [default-target (.-default-route root)
+            router
+            (if (nil? default-target)
+              nil
+              (let [tag (.-_tag default-target)]
+                (if (not (= tag "IrLocalDefaultRoute"))
+                  (graph-error
+                    (str "application uses unsupported default route '" tag "'"))
+                  (let [route
+                        (declaration-with-ref
+                          (.-route-templates program) (.-route default-target)
+                          "application default route")
+                        view
+                        (declaration-with-ref
+                          (.-views program) (.-view route)
+                          "application default route view")]
+                    (ir/->IrRouter
+                      (resolved-name application-resolver "view" (.-ref view))
+                      application-routes)))))]
+        (->ResolvedDeclarationProgram
+          linked
+          app-id
+          (.-source-unit program)
+          [(.-source-unit program)]
+          []
+          (.-declaration-provenance checked)
+          (.-ns program)
+          (nth authority 0)
+          application-entities
+          (nth authority 1)
+          application-states
+          application-publications
+          (mapv
+            (fn [(query IrQueryDeclarationSpec)] IrQuery
+              (lower-query query program application-resolver []))
+            (.-queries program))
+          []
+          application-details
+          application-forms
+          (lower-theme (.-theme root))
+          application-components
+          application-views
+          router
+          [] [] [] [] [] []
+          application-routes
+          nil)))))
+
+(defn check-linked-declaration-program
+  [(linked IrLinkedDeclarationProgram)] CheckedApplication
+  (check-resolved-declaration-program
+    (lower-linked-declaration-program linked)))
