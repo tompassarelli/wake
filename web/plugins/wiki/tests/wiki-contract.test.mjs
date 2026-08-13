@@ -1,9 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import {
+  checkedDeclarationProgramFromBundle,
+} from "../../../compiler/checked-declarations.mjs";
 import {
   canonicalDocument,
   parseCanonicalDocument,
   sha256Digest,
 } from "../../../compiler/canonical.mjs";
+import { linkCheckedDeclarations } from "../../../compiler/declaration-linker.mjs";
 import {
   packPlugin,
   validatePluginManifest,
@@ -11,6 +18,152 @@ import {
 
 const pluginRoot = `${import.meta.dir}/..`;
 const webRoot = `${pluginRoot}/../..`;
+const repositoryRoot = `${webRoot}/..`;
+const beagleRoot = process.env.BEAGLE_PROJECTION_ROOT
+  ?? process.env.BEAGLE_ROOT
+  ?? join(homedir(), "code", "beagle", "main");
+const beagle = join(beagleRoot, "bin", "beagle");
+const declarationPaths = Object.freeze({
+  handbook: `${pluginRoot}/fixtures/handbook/handbook.bjs`,
+  plugin: `${pluginRoot}/plugin.bjs`,
+  wakeCore: `${webRoot}/wake/core.bjs`,
+  wakeIr: `${webRoot}/compiler/ir.bjs`,
+});
+const declarationSourceIds = Object.freeze({
+  handbook: "handbook.bjs",
+  plugin: "plugin.bjs",
+  wakeCore: "web/wake/core.bjs",
+  wakeIr: "web/compiler/ir.bjs",
+});
+const declarationSourceTexts = Object.freeze(Object.fromEntries(
+  Object.entries(declarationPaths).map(([name, path]) => [
+    declarationSourceIds[name],
+    readFileSync(path, "utf8"),
+  ]),
+));
+
+function suppliedSource(sourceId, authority) {
+  return {
+    authority,
+    bytesBase64: Buffer.from(declarationSourceTexts[sourceId]).toString("base64"),
+    sourceId,
+  };
+}
+
+function checkedBundle(entrySourceId, sources) {
+  const result = Bun.spawnSync([beagle, "ast-bundle"], {
+    cwd: repositoryRoot,
+    stdin: Buffer.from(JSON.stringify({
+      entrySourceId,
+      kind: "beagle.checked-bundle.request",
+      schemaVersion: 2,
+      sources,
+    })),
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr.toString());
+  }
+  return JSON.parse(result.stdout.toString());
+}
+
+let declarationCorpus;
+function checkedDeclarationCorpus() {
+  if (declarationCorpus !== undefined) return declarationCorpus;
+  const wakeCoreModelBundle = checkedBundle(declarationSourceIds.wakeCore, [
+    suppliedSource(declarationSourceIds.wakeCore, "trusted"),
+  ]);
+  const wakeIrModelBundle = checkedBundle(declarationSourceIds.wakeIr, [
+    suppliedSource(declarationSourceIds.wakeIr, "trusted"),
+  ]);
+  const decode = (entrySourceId) => {
+    const bundle = checkedBundle(entrySourceId, [
+      suppliedSource(entrySourceId, "package"),
+      suppliedSource(declarationSourceIds.wakeCore, "trusted"),
+    ]);
+    const sourceIds = new Set([
+      ...bundle.modules.map((module) => module.sourceId),
+      ...wakeCoreModelBundle.modules.map((module) => module.sourceId),
+      ...wakeIrModelBundle.modules.map((module) => module.sourceId),
+    ]);
+    const sourceTexts = Object.fromEntries(
+      [...sourceIds].map((sourceId) => [
+        sourceId,
+        declarationSourceTexts[sourceId],
+      ]),
+    );
+    return checkedDeclarationProgramFromBundle(bundle, {
+      compilerVersion: "0.1.0",
+      sourceTexts,
+      wakeCoreModelBundle,
+      wakeIrModelBundle,
+    });
+  };
+  declarationCorpus = Object.freeze({
+    handbook: decode(declarationSourceIds.handbook),
+    plugin: decode(declarationSourceIds.plugin),
+  });
+  return declarationCorpus;
+}
+
+function wikiProgram() {
+  return checkedDeclarationCorpus().plugin.program;
+}
+
+function wikiPlugin() {
+  return wikiProgram().root.plugin;
+}
+
+function referenceNames(references) {
+  return references.map((reference) => reference.name);
+}
+
+const configurationFields = Object.freeze([
+  "ints",
+  "strings",
+  "bools",
+  "keywords",
+  "entity_names",
+  "field_names",
+  "state_names",
+  "state_value_names",
+  "external_entities",
+  "values",
+]);
+
+function configurationRoles(configuration) {
+  return configurationFields.flatMap((field) => configuration[field]);
+}
+
+function taggedValues(value, tag, result = [], seen = new Set()) {
+  if (value === null || typeof value !== "object" || seen.has(value)) return result;
+  seen.add(value);
+  if (value._tag === tag) result.push(value);
+  const children = Array.isArray(value) ? value : Object.values(value);
+  for (const child of children) taggedValues(child, tag, result, seen);
+  return result;
+}
+
+async function linkedHandbook() {
+  const packed = await packPlugin(pluginRoot);
+  const commit = run(["git", "rev-parse", "HEAD"]).trim();
+  return linkCheckedDeclarations({
+    application: checkedDeclarationCorpus().handbook,
+    compilerVersion: "0.1.0",
+    plugins: [{
+      artifact: packed.artifact,
+      checked: checkedDeclarationCorpus().plugin,
+      lockEntry: {
+        artifact: "wake-wiki.wakepkg.json",
+        digest: packed.digest,
+        packageId: "wake-wiki",
+        source: { commit, kind: "git" },
+        version: "0.1.0",
+      },
+    }],
+  });
+}
 
 async function jsonAt(path) {
   return JSON.parse(await Bun.file(`${pluginRoot}/${path}`).text());
@@ -105,6 +258,8 @@ async function compileSubstratePlan() {
   }
 }
 
+checkedDeclarationCorpus();
+
 describe("wake-wiki K0C data contract", () => {
   test("uses the frozen W0C manifest envelope", async () => {
     const manifestText = await Bun.file(`${pluginRoot}/wake-plugin.json`).text();
@@ -112,54 +267,66 @@ describe("wake-wiki K0C data contract", () => {
     expect(validatePluginManifest(manifest)).toBe(manifest);
     expect(Object.keys(manifest)).toEqual([
       "compatibleWake",
-      "configuration",
-      "contributions",
-      "dependencies",
       "durableSchemaVersion",
       "entry",
-      "exports",
-      "extensionPorts",
-      "migrations",
       "packageId",
       "pluginAbiVersion",
-      "requiredHostCapabilities",
       "schemaVersion",
       "sources",
-      "storageIds",
       "version",
     ]);
-    expect(manifest).toMatchObject({
-      schemaVersion: 1,
-      packageId: "wake-wiki",
-      version: "0.1.0",
-      pluginAbiVersion: 1,
-      entry: "plugin.bjs",
-      sources: ["plugin.bjs"],
-      dependencies: [],
+    expect(manifest).toEqual({
+      compatibleWake: "0.1.0",
       durableSchemaVersion: 1,
-      migrations: [],
+      entry: "plugin.bjs",
+      packageId: "wake-wiki",
+      pluginAbiVersion: 1,
+      schemaVersion: 1,
+      sources: ["plugin.bjs"],
+      version: "0.1.0",
     });
-    expect(manifest.contributions).toEqual([
-      "schema",
-      "query",
-      "command",
-      "capability",
-      "ui",
-      "route",
+
+    const plugin = wikiPlugin();
+    expect(plugin.identity).toMatchObject({
+      compatible_wake: "0.1.0",
+      durable_schema_version: 1,
+      package_id: "wake-wiki",
+      plugin_abi_version: 1,
+      version: "0.1.0",
+    });
+    expect(plugin.contributions.map((contribution) => contribution._tag)).toEqual([
+      "IrSchemaContribution",
+      "IrQueryContribution",
+      "IrCommandContribution",
+      "IrCapabilityContribution",
+      "IrUiContribution",
+      "IrRouteContribution",
     ]);
+    expect(plugin.migrations).toEqual([]);
 
     const packageMetadata = await jsonAt("package.json");
     expect(packageMetadata.name).toBe(manifest.packageId);
     expect(packageMetadata.version).toBe(manifest.version);
   });
 
-  test("freezes every plugin-owned storage identity", async () => {
-    const manifest = await jsonAt("wake-plugin.json");
+  test("freezes every plugin-owned storage identity", () => {
+    const program = wikiProgram();
+    const entityStorage = Object.fromEntries(
+      program.entities.map((entity) => [
+        entity.ref.declaration_id,
+        entity.storage_id,
+      ]),
+    );
+    const fieldStorage = Object.fromEntries([
+      ...program.entities.flatMap((entity) => entity.fields),
+      ...program.receipt_fields,
+    ].filter((field) => field.storage_id?.startsWith("wake-wiki/"))
+      .map((field) => [field.ref.declaration_id, field.storage_id]));
     const storageIds = [
-      ...Object.values(manifest.storageIds.entities),
-      ...Object.values(manifest.storageIds.fields),
+      ...Object.values(entityStorage),
+      ...Object.values(fieldStorage),
     ];
-    expect(manifest.storageIds).toEqual({
+    expect({ entities: entityStorage, fields: fieldStorage }).toEqual({
       entities: {
         resource: "wake-wiki/entity/resource",
         revision: "wake-wiki/entity/revision",
@@ -189,19 +356,23 @@ describe("wake-wiki K0C data contract", () => {
     expect(storageIds.every((storageId) =>
       typeof storageId === "string" && storageId.length > 0
     )).toBe(true);
-    expect(manifest.exports.entities).toEqual(["resource", "revision"]);
+    expect(referenceNames(wikiPlugin().exports.entities)).toEqual([
+      "resource",
+      "revision",
+    ]);
   });
 
-  test("exports only the first vertical slice", async () => {
-    const manifest = await jsonAt("wake-plugin.json");
-    expect(manifest.exports.commands).toEqual([
+  test("exports only the first vertical slice", () => {
+    const program = wikiProgram();
+    const plugin = wikiPlugin();
+    expect(referenceNames(plugin.exports.commands)).toEqual([
       "create-resource-draft",
       "start-revision-draft",
       "replace-draft",
       "abandon-draft",
       "publish",
     ]);
-    expect(manifest.exports.queries).toEqual([
+    expect(referenceNames(plugin.exports.queries)).toEqual([
       "browse-published",
       "read-published",
       "read-source-for-draft",
@@ -211,7 +382,7 @@ describe("wake-wiki K0C data contract", () => {
       "history-superseded",
       "backlinks",
     ]);
-    expect(manifest.exports.capabilities).toEqual([
+    expect(referenceNames(plugin.exports.capabilities)).toEqual([
       "browse-published",
       "read-published",
       "read-draft",
@@ -225,7 +396,7 @@ describe("wake-wiki K0C data contract", () => {
       "abandon-any-draft",
       "publish-draft",
     ]);
-    expect(manifest.exports.routes).toEqual([
+    expect(referenceNames(plugin.exports.route_templates)).toEqual([
       "browse",
       "new",
       "read",
@@ -233,13 +404,33 @@ describe("wake-wiki K0C data contract", () => {
       "review",
       "history",
     ]);
-    expect(manifest.exports.providerPorts).toEqual([
+    expect(referenceNames(plugin.exports.provider_ports)).toEqual([
       "content-parser",
     ]);
-    expect(manifest.requiredHostCapabilities).toEqual(["content-parser"]);
-    expect(manifest.extensionPorts.map((port) => port.name)).toEqual([
-      "revision-fields",
-      "receipt-fields",
+    expect(referenceNames(plugin.required_providers)).toEqual(["content-parser"]);
+    expect(program.entity_fields_ports.map((port) => ({
+      name: port.ref.name,
+      policy: port.policy._tag,
+      requireStorageId: port.policy.require_storage_id,
+      target: port.target._tag,
+      write: port.policy.write._tag,
+    }))).toEqual([
+      {
+        name: "revision-fields",
+        policy: "IrOpenManyEntityFields",
+        requireStorageId: true,
+        target: "IrDeclaredEntityFieldsTarget",
+        write: "IrCreateWrite",
+      },
+      {
+        name: "receipt-fields",
+        policy: "IrOpenManyEntityFields",
+        requireStorageId: true,
+        target: "IrReceiptEntityFieldsTarget",
+        write: "IrServerWrite",
+      },
+    ]);
+    expect(referenceNames(plugin.exports.route_slots)).toEqual([
       "browse",
       "new",
       "read",
@@ -249,9 +440,10 @@ describe("wake-wiki K0C data contract", () => {
     ]);
   });
 
-  test("requires a closed and complete application binding", async () => {
-    const manifest = await jsonAt("wake-plugin.json");
-    const names = Object.keys(manifest.configuration);
+  test("requires a closed and complete application binding", () => {
+    const configuration = wikiPlugin().configuration;
+    const roles = configurationRoles(configuration);
+    const names = roles.map((role) => role.ref.name).sort();
     expect(names).toEqual([
       "actor-entity",
       "author-field",
@@ -283,25 +475,37 @@ describe("wake-wiki K0C data contract", () => {
       "title-field",
     ]);
     expect(new Set(names).size).toBe(names.length);
-    expect(Object.values(manifest.configuration).every((entry) =>
-      entry.required === true
-    )).toBe(true);
-    expect(Object.fromEntries(
-      Object.entries(manifest.configuration)
-        .filter(([, descriptor]) => descriptor.type.declarationId !== undefined)
-        .map(([name, descriptor]) => [name, descriptor.type.declarationId]),
-    )).toEqual({
+    expect(Object.fromEntries([
+      ...configuration.entity_names.map((role) => [
+        role.ref.name,
+        role.target.declaration_id,
+      ]),
+      ...configuration.field_names.map((role) => [
+        role.ref.name,
+        role.target.field.declaration_id,
+      ]),
+      ...configuration.state_names.map((role) => [
+        role.ref.name,
+        role.target.declaration_id,
+      ]),
+      ...configuration.state_value_names.map((role) => [
+        role.ref.name,
+        role.target.declaration_id,
+      ]),
+    ])).toEqual({
       "author-field": "revision/author",
       "base-field": "revision/based-on",
       "content-source-field": "revision/content-source",
       "created-at-field": "revision/created-at",
       "digest-field": "revision/digest",
       "draft-pointer": "resource/draft-revision",
+      "draft-state": "RevisionLifecycle/value/draft",
       "lifecycle-type": "RevisionLifecycle",
       "links-field": "revision/links-to",
       "owner-field": "revision/resource",
       "published-at-field": "revision/published-at",
       "published-pointer": "resource/published-revision",
+      "published-state": "RevisionLifecycle/value/published",
       "receipt-result-resource-field": "receipt-result-resource-field",
       "receipt-result-revision-field": "receipt-result-revision-field",
       "replaces-field": "revision/replaces-draft",
@@ -311,15 +515,19 @@ describe("wake-wiki K0C data contract", () => {
       "revision-id": "revision/id",
       "state-field": "revision/state",
       "summary-field": "revision/summary",
+      "superseded-state": "RevisionLifecycle/value/superseded",
       "title-field": "revision/title",
     });
-    expect(manifest.configuration["actor-entity"].type.declarationId)
-      .toBeUndefined();
-    expect(manifest.configuration).not.toHaveProperty("content-provider");
+    expect(configuration.external_entities.map((role) => role.ref.name))
+      .toEqual(["actor-entity"]);
+    expect(names).not.toContain("content-provider");
+    const valueRoles = new Map(
+      configuration.values.map((role) => [role.ref.name, role.value_type]),
+    );
     expect(Object.fromEntries(
-      manifest.configuration["content-limits"].type.fields.map(field => [
+      valueRoles.get("content-limits").fields.map((field) => [
         field.name,
-        field.type.maximum,
+        field.value_type.maximum.value,
       ]),
     )).toEqual({
       titleBytes: 1_048_576,
@@ -328,29 +536,28 @@ describe("wake-wiki K0C data contract", () => {
       contentSourceBytes: 1_048_576,
       links: 200,
     });
-    expect(manifest.configuration["query-limits"].type.fields.every(
-      field => field.type.maximum === 247,
+    expect(valueRoles.get("query-limits").fields.every(
+      (field) => field.value_type.maximum.value === 247,
     )).toBe(true);
     expect(Object.fromEntries(
-      manifest.configuration["safe-document-limits"].type.fields.map(field => [
+      valueRoles.get("safe-document-limits").fields.map((field) => [
         field.name,
-        field.type.maximum,
+        field.value_type.maximum.value,
       ]),
     )).toEqual({
       maxBytes: 1_048_576,
       maxDepth: 256,
       maxNodes: 65_536,
     });
-    expect(manifest.configuration["safe-document-limits"].type.fields.find(
-      field => field.name === "maxDepth",
-    ).type.minimum).toBe(5);
+    expect(valueRoles.get("safe-document-limits").fields.find(
+      (field) => field.name === "maxDepth",
+    ).value_type.minimum.value).toBe(5);
   });
 
   test("keeps product semantics out of the reusable package", async () => {
-    const manifest = await jsonAt("wake-plugin.json");
     const entry = await Bun.file(`${pluginRoot}/plugin.bjs`).text();
-    const semanticText = [...collectStrings(manifest), entry].join("\n")
-      .replaceAll(":canonical-digest", "");
+    const semanticText = [...collectStrings(wikiProgram()), entry].join("\n")
+      .replaceAll("canonical-digest", "");
     for (const forbidden of [
       /greywrought/iu,
       /\barticle\b/iu,
@@ -394,69 +601,114 @@ describe("wake-wiki K0C data contract", () => {
     expect((await jsonAt("package.json")).files).toContain("SAFE-DOCUMENT.md");
   });
 
-  test("materializes the schema, lifecycle, and every exported component", async () => {
-    const manifest = await jsonAt("wake-plugin.json");
-    const entry = await Bun.file(`${pluginRoot}/plugin.bjs`).text();
-    expect(entry).toContain(
-      '(wake/defentity-ref resource-entity "resource" "resource")',
+  test("materializes the schema, lifecycle, and every exported component", () => {
+    const program = wikiProgram();
+    const plugin = wikiPlugin();
+    expect(program.entities.map((entity) => entity.ref.declaration_id)).toEqual([
+      "resource",
+      "revision",
+    ]);
+    const revision = program.entities.find(
+      (entity) => entity.ref.declaration_id === "revision",
     );
-    expect(entry).toContain(
-      '(wake/defentity-ref revision-entity "revision" "revision")',
+    expect(revision.fields.find(
+      (field) => field.ref.declaration_id === "revision/published-at",
+    ).value_type._tag).toBe("IrInstantField");
+    expect(referenceNames(plugin.exports.components)).toEqual([
+      "browse-page",
+      "new-draft-page",
+      "read-page",
+      "edit-draft-page",
+      "review-page",
+      "history-page",
+      "resource-card",
+      "revision-summary",
+      "safe-document-component",
+      "link-list",
+      "backlink-list",
+      "conflict-notice",
+    ]);
+    expect(plugin.exports.components.every((reference) =>
+      program.components.some((component) => component.ref === reference)
+    )).toBe(true);
+    expect(program.states.map((state) => ({
+      initial: state.initial.name,
+      name: state.ref.name,
+      transitions: state.transitions.map((transition) => [
+        transition.from.name,
+        referenceNames(transition.to),
+      ]),
+    }))).toEqual([{
+      initial: "draft",
+      name: "RevisionLifecycle",
+      transitions: [
+        ["draft", ["published", "superseded"]],
+        ["published", ["superseded"]],
+        ["superseded", []],
+      ],
+    }]);
+    expect(taggedValues(program, "IrConfiguredProjectionBound")
+      .map((bound) => bound.projection.role.name)).toEqual(
+        expect.arrayContaining(["content-limits", "safe-document-limits"]),
+      );
+  });
+
+  test("materializes every checked command with closed write invariants", () => {
+    const program = wikiProgram();
+    expect(program.commands.map((command) => command.ref.name)).toEqual(
+      referenceNames(wikiPlugin().exports.commands),
     );
-    expect(entry).toContain(
-      '"revision/published-at" "published-at" Instant',
+    const digest = program.entities.flatMap((entity) => entity.fields).find(
+      (field) => field.ref.declaration_id === "revision/digest",
     );
-    for (const component of manifest.exports.components) {
-      expect(entry).toContain(`"component/${component}"`);
+    expect(digest.value_type._tag).toBe("IrDigestField");
+    expect(taggedValues(program.commands, "IrProviderInjection")).toHaveLength(3);
+    expect(taggedValues(program.commands, "IrCanonicalDigestInjection"))
+      .toHaveLength(3);
+    expect(taggedValues(program.commands, "IrExtensionCommandWrite"))
+      .toHaveLength(3);
+    expect(taggedValues(program.commands, "IrCommandReceiptTimeExpr"))
+      .toHaveLength(4);
+    expect(taggedValues(program.commands, "IrCommandInputExpr")
+      .map((expression) => expression.name)).toContain("expected-links-to");
+    for (const command of program.commands) {
+      expect(command.receipt.results.map((result) => [
+        result.name,
+        result.field.name,
+      ])).toEqual([
+        ["resource-id", "resource-id"],
+        ["revision-id", "revision-id"],
+      ]);
     }
-    expect(entry).toContain("(wake/defstate-model\n  RevisionLifecycle");
-    expect(entry).toContain(
-      "[[draft [published superseded]]",
+    const abandon = program.commands.find(
+      (command) => command.ref.name === "abandon-draft",
     );
-    expect(entry).toContain("[published [superseded]]");
-    expect(entry).toContain("[superseded []]])");
-    expect(entry).toContain(
-      "(wake/->ConfiguredProjectionBound safe-document-max-bytes)",
-    );
-    expect(entry).toContain(
-      "(wake/->ConfiguredProjectionBound content-source-bytes)",
+    expect(referenceNames(abandon.capabilities)).toEqual([
+      "abandon-own-draft",
+      "abandon-any-draft",
+    ]);
+    const publish = program.commands.find((command) => command.ref.name === "publish");
+    expect(publish.input.map((input) => input.name)).toEqual(
+      expect.arrayContaining(["expected-links-to", "expected-published-revision"]),
     );
   });
 
-  test("materializes every checked command with closed write invariants", async () => {
-    const manifest = await jsonAt("wake-plugin.json");
-    const entry = await Bun.file(`${pluginRoot}/plugin.bjs`).text();
-    for (const command of manifest.exports.commands) {
-      expect(entry).toContain(`"command/${command}"`);
-    }
-    expect(entry).toContain("(wake/->DigestField nil)");
-    expect(entry.match(/\(wake\/->ProviderInjection/gu)).toHaveLength(3);
-    expect(entry.match(/\(wake\/->CanonicalDigestInjection/gu)).toHaveLength(3);
-    expect(entry).toContain("[receipt-fields-ref]))");
-    expect(entry).toContain(":expected-published-revision");
-    expect(entry).toContain(
-      "(wake/->CommandInputExpr :expected-links-to)",
+  test("materializes every exported query without draft leakage", () => {
+    const program = wikiProgram();
+    expect(program.queries.map((query) => query.ref.name)).toEqual(
+      referenceNames(wikiPlugin().exports.queries),
     );
-    expect(entry).toContain("(wake/->CommandReceiptTimeExpr nil)");
-    const abandonStart = entry.indexOf("(wake/defcommand\n  abandon-draft\n");
-    const abandonEnd = entry.indexOf("\n(wake/defcommand\n  publish\n", abandonStart);
-    const abandon = entry.slice(abandonStart, abandonEnd);
-    expect(abandon).toContain("cap-abandon-own-draft-ref");
-    expect(abandon).toContain("cap-abandon-any-draft-ref");
-  });
-
-  test("materializes every exported query without draft leakage", async () => {
-    const manifest = await jsonAt("wake-plugin.json");
-    const entry = await Bun.file(`${pluginRoot}/plugin.bjs`).text();
-    for (const query of manifest.exports.queries) {
-      expect(entry).toContain(`"query/${query}"`);
-    }
-    expect(entry).toContain("(wake/->QueryProviderSelection");
-    expect(entry).toContain("safe-document-query-input");
-    expect(entry).toContain("(wake/->QueryExtensionSelection revision-fields-ref");
-    expect(entry).toContain("(wake/->QueryStateValue RevisionLifecycle-published-ref)");
-    expect(entry).toContain("(wake/->QueryStateValue RevisionLifecycle-superseded-ref)");
-    expect(entry).not.toContain("(query ");
+    expect(taggedValues(program.queries, "IrQueryProviderSelection"))
+      .toHaveLength(1);
+    expect(taggedValues(program.queries, "IrQueryExtensionSelection"))
+      .toHaveLength(8);
+    expect(taggedValues(program.queries, "IrQueryExtensionSelection").every(
+      (selection) => selection.port.name === "revision-fields",
+    )).toBe(true);
+    expect(taggedValues(program.queries, "IrQueryStateValue")
+      .map((value) => value.value.name)).toEqual(
+        expect.arrayContaining(["published", "superseded"]),
+      );
   });
 
   test("packs deterministically from the real declaration source", async () => {
@@ -467,12 +719,8 @@ describe("wake-wiki K0C data contract", () => {
     expect(first.digest).toBe(sha256Digest(first.bytes));
     expect(first.artifact.files).toHaveLength(1);
     expect(first.artifact.files[0].path).toBe("plugin.bjs");
-    expect(first.artifact.files[0].content).toContain(
-      '(wake/defentity-ref resource-entity "resource" "resource")',
-    );
-    expect(first.artifact.files[0].content).toContain(
-      '(wake/defentity-ref revision-entity "revision" "revision")',
-    );
+    expect(first.artifact.files[0].content)
+      .toBe(declarationSourceTexts[declarationSourceIds.plugin]);
   });
 
   test("links the delivered substrate into one checked FRAM graph", async () => {
@@ -754,25 +1002,47 @@ describe("wake-wiki K0C data contract", () => {
 
 describe("neutral handbook binding", () => {
   test("binds every required role and mounts every route explicitly", async () => {
-    const manifest = await jsonAt("wake-plugin.json");
+    const linked = await linkedHandbook();
+    expect(linked.plugins).toHaveLength(1);
+    const instance = linked.plugins[0];
+    expect(instance).toMatchObject({
+      alias: "wiki",
+      evidence: {
+        durable_schema_version: 1,
+        package_id: "wake-wiki",
+        version: "0.1.0",
+      },
+      use: {
+        package_id: "wake-wiki",
+        version: "0.1.0",
+      },
+    });
+    const configuredRoles = configurationRoles(wikiPlugin().configuration)
+      .map((role) => role.ref.name)
+      .sort();
+    const boundRoles = configurationFields.flatMap(
+      (field) => instance.use.bindings[field].map((binding) => binding.role.name),
+    ).sort();
+    expect(boundRoles).toEqual(configuredRoles);
+    expect(instance.composition.mounts.map((mount) => mount.slot.name)).toEqual(
+      referenceNames(wikiPlugin().exports.route_slots),
+    );
+    expect(instance.composition.extensions.flatMap((extension) =>
+      extension.fields.map((field) => [
+        field.ref.name,
+        field.storage_id,
+      ])
+    )).toEqual([
+      ["audience", "handbook-fixture/field/edition/audience"],
+      [
+        "release-rule-digest",
+        "handbook-fixture/field/receipt/release-rule-digest",
+      ],
+    ]);
+
     const source = await Bun.file(
       `${pluginRoot}/fixtures/handbook/handbook.bjs`,
     ).text();
-    expect(source).toContain('"handbook-fixture"');
-    expect(source).toContain("(wake/use-plugin\n  wiki\n  \"wake-wiki\"");
-    expect(source).toContain('"0.1.0"');
-    for (const config of Object.keys(manifest.configuration)) {
-      expect(source).toContain(config);
-    }
-    for (const route of manifest.exports.routes) {
-      expect(source).toContain(`"route-slot/${route}"`);
-    }
-    expect(source).toContain(
-      '"handbook-fixture/field/edition/audience"',
-    );
-    expect(source).toContain(
-      '"handbook-fixture/field/receipt/release-rule-digest"',
-    );
     expect(source).not.toMatch(
       /greywrought|\barticle\b|\bcanonical\b|\bobsolete\b|\bprincipal\b|\blore\b/iu,
     );
