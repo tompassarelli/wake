@@ -376,6 +376,8 @@ export function linkCheckedDeclarations({ application, plugins, compilerVersion 
     if (artifacts.has(key)) fail(`plugins repeat ${manifest.packageId}@${manifest.version}`);
     artifacts.set(key, plugin);
   }
+  const preparedArtifacts = new Map();
+  const usedArtifacts = new Set();
   const instances = [];
   const aliases = new Set();
   for (const [index, composition] of applicationProgram.root.application.plugins.entries()) {
@@ -386,20 +388,29 @@ export function linkCheckedDeclarations({ application, plugins, compilerVersion 
     if (suppliedPlugin === undefined) {
       fail(`${label} lacks exact locked source ${use.package_id}@${use.version}`);
     }
-    const pluginProgram = declarationProgram(
-      suppliedPlugin.checked, "IrPluginDeclarationRoot", `${label} checked source`,
-    );
-    validateReceipt(pluginProgram, applicationReceipt, `${label} checked source`);
-    claimReceiptFields(pluginProgram, label);
-    const declared = declarationIndex(pluginProgram, label);
-    const exported = exportedIndex(pluginProgram, declared, label);
-    const manifest = validateManifest(
-      pluginProgram,
-      suppliedPlugin.artifact,
-      suppliedPlugin.lockEntry,
-      compilerVersion,
-      label,
-    );
+    let prepared = preparedArtifacts.get(key);
+    if (prepared === undefined) {
+      const pluginProgram = declarationProgram(
+        suppliedPlugin.checked, "IrPluginDeclarationRoot", `${label} checked source`,
+      );
+      validateReceipt(pluginProgram, applicationReceipt, `${label} checked source`);
+      claimReceiptFields(pluginProgram, label);
+      const declared = declarationIndex(pluginProgram, label);
+      prepared = {
+        exported: exportedIndex(pluginProgram, declared, label),
+        manifest: validateManifest(
+          pluginProgram,
+          suppliedPlugin.artifact,
+          suppliedPlugin.lockEntry,
+          compilerVersion,
+          label,
+        ),
+        pluginProgram,
+      };
+      preparedArtifacts.set(key, prepared);
+    }
+    const { exported, manifest, pluginProgram } = prepared;
+    usedArtifacts.add(key);
     const allowed = use.allow.map((entry) => entry._tag);
     unique(allowed, (value) => value, `${label} allowed contributions`);
     const available = new Set(pluginProgram.root.plugin.contributions.map((entry) => entry._tag));
@@ -425,10 +436,10 @@ export function linkCheckedDeclarations({ application, plugins, compilerVersion 
         use,
       ),
     });
-    artifacts.delete(key);
   }
-  if (artifacts.size !== 0) {
-    const plugin = artifacts.values().next().value;
+  const unused = [...artifacts].find(([key]) => !usedArtifacts.has(key));
+  if (unused !== undefined) {
+    const plugin = unused[1];
     fail(`locked plugin '${plugin.artifact.manifest.packageId}' is not used by the application`);
   }
   return {
