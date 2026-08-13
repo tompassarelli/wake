@@ -3387,6 +3387,7 @@ async function wakeFramStart() {
 
       "// ── Init ─────────────────────────────────────────────\n"
       "function init() {\n"
+      (gen-theme-style (.-theme g))
       #r#"
   const root = document.getElementById(window.WAKE_MOUNT_ID || 'app');
   const app = document.createElement('div');
