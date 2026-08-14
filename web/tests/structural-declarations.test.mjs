@@ -217,7 +217,7 @@ test("list declarations compile while flat and vector forms retain source spans"
     {
       file: "structural-declarations-vector-state.bjs",
       macro: "wake/defstate-model",
-      stray: '[draft "state/lifecycle/draft" "draft" :draft]',
+      stray: "[draft state/lifecycle/draft draft :draft]",
       line: 9,
       col: 3,
       span: 46,
@@ -233,7 +233,7 @@ test("list declarations compile while flat and vector forms retain source spans"
     {
       file: "structural-declarations-vector-entity.bjs",
       macro: "wake/define-entity-model",
-      stray: '[id "entity/item/id" "id" String (wake/->StringField nil) (wake/->SingleField nil) (wake/->IdentityWrite nil) "store/item/id" true]',
+      stray: "[id entity/item/id id String (wake/->StringField nil) (wake/->SingleField nil) (wake/->IdentityWrite nil) store/item/id true]",
       line: 11,
       col: 3,
       span: 163,
@@ -241,10 +241,10 @@ test("list declarations compile while flat and vector forms retain source spans"
     {
       file: "structural-declarations-vector-derived.bjs",
       macro: "wake/define-entity-model",
-      stray: '[label "entity/item/label" "label" (wake/->StringDerivedExpr "label") []]',
-      line: 21,
+      stray: "[label entity/item/label label (wake/->StringDerivedExpr label) []]",
+      line: 20,
       col: 3,
-      span: 85,
+      span: 89,
     },
     {
       file: "structural-declarations-vector-value-type.bjs",
@@ -257,7 +257,7 @@ test("list declarations compile while flat and vector forms retain source spans"
     {
       file: "structural-declarations-vector-extension.bjs",
       macro: "wake/extend-entity-fields",
-      stray: '[extra "fields/extra" "extra" (wake/->StringField nil) (wake/->SingleField nil) (wake/->CreateWrite nil) "store/item/extra" true]',
+      stray: "[extra fields/extra extra (wake/->StringField nil) (wake/->SingleField nil) (wake/->CreateWrite nil) store/item/extra true]",
       line: 12,
       col: 3,
       span: 157,

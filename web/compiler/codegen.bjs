@@ -3207,7 +3207,7 @@ async function wakeFramStart() {
     "    main.appendChild(viewEl);\n"
     "  })();"))
 
-(defn gen-routed-program [(g Any)] String
+(defn gen-routed-program! [(g Any)] String
   (let [components (or (.-components g) [])
         views (or (.-views g) [])
         router (.-router g)
@@ -3648,7 +3648,7 @@ async function wakeFramStart() {
     nil)
   (if (and (not (nil? (.-views g))) (> (count (.-views g)) 0))
     (if (not (nil? (.-router g)))
-      (gen-routed-program g)
+      (gen-routed-program! g)
       (gen-view-program! g))
   (let [;; Expand list-detail into UI graph
         ld (first (.-list-details g))

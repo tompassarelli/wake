@@ -285,6 +285,13 @@ test("rejects v2 projections and missing, malformed, or non-null v3 constraint s
     "input bundle entry projection has unsupported fields",
   );
 
+  const malformedImport = mutate(applicationBundle, (bundle) => {
+    bundle.entryProjection.imports = [null];
+  });
+  expect(() => decode(malformedImport)).toThrow(
+    "input bundle entry projection import 1 must be a nonempty string",
+  );
+
   const entityRecord = (bundle) => bundle.entryProjection.forms.find((form) =>
     form.node === "record" && form.name === "Principal");
   const missingConstraint = mutate(applicationBundle, (bundle) => {

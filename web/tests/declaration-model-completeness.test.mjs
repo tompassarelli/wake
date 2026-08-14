@@ -53,6 +53,10 @@ function optional(name) {
   return { kind: "union", members: [prim(name), prim("Nil")] };
 }
 
+function declarationField(name, ann) {
+  return { name, ann, constraint: null, constraintSynchronous: false };
+}
+
 function fields(form) {
   return form.fields.map((field) => [field.name, field.ann]);
 }
@@ -169,7 +173,7 @@ test("public declarations represent every wiki value and composition invariant",
   });
   expect(
     publicForm(program, "FieldValueType")["member-fields"].RefField,
-  ).toEqual([{ name: "target", ann: prim("EntityReferenceTarget") }]);
+  ).toEqual([declarationField("target", prim("EntityReferenceTarget"))]);
   expect(publicForm(program, "FieldWriteMode").members).toEqual([
     "IdentityWrite",
     "CreateWrite",
@@ -198,19 +202,19 @@ test("public declarations represent every wiki value and composition invariant",
     "LiteralValueType",
   ]);
   expect(valueTypes["member-fields"].StateValueType).toEqual([
-    { name: "state", ann: prim("StateRef") },
+    declarationField("state", prim("StateRef")),
   ]);
   expect(valueTypes["member-fields"].EnumValueType).toEqual([
-    { name: "allowed", ann: vec("ValueLiteral") },
+    declarationField("allowed", vec("ValueLiteral")),
   ]);
   expect(valueTypes["member-fields"].ListValueType).toEqual([
-    { name: "item", ann: prim("ValueTypeSpec") },
-    { name: "minimum-items", ann: optional("BoundInt") },
-    { name: "maximum-items", ann: optional("BoundInt") },
-    { name: "normalization", ann: optional("ListNormalization") },
+    declarationField("item", prim("ValueTypeSpec")),
+    declarationField("minimum-items", optional("BoundInt")),
+    declarationField("maximum-items", optional("BoundInt")),
+    declarationField("normalization", optional("ListNormalization")),
   ]);
   expect(valueTypes["member-fields"].ExtensionValueType).toEqual([
-    { name: "port", ann: prim("EntityFieldsPortRef") },
+    declarationField("port", prim("EntityFieldsPortRef")),
   ]);
 
   expect(fields(publicForm(program, "ValueEnvelopeSpec"))).toEqual([

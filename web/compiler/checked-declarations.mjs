@@ -349,9 +349,9 @@ function validateExpression(node, label) {
 
 function validateEntryProjection(ast, label) {
   exactKeys(ast, [
-    "externs", "forms", "gen-class", "kind", "mode", "namespace", "phase",
-    "projectionSha256", "requires", "schemaVersion", "sourceId", "sourceSha256",
-    "target",
+    "externs", "forms", "gen-class", "imports", "kind", "mode", "namespace",
+    "phase", "projectionSha256", "requires", "schemaVersion", "sourceId",
+    "sourceSha256", "target",
   ], label);
   if (ast?.kind !== CHECKED_PROGRAM_KIND
       || ast.schemaVersion !== CHECKED_PROGRAM_SCHEMA_VERSION
@@ -361,9 +361,11 @@ function validateEntryProjection(ast, label) {
     fail(`${label} is not a strict checked beagle/js projection`);
   }
   if (!Array.isArray(ast.forms) || !Array.isArray(ast.requires)
-      || !Array.isArray(ast.externs)) {
-    fail(`${label} is missing checked forms, requires, or externs`);
+      || !Array.isArray(ast.imports) || !Array.isArray(ast.externs)) {
+    fail(`${label} is missing checked forms, requires, imports, or externs`);
   }
+  ast.imports.forEach((name, index) =>
+    nonemptyString(name, `${label} import ${index + 1}`));
   nonemptyString(ast.namespace, `${label} namespace`);
   nonemptyString(ast.sourceId, `${label} source ID`);
   validateSha(ast.sourceSha256, `${label} source digest`);
