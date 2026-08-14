@@ -70,65 +70,65 @@
 ;; --- Expansion: list-detail → UI graph ---
 
 (defn expand-list-detail [(graph Any) (ld Any) (sf Any)] UiGraph
-  (let [en (.-entity-name ld)
-        ge (first (filterv (fn [e] Bool (= (.-name e) en)) (.-entities graph)))
-        store-name (.-store-name ge)
-        columns (.-columns ld)
-        search-cols (or (.-search-cols ld) columns)
-        detail-tabs (or (.-detail-tabs ld) [])
-        overview-tab (first (filterv (fn [t] Bool (= (.-content-type t) "fields")) detail-tabs))
-        related-tabs (filterv (fn [t] Bool (= (.-content-type t) "related")) detail-tabs)
+  (let [en (js/get ld .entity_name)
+        ge (first (filterv (fn [e] Bool (= (js/get e .name) en)) (js/get graph .entities)))
+        store-name (js/get ge .store_name)
+        columns (js/get ld .columns)
+        search-cols (or (js/get ld .search_cols) columns)
+        detail-tabs (or (js/get ld .detail_tabs) [])
+        overview-tab (first (filterv (fn [t] Bool (= (js/get t .content_type) "fields")) detail-tabs))
+        related-tabs (filterv (fn [t] Bool (= (js/get t .content_type) "related")) detail-tabs)
         requested-overview-fields
-        (if (nil? overview-tab) columns (.-fields overview-tab))
-        derived (.-derived-fields ge)
-        derived-names (mapv (fn [field] String (.-name field)) derived)
+        (if (nil? overview-tab) columns (js/get overview-tab .fields))
+        derived (js/get ge .derived_fields)
+        derived-names (mapv (fn [field] String (js/get field .name)) derived)
         overview-fields
         (filterv
-          (fn [field] Bool (not (.includes derived-names field)))
+          (fn [field] Bool (not (js/call derived-names .includes field)))
           requested-overview-fields)
-        title (or (.-title ld) en)
+        title (or (js/get ld .title) en)
 
         related (mapv (fn [rt] UiRelated
-          (let [rel-en (.-entity-name rt)
-                rel-display (.-display-fields rt)
-                rel-ge (first (filterv (fn [e] Bool (= (.-name e) rel-en)) (.-entities graph)))
-                fk-field (.-relation-field rt)]
-            (->UiRelated rel-en (.-store-name rel-ge) fk-field
-                         (.toLowerCase (.-label rt)) (.-label rt)
+          (let [rel-en (js/get rt .entity_name)
+                rel-display (js/get rt .display_fields)
+                rel-ge (first (filterv (fn [e] Bool (= (js/get e .name) rel-en)) (js/get graph .entities)))
+                fk-field (js/get rt .relation_field)]
+            (->UiRelated rel-en (js/get rel-ge .store_name) fk-field
+                         (js/call (js/get rt .label) .toLowerCase) (js/get rt .label)
                          (or rel-display []))))
           related-tabs)
 
-        form-fields (if (nil? sf) [] (or (.-fields sf) []))
-        form-required (if (nil? sf) [] (or (.-required sf) []))
-        form-label (if (nil? sf) "Submit" (or (.-submit-label sf) "Submit"))
-        form-name (if (nil? sf) "" (.-name sf))
+        form-fields (if (nil? sf) [] (or (js/get sf .fields) []))
+        form-required (if (nil? sf) [] (or (js/get sf .required) []))
+        form-label (if (nil? sf) "Submit" (or (js/get sf .submit_label) "Submit"))
+        form-name (if (nil? sf) "" (js/get sf .name))
 
         stores (into
           [(->UiStore store-name en [])]
-          (mapv (fn [r] UiStore (->UiStore (.-store r) (.-entity r) [(.-fk-field r)])) related))
+          (mapv (fn [r] UiStore (->UiStore (js/get r .store) (js/get r .entity) [(js/get r .fk_field)])) related))
 
         states [(->UiState "selectedEid" nil)
                 (->UiState "activeTab" "overview")
                 (->UiState "searchTerm" "")]
 
         status-default (let [sm (first (filterv
-                          (fn [m] Bool (= (.-entity m) en))
-                          (.-state-machines graph)))]
+                          (fn [m] Bool (= (js/get m .entity) en))
+                          (js/get graph .state_machines)))]
                         (if (nil? sm) nil
-                          (let [s (.-initial sm)]
-                            (if (.startsWith s ":") (subs s 1) s))))
+                          (let [s (js/get sm .initial)]
+                            (if (js/call s .startsWith ":") (subs s 1) s))))
 
-        all-fields (.-fields ge)
-        sms (.-state-machines graph)
+        all-fields (js/get ge .fields)
+        sms (js/get graph .state_machines)
 
         build-fi (fn [fname] UiFieldInfo
-          (let [gf (first (filterv (fn [f] Bool (= (.-name f) fname)) all-fields))
-                typ (if (nil? gf) "String" (.-type gf))
-                sm (first (filterv (fn [m] Bool (= (.-state-type m) typ)) sms))
-                strip (fn [s] String (if (.startsWith s ":") (subs s 1) s))]
+          (let [gf (first (filterv (fn [f] Bool (= (js/get f .name) fname)) all-fields))
+                typ (if (nil? gf) "String" (js/get gf .type))
+                sm (first (filterv (fn [m] Bool (= (js/get m .state_type) typ)) sms))
+                strip (fn [s] String (if (js/call s .startsWith ":") (subs s 1) s))]
             (cond
               (not (nil? sm))
-                (->UiFieldInfo fname "select" (mapv strip (keys (.-transitions sm))))
+                (->UiFieldInfo fname "select" (mapv strip (keys (js/get sm .transitions))))
               (= typ "Bool")
                 (->UiFieldInfo fname "checkbox" [])
               (= typ "Date")
@@ -145,9 +145,9 @@
           (->UiForm
             form-name form-fields form-required form-label
             status-default field-info))
-        all-fi (mapv (fn [f] UiFieldInfo (build-fi (.-name f))) all-fields)]
+        all-fi (mapv (fn [f] UiFieldInfo (build-fi (js/get f .name))) all-fields)]
 
     (->UiGraph en store-name title columns search-cols overview-fields
                derived related stores states
                form
-               (.-persist graph) all-fi)))
+               (js/get graph .persist) all-fi)))

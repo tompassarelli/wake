@@ -56,7 +56,7 @@ function checkedBundle(entrySourceId, sources) {
     stdin: Buffer.from(JSON.stringify({
       entrySourceId,
       kind: "beagle.checked-bundle.request",
-      schemaVersion: 3,
+      schemaVersion: 4,
       sources,
     })),
     stderr: "pipe",

@@ -44,7 +44,7 @@ function checkedBundle(entrySourceId, sources) {
     cwd: repositoryRoot,
     stdin: Buffer.from(JSON.stringify({
       kind: "beagle.checked-bundle.request",
-      schemaVersion: 3,
+      schemaVersion: 4,
       entrySourceId,
       sources,
     })),
@@ -265,17 +265,17 @@ test("rejects stale checked models and a valid-looking raw AST bypass", () => {
   )).toThrow("input bundle has unsupported fields");
 });
 
-test("rejects v2 projections and missing, malformed, or non-null v3 constraint slots", () => {
-  const v2Bundle = structuredClone(applicationBundle);
-  v2Bundle.schemaVersion = 2;
-  reseal(v2Bundle);
-  expect(() => decode(v2Bundle)).toThrow("input bundle is not a supported checked bundle");
+test("rejects unsupported projections and missing, malformed, or non-null constraint slots", () => {
+  const unsupportedBundle = structuredClone(applicationBundle);
+  unsupportedBundle.schemaVersion = 0;
+  reseal(unsupportedBundle);
+  expect(() => decode(unsupportedBundle)).toThrow("input bundle is not a supported checked bundle");
 
-  const v2Projection = mutate(applicationBundle, (bundle) => {
-    bundle.entryProjection.schemaVersion = 2;
+  const unsupportedProjection = mutate(applicationBundle, (bundle) => {
+    bundle.entryProjection.schemaVersion = 0;
   });
-  expect(() => decode(v2Projection)).toThrow(
-    "input bundle entry projection is not a strict checked beagle/js projection",
+  expect(() => decode(unsupportedProjection)).toThrow(
+    "input bundle entry projection is not a checked beagle/js projection",
   );
 
   const extraProjectionField = mutate(applicationBundle, (bundle) => {

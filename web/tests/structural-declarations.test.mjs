@@ -85,7 +85,7 @@ function source(overrides = {}) {
 function checkedBundle(text) {
   const request = {
     kind: "beagle.checked-bundle.request",
-    schemaVersion: 3,
+    schemaVersion: 4,
     entrySourceId,
     sources: [
       {

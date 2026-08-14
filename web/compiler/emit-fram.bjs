@@ -43,49 +43,49 @@
 
 (defn field-plan
   [(application-id String) (entity-storage-id String) (field Any)] Any
-  (let [plan {:name (.-name field)
-              :storageId (.-storage-id field)
-              :type (.-type field)
-              :cardinality (.-cardinality field)
-              :valueKind (.-value-kind field)
-              :write (.-write-policy field)
+  (let [plan {:name (js/get field .name)
+              :storageId (js/get field .storage_id)
+              :type (js/get field .type)
+              :cardinality (js/get field .cardinality)
+              :valueKind (js/get field .value_kind)
+              :write (js/get field .write_policy)
               :predicateTerm
               (predicate-term
                 application-id
                 entity-storage-id
-                (.-storage-id field))}]
-    (if (identical? (.-value-kind field) "ref")
-      (assoc plan :targetEntity (.-target-entity field))
+                (js/get field .storage_id))}]
+    (if (identical? (js/get field .value_kind) "ref")
+      (assoc plan :targetEntity (js/get field .target_entity))
       plan)))
 
 (defn identity-plan
   [(application-id String) (entity-storage-id String) (field Any)] Any
-  {:field (.-name field)
-   :storageId (.-storage-id field)
-   :type (.-type field)
-   :cardinality (.-cardinality field)
-   :valueKind (.-value-kind field)
+  {:field (js/get field .name)
+   :storageId (js/get field .storage_id)
+   :type (js/get field .type)
+   :cardinality (js/get field .cardinality)
+   :valueKind (js/get field .value_kind)
    :subjectTemplate
    (subject-template
      application-id
      entity-storage-id
-     (.-storage-id field))})
+     (js/get field .storage_id))})
 
 (defn entity-plan [(application-id String) (entity Any)] Any
-  (let [entity-name (.-name entity)
-        entity-storage-id (.-storage-id entity)]
+  (let [entity-name (js/get entity .name)
+        entity-storage-id (js/get entity .storage_id)]
     {:name entity-name
      :storageId entity-storage-id
      :identity
      (identity-plan
-       application-id entity-storage-id (.-identity-field entity))
+       application-id entity-storage-id (js/get entity .identity_field))
      :fields (mapv
                (fn [(field Any)] Any
                  (field-plan application-id entity-storage-id field))
-               (.-stored-fields entity))}))
+               (js/get entity .stored_fields))}))
 
 (defn state-name [(state String)] String
-  (if (.startsWith state ":") (.slice state 1) state))
+  (if (js/call state .startsWith ":") (js/call state .slice 1) state))
 
 (defn transition-plan [(transitions Any)] Any
   (reduce
@@ -98,138 +98,138 @@
     (keys transitions)))
 
 (defn state-machine-plan [(machine Any)] Any
-  {:entity (.-entity machine)
-   :field (.-field machine)
-   :stateType (.-state-type machine)
-   :initial (state-name (.-initial machine))
-   :transitions (transition-plan (.-transitions machine))})
+  {:entity (js/get machine .entity)
+   :field (js/get machine .field)
+   :stateType (js/get machine .state_type)
+   :initial (state-name (js/get machine .initial))
+   :transitions (transition-plan (js/get machine .transitions))})
 
 (defn publication-plan [(publication Any)] Any
-  {:name (.-name publication)
-   :owner {:entity (.-owner-entity publication)
-           :pointer (.-pointer-field publication)}
-   :revision {:entity (.-revision-entity publication)
-              :ownerField (.-owner-field publication)
-              :stateField (.-state-field publication)}
-   :states {:draft (.-draft-state publication)
-            :published (.-published-state publication)
-            :retired (.-retired-state publication)}})
+  {:name (js/get publication .name)
+   :owner {:entity (js/get publication .owner_entity)
+           :pointer (js/get publication .pointer_field)}
+   :revision {:entity (js/get publication .revision_entity)
+              :ownerField (js/get publication .owner_field)
+              :stateField (js/get publication .state_field)}
+   :states {:draft (js/get publication .draft_state)
+            :published (js/get publication .published_state)
+            :retired (js/get publication .retired_state)}})
 
 (defn query-operand-plan [(operand Any)] Any
-  (let [kind (.-kind operand)]
+  (let [kind (js/get operand .kind)]
     (cond
       (= kind "parameter")
-        {:kind "parameter" :name (.-parameter operand) :type (.-type operand)}
+        {:kind "parameter" :name (js/get operand .parameter) :type (js/get operand .type)}
       (= kind "binding")
-        {:kind "binding" :binding (.-binding operand) :entity (.-entity operand)}
+        {:kind "binding" :binding (js/get operand .binding) :entity (js/get operand .entity)}
       (= kind "field")
         (let [plan
               {:kind "field"
-               :binding (.-binding operand)
-               :entity (.-entity operand)
-               :field (.-field operand)
-               :type (.-type operand)}]
-          (if (= (.-type operand) "Ref")
-            (assoc plan :targetEntity (.-target-entity operand))
+               :binding (js/get operand .binding)
+               :entity (js/get operand .entity)
+               :field (js/get operand .field)
+               :type (js/get operand .type)}]
+          (if (= (js/get operand .type) "Ref")
+            (assoc plan :targetEntity (js/get operand .target_entity))
             plan))
       :else
-        {:kind "literal" :type (.-type operand) :value (.-value operand)})))
+        {:kind "literal" :type (js/get operand .type) :value (js/get operand .value)})))
 
 (defn query-predicate-plan [(predicate Any)] Any
-  {:op (.-op predicate)
-   :left (query-operand-plan (.-left predicate))
-   :right (query-operand-plan (.-right predicate))})
+  {:op (js/get predicate .op)
+   :left (query-operand-plan (js/get predicate .left))
+   :right (query-operand-plan (js/get predicate .right))})
 
 (defn query-column-plan [(column Any)] Any
   (let [plan
-        {:name (.-name column)
-         :binding (.-binding column)
-         :entity (.-entity column)
-         :field (.-field column)
-         :type (.-type column)
-         :cardinality (.-cardinality column)
-         :valueKind (.-value-kind column)}]
+        {:name (js/get column .name)
+         :binding (js/get column .binding)
+         :entity (js/get column .entity)
+         :field (js/get column .field)
+         :type (js/get column .type)
+         :cardinality (js/get column .cardinality)
+         :valueKind (js/get column .value_kind)}]
     (let [checked-plan
-          (if (= (.-value-kind column) "ref")
-            (assoc plan :targetEntity (.-target-entity column))
+          (if (= (js/get column .value_kind) "ref")
+            (assoc plan :targetEntity (js/get column .target_entity))
             plan)]
-      (if (.-internal column)
+      (if (js/get column .internal)
         (assoc checked-plan :internal true)
         checked-plan))))
 
 (defn query-result-provider-plan [(provider Any)] Any
-  {:name (.-name provider)
-   :provider (.-provider provider)
-   :input (.-input provider)
-   :inputType (.-input-type provider)
-   :outputType (.-output-type provider)})
+  {:name (js/get provider .name)
+   :provider (js/get provider .provider)
+   :input (js/get provider .input)
+   :inputType (js/get provider .input_type)
+   :outputType (js/get provider .output_type)})
 
 (defn query-result-plan [(query Any)] Any
-  (if (= (.-result-kind query) "page")
+  (if (= (js/get query .result_kind) "page")
     {:kind "page"
-     :defaultLimit (.-default-limit query)
-     :maxLimit (.-max-limit query)}
-    {:kind (.-result-kind query)}))
+     :defaultLimit (js/get query .default_limit)
+     :maxLimit (js/get query .max_limit)}
+    {:kind (js/get query .result_kind)}))
 
 (defn route-query-plan [(query Any)] Any
-  {:name (.-name query) :prefix (.-prefix query)})
+  {:name (js/get query .name) :prefix (js/get query .prefix)})
 
 (defn query-plan [(query Any)] Any
-  {:name (.-name query)
-   :capabilities (.-capabilities query)
+  {:name (js/get query .name)
+   :capabilities (js/get query .capabilities)
    :parameters
    (mapv
      (fn [(parameter Any)] Any
-       {:name (.-name parameter) :type (.-type parameter)})
-     (.-params query))
+       {:name (js/get parameter .name) :type (js/get parameter .type)})
+     (js/get query .params))
    :bindings
    (mapv
      (fn [(binding Any)] Any
-       {:name (.-name binding) :entity (.-entity binding)})
-     (.-bindings query))
-   :where (mapv query-predicate-plan (.-predicates query))
-   :select (mapv query-column-plan (.-columns query))
+       {:name (js/get binding .name) :entity (js/get binding .entity)})
+     (js/get query .bindings))
+   :where (mapv query-predicate-plan (js/get query .predicates))
+   :select (mapv query-column-plan (js/get query .columns))
    :resultProviders
-   (mapv query-result-provider-plan (or (.-result-providers query) []))
+   (mapv query-result-provider-plan (or (js/get query .result_providers) []))
    :result (query-result-plan query)
    :dependencies
    (mapv
      (fn [(dependency Any)] Any
-       {:entity (.-entity dependency) :field (.-field dependency)})
-     (.-dependencies query))})
+       {:entity (js/get dependency .entity) :field (js/get dependency .field)})
+     (js/get query .dependencies))})
 
 (defn fram-plan [(checked Any)] Any
-  (let [application-id (.-application-id checked)]
+  (let [application-id (js/get checked .application_id)]
     {:schemaVersion 2
      :applicationId application-id
      :backend "fram"
-     :semanticFingerprint (.-semantic-fingerprint checked)
-     :pluginClosure (or (.-plugin-closure checked) [])
+     :semanticFingerprint (js/get checked .semantic_fingerprint)
+     :pluginClosure (or (js/get checked .plugin_closure) [])
      :composition
-     {:providers (or (.-providers checked) [])
-      :extensions (or (.-extensions checked) [])
-      :fills (or (.-fills checked) [])
-      :mounts (or (.-mounts checked) [])}
+     {:providers (or (js/get checked .providers) [])
+      :extensions (or (js/get checked .extensions) [])
+      :fills (or (js/get checked .fills) [])
+      :mounts (or (js/get checked .mounts) [])}
      :routes
-     (if (nil? (.-router checked))
+     (if (nil? (js/get checked .router))
        []
        (mapv
          (fn [(route Any)] Any
-           {:path (.-path route)
-            :parameters (or (.-parameters route) [])
-            :inputParameters (or (.-input-parameters route) [])
-            :queries (mapv route-query-plan (or (.-queries route) []))
-            :requiredProps (or (.-required-props route) [])
-            :view (.-view-name route)})
-         (.-routes (.-router checked))))
+           {:path (js/get route .path)
+            :parameters (or (js/get route .parameters) [])
+            :inputParameters (or (js/get route .input_parameters) [])
+            :queries (mapv route-query-plan (or (js/get route .queries) []))
+            :requiredProps (or (js/get route .required_props) [])
+            :view (js/get route .view_name)})
+         (js/get (js/get checked .router) .routes)))
      :entities (mapv
                  (fn [(entity Any)] Any
                    (entity-plan application-id entity))
-                 (.-entities checked))
-     :queries (mapv query-plan (or (.-queries checked) []))
-     :commands (or (.-commands checked) [])
-     :stateMachines (mapv state-machine-plan (.-state-machines checked))
-     :publications (mapv publication-plan (.-publications checked))}))
+                 (js/get checked .entities))
+     :queries (mapv query-plan (or (js/get checked .queries) []))
+     :commands (or (js/get checked .commands) [])
+     :stateMachines (mapv state-machine-plan (js/get checked .state_machines))
+     :publications (mapv publication-plan (js/get checked .publications))}))
 
 (js/export
   (defn gen-fram [(checked Any)] String

@@ -37,9 +37,9 @@ test("Wake source is an ordinary typed Beagle program", () => {
       .filter((form) => form.node === "def")
       .map((form) => [form.name, form.value.inferredType.name]),
   );
-  expect(definitions.get("page")).toBe("EntityDeclarationSpec");
-  expect(definitions.get("published-revisions")).toBe("QueryDeclarationSpec");
-  expect(definitions.get("application")).toBe("ApplicationRootSpec");
+  expect(definitions.get("page")).toBe("wake.core/EntityDeclarationSpec");
+  expect(definitions.get("published-revisions")).toBe("wake.core/QueryDeclarationSpec");
+  expect(definitions.get("application")).toBe("wake.core/ApplicationRootSpec");
 }, 60_000);
 
 test("typed Beagle input reaches Wake graph and code generation", () => {

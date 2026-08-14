@@ -1,9 +1,9 @@
 import { canonicalJson, sha256Digest } from "./canonical.mjs";
 
 const BUNDLE_KIND = "beagle.checked-bundle";
-const BUNDLE_SCHEMA_VERSION = 3;
+const BUNDLE_SCHEMA_VERSION = 4;
 const CHECKED_PROGRAM_KIND = "beagle.checked-program";
-const CHECKED_PROGRAM_SCHEMA_VERSION = 3;
+const CHECKED_PROGRAM_SCHEMA_VERSION = 4;
 const WAKE_CORE_NAMESPACE = "wake.core";
 const WAKE_CORE_SOURCE_ID = "web/wake/core.bjs";
 const WAKE_IR_NAMESPACE = "wake.ir";
@@ -349,16 +349,16 @@ function validateExpression(node, label) {
 
 function validateEntryProjection(ast, label) {
   exactKeys(ast, [
-    "externs", "forms", "gen-class", "imports", "kind", "mode", "namespace",
-    "phase", "projectionSha256", "requires", "schemaVersion", "sourceId",
-    "sourceSha256", "target",
+    "externs", "forms", "gen-class", "importedRecordFieldOrder",
+    "importedRecordNamespaces", "imports", "kind", "namespace", "phase",
+    "projectionSha256", "requires", "schemaVersion", "sourceId", "sourceSha256",
+    "target",
   ], label);
   if (ast?.kind !== CHECKED_PROGRAM_KIND
       || ast.schemaVersion !== CHECKED_PROGRAM_SCHEMA_VERSION
       || ast.phase !== "checked"
-      || ast.target !== "js"
-      || ast.mode !== "strict") {
-    fail(`${label} is not a strict checked beagle/js projection`);
+      || ast.target !== "js") {
+    fail(`${label} is not a checked beagle/js projection`);
   }
   if (!Array.isArray(ast.forms) || !Array.isArray(ast.requires)
       || !Array.isArray(ast.imports) || !Array.isArray(ast.externs)) {
@@ -366,6 +366,24 @@ function validateEntryProjection(ast, label) {
   }
   ast.imports.forEach((name, index) =>
     nonemptyString(name, `${label} import ${index + 1}`));
+  for (const [record, fields] of objectEntries(
+    ast.importedRecordFieldOrder,
+    `${label} imported record field order`,
+  )) {
+    nonemptyString(record, `${label} imported record name`);
+    if (!Array.isArray(fields)) {
+      fail(`${label} imported record '${record}' fields must be a vector`);
+    }
+    fields.forEach((field, index) =>
+      nonemptyString(field, `${label} imported record '${record}' field ${index + 1}`));
+  }
+  for (const [record, namespace] of objectEntries(
+    ast.importedRecordNamespaces,
+    `${label} imported record namespaces`,
+  )) {
+    nonemptyString(record, `${label} imported record name`);
+    nonemptyString(namespace, `${label} imported record '${record}' namespace`);
+  }
   nonemptyString(ast.namespace, `${label} namespace`);
   nonemptyString(ast.sourceId, `${label} source ID`);
   validateSha(ast.sourceSha256, `${label} source digest`);
@@ -810,8 +828,11 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
   const records = new Map();
   for (const [index, form] of forms.entries()) {
     if (form?.node === "def") {
-      exactKeys(form, ["ann", "doc", "dynamic", "name", "node", "provenance", "value"], `form ${index + 1}`);
+      exactKeys(form, [
+        "ann", "doc", "dynamic", "effectiveType", "name", "node", "provenance", "value",
+      ], `form ${index + 1}`);
       validateType(form.ann, `definition '${form.name}' annotation`);
+      validateType(form.effectiveType, `definition '${form.name}' effective type`);
       validateProvenance(form.provenance, `definition '${form.name}' provenance`);
       validateExpression(form.value, `definition '${form.name}' value`);
       if (defs.has(form.name)) fail(`projection repeats definition '${form.name}'`);

@@ -69,7 +69,7 @@
     [(JsRawExpr code) code]
 
     [(JsCall callee args)
-     (str (emit-expr callee) "(" (.join (mapv emit-expr args) ", ") ")")]
+     (str (emit-expr callee) "(" (js/call (mapv emit-expr args) .join ", ") ")")]
 
     [(JsMember obj prop)
      (str (emit-expr obj) "." prop)]
@@ -87,24 +87,24 @@
      (str (emit-expr test) " ? " (emit-expr then-expr) " : " (emit-expr else-expr))]
 
     [(JsArrow params body)
-     (str "(" (.join params ", ") ") => " (emit-expr body))]
+     (str "(" (js/call params .join ", ") ") => " (emit-expr body))]
 
     [(JsArrowBlock params body)
-     (str "(" (.join params ", ") ") => {\n" (emit-stmts body 1) "\n}")]
+     (str "(" (js/call params .join ", ") ") => {\n" (emit-stmts body 1) "\n}")]
 
     [(JsTemplate parts)
-     (str "`" (.join (mapv (fn [p] String
+     (str "`" (js/call (mapv (fn [p] String
        (if (string? p) p (str "${" (emit-expr p) "}")))
-       parts) "") "`")]
+       parts) .join "") "`")]
 
     [(JsArray items)
-     (str "[" (.join (mapv emit-expr items) ", ") "]")]
+     (str "[" (js/call (mapv emit-expr items) .join ", ") "]")]
 
     [(JsObject pairs)
      (let [entries (mapv (fn [pair] String
              (str (first pair) ": " (emit-expr (second pair))))
            pairs)]
-       (str "{ " (.join entries ", ") " }"))]
+       (str "{ " (js/call entries .join ", ") " }"))]
 
     [(JsSpread expr)
      (str "..." (emit-expr expr))]
@@ -113,7 +113,7 @@
      (str "await " (emit-expr expr))]
 
     [(JsNew callee args)
-     (str "new " (emit-expr callee) "(" (.join (mapv emit-expr args) ", ") ")")]))
+     (str "new " (emit-expr callee) "(" (js/call (mapv emit-expr args) .join ", ") ")")]))
 
 ;; --- Statement emitter ---
 
@@ -148,11 +148,11 @@
        (emit-stmts stmts depth)]
 
       [(JsFunction name params body)
-       (str pad "function " name "(" (.join params ", ") ") {\n"
+       (str pad "function " name "(" (js/call params .join ", ") ") {\n"
             (emit-stmts body (+ depth 1)) "\n" pad "}")]
 
       [(JsAsyncFn name params body)
-       (str pad "async function " name "(" (.join params ", ") ") {\n"
+       (str pad "async function " name "(" (js/call params .join ", ") ") {\n"
             (emit-stmts body (+ depth 1)) "\n" pad "}")]
 
       [(JsForOf binding iterable body)
@@ -172,7 +172,7 @@
 ;; --- Top-level ---
 
 (defn emit-stmts [(stmts (Vec JsStmt)) (depth Int)] String
-  (.join (mapv (fn [s] String (emit-stmt s depth)) stmts) "\n"))
+  (js/call (mapv (fn [s] String (emit-stmt s depth)) stmts) .join "\n"))
 
 (defn emit-program [(stmts (Vec JsStmt))] String
   (emit-stmts stmts 0))
