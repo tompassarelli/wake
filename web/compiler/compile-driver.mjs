@@ -17,7 +17,7 @@ const DRIVER_SCHEMA_VERSION = 1;
 const FRAM_PLAN_SCHEMA_VERSION = 2;
 const HTTP_OPERATION_PROTOCOL_VERSION = 2;
 const COMPILER_NAME = "wake";
-const BUNDLE_SCHEMA_VERSION = 2;
+const BUNDLE_SCHEMA_VERSION = 3;
 const WAKE_CORE_SOURCE_ID = "web/wake/core.bjs";
 const WAKE_IR_SOURCE_ID = "web/compiler/ir.bjs";
 

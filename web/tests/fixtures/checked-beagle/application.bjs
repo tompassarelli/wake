@@ -14,11 +14,11 @@
   revision-lifecycle
   "state/revision-status"
   "revision-status"
-  [[draft "state/revision-status/value/draft" "draft" :draft]
-   [published "state/revision-status/value/published" "published" :published]]
+  [(draft "state/revision-status/value/draft" "draft" :draft)
+   (published "state/revision-status/value/published" "published" :published)]
   draft
-  [[draft [published]]
-   [published []]])
+  [(draft [published])
+   (published [])])
 
 (wake/defentity-ref page "entity/page" "page")
 (wake/defentity-ref revision "entity/revision" "revision")
@@ -27,18 +27,18 @@
   page
   Page
   "entity/page"
-  [[slug "entity/page/field/slug" "slug" String
+  [(slug "entity/page/field/slug" "slug" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-checked-beagle/field/page/slug"
-    true]
-   [title "entity/page/field/title" "title" String
+    true)
+   (title "entity/page/field/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-checked-beagle/field/page/title"
-    true]]
+    true)]
   []
   "wake-checked-beagle/entity/page")
 
@@ -46,25 +46,25 @@
   revision
   Revision
   "entity/revision"
-  [[id "entity/revision/field/id" "id" String
+  [(id "entity/revision/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-checked-beagle/field/revision/id"
-    true]
-   [page "entity/revision/field/page" "page" (wake/Ref Page)
+    true)
+   (page "entity/revision/field/page" "page" (wake/Ref Page)
     (wake/->RefField (wake/->DeclaredEntityTarget page-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-checked-beagle/field/revision/page"
-    true]
-   [status "entity/revision/field/status" "status" Keyword
+    true)
+   (status "entity/revision/field/status" "status" Keyword
     (wake/->StateField revision-lifecycle-ref)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wake-checked-beagle/field/revision/status"
-    true]
-   [links-to
+    true)
+   (links-to
     "entity/revision/field/links-to"
     "links-to"
     (Vec (wake/Ref Page))
@@ -72,7 +72,7 @@
     (wake/->ManyField nil)
     (wake/->CreateWrite nil)
     "wake-checked-beagle/field/revision/links-to"
-    true]]
+    true)]
   []
   "wake-checked-beagle/entity/revision")
 

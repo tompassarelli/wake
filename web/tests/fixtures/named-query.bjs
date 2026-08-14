@@ -29,11 +29,11 @@
   release-lifecycle
   "state/release-state"
   "ReleaseState"
-  [[draft "state/release-state/value/draft" "draft" :draft]
-   [published "state/release-state/value/published" "published" :published]]
+  [(draft "state/release-state/value/draft" "draft" :draft)
+   (published "state/release-state/value/published" "published" :published)]
   draft
-  [[draft [published]]
-   [published []]])
+  [(draft [published])
+   (published [])])
 
 (wake/defentity-ref release "entity/release" "release")
 (wake/defentity-ref approval "entity/approval" "approval")
@@ -42,24 +42,24 @@
   release
   Release
   "entity/release"
-  [[id "entity/release/field/id" "id" String
+  [(id "entity/release/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-named-query-fixture/field/release/id"
-    true]
-   [state "entity/release/field/state" "state" Keyword
+    true)
+   (state "entity/release/field/state" "state" Keyword
     (wake/->StateField release-lifecycle-ref)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wake-named-query-fixture/field/release/state"
-    true]
-   [tags "entity/release/field/tags" "tags" (Vec String)
+    true)
+   (tags "entity/release/field/tags" "tags" (Vec String)
     (wake/->StringField nil)
     (wake/->ManyField nil)
     (wake/->CreateWrite nil)
     "wake-named-query-fixture/field/release/tags"
-    true]]
+    true)]
   []
   "wake-named-query-fixture/entity/release")
 
@@ -67,24 +67,24 @@
   approval
   Approval
   "entity/approval"
-  [[id "entity/approval/field/id" "id" String
+  [(id "entity/approval/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-named-query-fixture/field/approval/id"
-    true]
-   [release "entity/approval/field/release" "release" String
+    true)
+   (release "entity/approval/field/release" "release" String
     (wake/->RefField (wake/->DeclaredEntityTarget release-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-named-query-fixture/field/approval/release"
-    true]
-   [state "entity/approval/field/state" "state" String
+    true)
+   (state "entity/approval/field/state" "state" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-named-query-fixture/field/approval/state"
-    true]]
+    true)]
   []
   "wake-named-query-fixture/entity/approval")
 

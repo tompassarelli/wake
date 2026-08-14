@@ -9,12 +9,12 @@
   member
   Member
   "host/entity/member"
-  [[member-id "host/entity/member/field/id" "member-id" String
+  [(member-id "host/entity/member/field/id" "member-id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-wiki-substrate-fixture/field/member/id"
-    true]]
+    true)]
   []
   "wake-wiki-substrate-fixture/entity/member")
 
@@ -183,25 +183,25 @@
 (wake/extend-entity-fields
   wiki-revision-extension wiki-ref
   "entity-fields-port/revision-fields" "revision-fields"
-  [[audience
+  [(audience
     "host/extension/revision-fields/audience"
     "audience"
     (wake/->KeywordField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki-substrate-fixture/field/edition/audience"
-    true]])
+    true)])
 (wake/extend-entity-fields
   wiki-receipt-extension wiki-ref
   "entity-fields-port/receipt-fields" "receipt-fields"
-  [[policy-digest
+  [(policy-digest
     "host/extension/receipt-fields/policy-digest"
     "policy-digest"
     (wake/->DigestField nil)
     (wake/->SingleField nil)
     (wake/->ServerWrite nil)
     "wake-wiki-substrate-fixture/field/receipt/policy-digest"
-    true]])
+    true)])
 
 (wake/mount-route-slot
   wiki-browse-mount wiki-ref "route-slot/browse" "browse" "/library")

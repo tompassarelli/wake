@@ -10,11 +10,11 @@
   phase
   "Phase"
   "Phase"
-  [[draft "Phase/draft" "draft" :draft]
-   [published "Phase/published" "published" :published]]
+  [(draft "Phase/draft" "draft" :draft)
+   (published "Phase/published" "published" :published)]
   draft
-  [[draft [published]]
-   [published []]])
+  [(draft [published])
+   (published [])])
 
 (wake/defentity-ref release "release" "release")
 
@@ -22,18 +22,18 @@
   release
   Release
   "release"
-  [[id "release/id" "id" String
+  [(id "release/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-state-query-fixture/field/release/id"
-    true]
-   [phase "release/phase" "phase" Keyword
+    true)
+   (phase "release/phase" "phase" Keyword
     (wake/->StateField phase-ref)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     "wake-state-query-fixture/field/release/phase"
-    true]]
+    true)]
   []
   "wake-state-query-fixture/entity/release")
 

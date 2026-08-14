@@ -14,16 +14,16 @@
   revision-status
   "state/revision-status"
   "revision-status"
-  [[draft "state/revision-status/value/draft" "draft" :draft]
-   [published "state/revision-status/value/published" "published" :published]
-   [superseded
+  [(draft "state/revision-status/value/draft" "draft" :draft)
+   (published "state/revision-status/value/published" "published" :published)
+   (superseded
     "state/revision-status/value/superseded"
     "superseded"
-    :superseded]]
+    :superseded)]
   draft
-  [[draft [published superseded]]
-   [published [superseded]]
-   [superseded []]])
+  [(draft [published superseded])
+   (published [superseded])
+   (superseded [])])
 
 (wake/defexternal-entity-role actor-entity "config/actor-entity")
 
@@ -33,31 +33,31 @@
   article
   Article
   "entity/article"
-  [[id "entity/article/field/id" "id" String
+  [(id "entity/article/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wiki/article/id"
-    true]
-   [title "entity/article/field/title" "title" String
+    true)
+   (title "entity/article/field/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wiki/article/title"
-    true]
-   [links-to "entity/article/field/links-to" "links-to" String
+    true)
+   (links-to "entity/article/field/links-to" "links-to" String
     (wake/->RefField (wake/->DeclaredEntityTarget article-ref))
     (wake/->ManyField nil)
     (wake/->CreateWrite nil)
     "wiki/article/links-to"
-    true]
-   [author "entity/article/field/author" "author" String
+    true)
+   (author "entity/article/field/author" "author" String
     (wake/->RefField (wake/->ExternalEntityTarget actor-entity-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wiki/article/author"
-    true]
-   [published-at
+    true)
+   (published-at
     "entity/article/field/published-at"
     "published-at"
     String
@@ -65,19 +65,19 @@
     (wake/->SingleField nil)
     (wake/->ServerWrite nil)
     "wiki/article/published-at"
-    false]
-   [digest "entity/article/field/digest" "digest" String
+    false)
+   (digest "entity/article/field/digest" "digest" String
     (wake/->DigestField nil)
     (wake/->SingleField nil)
     (wake/->ServerWrite nil)
     "wiki/article/digest"
-    true]
-   [status "entity/article/field/status" "status" Keyword
+    true)
+   (status "entity/article/field/status" "status" Keyword
     (wake/->StateField revision-status-ref)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wiki/article/status"
-    true]]
+    true)]
   []
   "wiki/article")
 
@@ -127,7 +127,7 @@
          (wake/->LiteralBound 65536)
          nil)
        true)])
-  [[block
+  [(block
     (wake/->TaggedValueType
       "tag"
       [(wake/->ValueTaggedVariant
@@ -138,7 +138,7 @@
               [(wake/->IntegerLiteral 2)
                (wake/->IntegerLiteral 3)
                (wake/->IntegerLiteral 4)])
-            true)])])]]
+            true)])]))]
   (wake/->ValueEnvelopeSpec
     (wake/->ConfiguredProjectionBound safe-document-max-bytes)
     (wake/->ConfiguredProjectionBound safe-document-max-depth)

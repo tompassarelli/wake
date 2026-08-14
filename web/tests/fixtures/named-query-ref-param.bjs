@@ -17,12 +17,12 @@
   owner
   Owner
   "entity/owner"
-  [[id "entity/owner/field/id" "id" String
+  [(id "entity/owner/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-named-query-ref-param/field/owner/id"
-    true]]
+    true)]
   []
   "wake-named-query-ref-param/entity/owner")
 
@@ -30,18 +30,18 @@
   release
   Release
   "entity/release"
-  [[id "entity/release/field/id" "id" String
+  [(id "entity/release/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-named-query-ref-param/field/release/id"
-    true]
-   [owner "entity/release/field/owner" "owner" String
+    true)
+   (owner "entity/release/field/owner" "owner" String
     (wake/->RefField (wake/->DeclaredEntityTarget owner-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-named-query-ref-param/field/release/owner"
-    true]]
+    true)]
   []
   "wake-named-query-ref-param/entity/release")
 

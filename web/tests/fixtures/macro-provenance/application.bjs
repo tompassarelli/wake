@@ -8,13 +8,13 @@
   publication-state
   "host/state/publication"
   "publication-state"
-  [[working "host/state/publication/value/working" "working" :working]
-   [released "host/state/publication/value/released" "released" :released]
-   [retired "host/state/publication/value/retired" "retired" :retired]]
+  [(working "host/state/publication/value/working" "working" :working)
+   (released "host/state/publication/value/released" "released" :released)
+   (retired "host/state/publication/value/retired" "retired" :retired)]
   working
-  [[working [released retired]]
-   [released [retired]]
-   [retired []]])
+  [(working [released retired])
+   (released [retired])
+   (retired [])])
 
 (wake/defentity-ref principal "host/entity/principal" "principal")
 (wake/defentity-ref article "host/entity/article" "article")
@@ -23,13 +23,13 @@
   principal
   Principal
   "host/entity/principal"
-  [[id "host/entity/principal/field/id" "id" String
+  [(id "host/entity/principal/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "greywrought/principal/id"
-    true]
-   [display-name
+    true)
+   (display-name
     "host/entity/principal/field/display-name"
     "display-name"
     String
@@ -37,7 +37,7 @@
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "greywrought/principal/display-name"
-    true]]
+    true)]
   []
   "greywrought/principal")
 
@@ -45,25 +45,25 @@
   article
   Article
   "host/entity/article"
-  [[id "host/entity/article/field/id" "id" String
+  [(id "host/entity/article/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "greywrought/article/id"
-    true]
-   [title "host/entity/article/field/title" "title" String
+    true)
+   (title "host/entity/article/field/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "greywrought/article/title"
-    true]
-   [kind "host/entity/article/field/kind" "kind" Keyword
+    true)
+   (kind "host/entity/article/field/kind" "kind" Keyword
     (wake/->KeywordField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "greywrought/article/kind"
-    true]
-   [current-revision
+    true)
+   (current-revision
     "host/entity/article/field/current-revision"
     "current-revision"
     String
@@ -71,19 +71,19 @@
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     "greywrought/article/current-revision"
-    false]
-   [owner "host/entity/article/field/owner" "owner" String
+    false)
+   (owner "host/entity/article/field/owner" "owner" String
     (wake/->RefField (wake/->DeclaredEntityTarget article-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "greywrought/article/owner"
-    true]
-   [status "host/entity/article/field/status" "status" Keyword
+    true)
+   (status "host/entity/article/field/status" "status" Keyword
     (wake/->StateField publication-state-ref)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "greywrought/article/status"
-    true]]
+    true)]
   []
   "greywrought/article")
 
@@ -262,14 +262,14 @@
   wiki-ref
   "entity-fields-port/revision-fields"
   "revision-fields"
-  [[kind
+  [(kind
     "entity-fields-port/revision-fields/field/kind"
     "kind"
     (wake/->KeywordField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "greywrought/article/kind"
-    true]])
+    true)])
 
 (wake/fill-component-slot
   article-card-fill

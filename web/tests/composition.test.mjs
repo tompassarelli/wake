@@ -137,12 +137,12 @@ const application = `#lang beagle/js
   actor
   Actor
   "actor"
-  [[id "actor/id" "id" String
+  [(id "actor/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-composition-fixture/field/actor/id"
-    true]]
+    true)]
   []
   "wake-composition-fixture/entity/actor")
 
@@ -182,22 +182,22 @@ const application = `#lang beagle/js
   release-plugin-ref
   "release-fields"
   "release-fields"
-  [[channel
+  [(channel
     "release-fields/channel"
     "channel"
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-composition-fixture/field/release/channel"
-    true]
-   [owner
+    true)
+   (owner
     "release-fields/owner"
     "owner"
     (wake/->RefField (wake/->DeclaredEntityTarget actor-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-composition-fixture/field/release/owner"
-    true]])
+    true)])
 
 (wake/fill-component-slot
   release-card-fill

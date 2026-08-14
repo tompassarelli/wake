@@ -26,18 +26,18 @@
   release
   Release
   "entity/release"
-  [[id "entity/release/field/id" "id" String
+  [(id "entity/release/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-named-query-unknown-param/field/release/id"
-    true]
-   [opaque "entity/release/field/opaque" "opaque" String
+    true)
+   (opaque "entity/release/field/opaque" "opaque" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-named-query-unknown-param/field/release/opaque"
-    true]]
+    true)]
   []
   "wake-named-query-unknown-param/entity/release")
 

@@ -966,69 +966,62 @@
        (def ~binding CapabilitySpec
          (->CapabilitySpec ~ref-binding ~guards)))))
 
-;; Beagle macro evaluation exposes sequence shape and arity, but not delimiter
-;; identity. Nested vectors remain canonical; exact-arity guards prevent any
-;; trailing or adjacent token from becoming declaration metadata.
+;; A declaration collection is source structure: each entry owns all of its
+;; local metadata. Keep the original collection identity while validating so a
+;; rejection can point at the exact caller form.
 (defmacro defstate-model
   [binding declaration-id public-name values initial transitions]
-  (let [require-declaration-form
-        (fn [declaration label structure] Any
-          (if (pair? declaration)
-            declaration
-            (error
-              (str
-                "Invalid " label " declaration: " declaration "\n\n"
-                "Each " label " must be one complete form:\n"
-                "  " structure))))
-        require-declaration-arity
-        (fn [declaration expected-arity label structure] Any
-          (if (= (count declaration) expected-arity)
-            declaration
-            (error
-              (str
-                "Invalid " label " declaration: " declaration "\n\n"
-                "Each " label " must be one complete form:\n"
-                "  " structure))))
-        value-forms
-        (map
-          (fn [value] Any
-            (require-declaration-form
-              value
-              "state value"
-              "[name declaration-id public-name keyword]"))
-          values)
-        transition-forms
-        (map
-          (fn [transition] Any
-            (require-declaration-form
-              transition "state transition" "[from [to ...]]"))
-          transitions)
+  (let [checked-value-collection
+        (if (vector? values)
+          values
+          (error
+            "Invalid state value declarations: " values "\n\n"
+            "State value declarations must be a vector of complete forms:\n"
+            "  [(name declaration-id public-name keyword) ...]"))
+        checked-transition-collection
+        (if (vector? transitions)
+          transitions
+          (error
+            "Invalid state transition declarations: " transitions "\n\n"
+            "State transition declarations must be a vector of complete forms:\n"
+            "  [(from [to ...]) ...]"))
+        value-structure "(name declaration-id public-name keyword)"
+        transition-structure "(from [to ...])"
         checked-values
-        (map
-          (fn [value] Any
-            (require-declaration-arity
-              value
-              4
-              "state value"
-              "[name declaration-id public-name keyword]"))
-          value-forms)
-        checked-transition-arities
-        (map
-          (fn [transition] Any
-            (require-declaration-arity
-              transition 2 "state transition" "[from [to ...]]"))
-          transition-forms)
+        (map-indexed
+          (fn [index value] Any
+            (if (list? value)
+              (if (= (count value) 4)
+                value
+                (syntax-error-at values index
+                  "Invalid state value declaration: " value "\n\n"
+                  "Each state value must be one complete form:\n"
+                  "  " value-structure))
+              (syntax-error-at values index
+                "Invalid state value declaration: " value "\n\n"
+                "Each state value must be one complete form:\n"
+                "  " value-structure)))
+          checked-value-collection)
         checked-transitions
-        (map
-          (fn [transition] Any
-            (if (pair? (second transition))
-              transition
-              (error
-                (str
+        (map-indexed
+          (fn [index transition] Any
+            (if (list? transition)
+              (if (= (count transition) 2)
+                (if (vector? (second transition))
+                  transition
+                  (syntax-error-at transitions index
+                    "Invalid state transition declaration: " transition "\n\n"
+                    "Each state transition must be one complete form:\n"
+                    "  " transition-structure))
+                (syntax-error-at transitions index
                   "Invalid state transition declaration: " transition "\n\n"
                   "Each state transition must be one complete form:\n"
-                  "  [from [to ...]]"))))
-          checked-transition-arities)
+                  "  " transition-structure))
+              (syntax-error-at transitions index
+                "Invalid state transition declaration: " transition "\n\n"
+                "Each state transition must be one complete form:\n"
+                "  " transition-structure)))
+          checked-transition-collection)
         state-ref-binding (format-symbol "~a-ref" binding)
         state-provenance-token
         (str "wake:macro:state:" declaration-id)
@@ -1103,63 +1096,59 @@
 
 (defmacro define-entity-model
   [binding record-name declaration-id fields derived-fields storage-id]
-  (let [require-declaration-form
-        (fn [declaration label structure] Any
-          (if (pair? declaration)
-            declaration
-            (error
-              (str
-                "Invalid " label " declaration: " declaration "\n\n"
-                "Each " label " must be one complete form:\n"
-                "  " structure))))
-        require-declaration-arity
-        (fn [declaration expected-arity label structure] Any
-          (if (= (count declaration) expected-arity)
-            declaration
-            (error
-              (str
-                "Invalid " label " declaration: " declaration "\n\n"
-                "Each " label " must be one complete form:\n"
-                "  " structure))))
+  (let [checked-field-collection
+        (if (vector? fields)
+          fields
+          (error
+            "Invalid field declarations: " fields "\n\n"
+            "Field declarations must be a vector of complete forms."))
+        checked-derived-field-collection
+        (if (vector? derived-fields)
+          derived-fields
+          (error
+            "Invalid derived field declarations: " derived-fields "\n\n"
+            "Derived field declarations must be a vector of complete forms."))
         field-structure
         (str
-          "[name declaration-id public-name record-type value-type "
-          "cardinality write-mode storage-id required]")
+          "(name declaration-id public-name record-type value-type "
+          "cardinality write-mode storage-id required)")
         derived-field-structure
-        "[name declaration-id public-name expression dependencies]"
-        field-forms
-        (map
-          (fn [field] Any
-            (require-declaration-form field "field" field-structure))
-          fields)
-        derived-field-forms
-        (map
-          (fn [field] Any
-            (require-declaration-form
-              field "derived field" derived-field-structure))
-          derived-fields)
+        "(name declaration-id public-name expression dependencies)"
         checked-fields
-        (map
-          (fn [field] Any
-            (require-declaration-arity field 9 "field" field-structure))
-          field-forms)
-        checked-derived-field-arities
-        (map
-          (fn [field] Any
-            (require-declaration-arity
-              field 5 "derived field" derived-field-structure))
-          derived-field-forms)
+        (map-indexed
+          (fn [index field] Any
+            (if (list? field)
+              (if (= (count field) 9)
+                field
+                (syntax-error-at fields index
+                  "Invalid field declaration: " field "\n\n"
+                  "Each field must be one complete form:\n"
+                  "  " field-structure))
+              (syntax-error-at fields index
+                "Invalid field declaration: " field "\n\n"
+                "Each field must be one complete form:\n"
+                "  " field-structure)))
+          checked-field-collection)
         checked-derived-fields
-        (map
-          (fn [field] Any
-            (if (pair? (nth field 4))
-              field
-              (error
-                (str
+        (map-indexed
+          (fn [index field] Any
+            (if (list? field)
+              (if (= (count field) 5)
+                (if (vector? (nth field 4))
+                  field
+                  (syntax-error-at derived-fields index
+                    "Invalid derived field declaration: " field "\n\n"
+                    "Each derived field must be one complete form:\n"
+                    "  " derived-field-structure))
+                (syntax-error-at derived-fields index
                   "Invalid derived field declaration: " field "\n\n"
                   "Each derived field must be one complete form:\n"
-                  "  " derived-field-structure))))
-          checked-derived-field-arities)
+                  "  " derived-field-structure))
+              (syntax-error-at derived-fields index
+                "Invalid derived field declaration: " field "\n\n"
+                "Each derived field must be one complete form:\n"
+                "  " derived-field-structure)))
+          checked-derived-field-collection)
         entity-ref-binding (format-symbol "~a-ref" binding)
         field-ref-name
         (fn [field-name] Symbol
@@ -1535,27 +1524,29 @@
            ~detail-tabs)))))
 
 (defmacro defvalue-type [binding declaration-id root-spec definitions envelope]
-  (let [definition-structure "[name value-type]"
-        require-definition-form
-        (fn [definition] Any
-          (if (pair? definition)
-            definition
-            (error
-              (str
+  (let [checked-definition-collection
+        (if (vector? definitions)
+          definitions
+          (error
+            "Invalid value type definitions: " definitions "\n\n"
+            "Value type definitions must be a vector of complete forms:\n"
+            "  [(name value-type) ...]"))
+        definition-structure "(name value-type)"
+        checked-definitions
+        (map-indexed
+          (fn [index definition] Any
+            (if (list? definition)
+              (if (= (count definition) 2)
+                definition
+                (syntax-error-at definitions index
+                  "Invalid value type definition: " definition "\n\n"
+                  "Each value type definition must be one complete form:\n"
+                  "  " definition-structure))
+              (syntax-error-at definitions index
                 "Invalid value type definition: " definition "\n\n"
                 "Each value type definition must be one complete form:\n"
-                "  " definition-structure))))
-        definition-forms (map require-definition-form definitions)
-        require-definition-arity
-        (fn [definition] Any
-          (if (= (count definition) 2)
-            definition
-            (error
-              (str
-                "Invalid value type definition: " definition "\n\n"
-                "Each value type definition must be one complete form:\n"
-                "  " definition-structure))))
-        checked-definitions (map require-definition-arity definition-forms)
+                "  " definition-structure)))
+          checked-definition-collection)
         root-ref-binding (format-symbol "~a-ref" binding)
         root-definition-binding (format-symbol "~a-definition" binding)
         root-provenance-token
@@ -2115,30 +2106,31 @@
          (->ProviderBindingSpec ~provider-name ~ref-binding)))))
 
 (defmacro extend-entity-fields [binding use declaration-id remote-name fields]
-  (let [field-structure
+  (let [checked-field-collection
+        (if (vector? fields)
+          fields
+          (error
+            "Invalid extension field declarations: " fields "\n\n"
+            "Extension field declarations must be a vector of complete forms."))
+        field-structure
         (str
-          "[name declaration-id public-name value-type cardinality "
-          "write-mode storage-id required]")
-        require-field-form
-        (fn [field] Any
-          (if (pair? field)
-            field
-            (error
-              (str
+          "(name declaration-id public-name value-type cardinality "
+          "write-mode storage-id required)")
+        checked-fields
+        (map-indexed
+          (fn [index field] Any
+            (if (list? field)
+              (if (= (count field) 8)
+                field
+                (syntax-error-at fields index
+                  "Invalid extension field declaration: " field "\n\n"
+                  "Each extension field must be one complete form:\n"
+                  "  " field-structure))
+              (syntax-error-at fields index
                 "Invalid extension field declaration: " field "\n\n"
                 "Each extension field must be one complete form:\n"
-                "  " field-structure))))
-        field-forms (map require-field-form fields)
-        require-field-arity
-        (fn [field] Any
-          (if (= (count field) 8)
-            field
-            (error
-              (str
-                "Invalid extension field declaration: " field "\n\n"
-                "Each extension field must be one complete form:\n"
-                "  " field-structure))))
-        checked-fields (map require-field-arity field-forms)
+                "  " field-structure)))
+          checked-field-collection)
         ref-binding (format-symbol "~a-ref" binding)
         provenance-token
         (str "wake:macro:imported-entity-fields:" declaration-id)

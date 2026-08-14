@@ -1,0 +1,25 @@
+#lang beagle/js
+(ns wake.tests.structural-declarations-vector-derived
+  (:require [wake.core :as wake]))
+
+(wake/defentity-ref item "entity/item" "item")
+
+(wake/define-entity-model
+  item
+  Item
+  "entity/item"
+  [(id
+    "entity/item/id"
+    "id"
+    String
+    (wake/->StringField nil)
+    (wake/->SingleField nil)
+    (wake/->IdentityWrite nil)
+    "store/item/id"
+    true)]
+  [[label
+    "entity/item/label"
+    "label"
+    (wake/->StringDerivedExpr "label")
+    []]]
+  "store/item")

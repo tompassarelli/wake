@@ -11,74 +11,74 @@
   ContactStatus
   "state/contact-status"
   "ContactStatus"
-  [[active "state/contact-status/value/active" "active" :active]
-   [inactive "state/contact-status/value/inactive" "inactive" :inactive]
-   [archived "state/contact-status/value/archived" "archived" :archived]]
+  [(active "state/contact-status/value/active" "active" :active)
+   (inactive "state/contact-status/value/inactive" "inactive" :inactive)
+   (archived "state/contact-status/value/archived" "archived" :archived)]
   active
-  [[active [inactive archived]]
-   [inactive [active archived]]
-   [archived [active]]])
+  [(active [inactive archived])
+   (inactive [active archived])
+   (archived [active])])
 
 (wake/define-entity-model
   contact
   Contact
   "entity/contact"
-  [[name "entity/contact/field/name" "name" String
+  [(name "entity/contact/field/name" "name" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     nil
-    false]
-   [email "entity/contact/field/email" "email" String
+    false)
+   (email "entity/contact/field/email" "email" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     nil
-    false]
-   [company "entity/contact/field/company" "company" String
+    false)
+   (company "entity/contact/field/company" "company" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     nil
-    false]
-   [status "entity/contact/field/status" "status" Keyword
+    false)
+   (status "entity/contact/field/status" "status" Keyword
     (wake/->StateField ContactStatus-ref)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     nil
-    false]]
-  [[display-name
+    false)]
+  [(display-name
     "entity/contact/field/display-name"
     "display-name"
     (wake/->ConcatDerivedExpr
       [(wake/->FieldDerivedExpr contact-name-ref)
        (wake/->StringDerivedExpr " @ ")
        (wake/->FieldDerivedExpr contact-company-ref)])
-    [contact-name-ref contact-company-ref]]]
+    [contact-name-ref contact-company-ref])]
   nil)
 
 (wake/define-entity-model
   note
   Note
   "entity/note"
-  [[content "entity/note/field/content" "content" String
+  [(content "entity/note/field/content" "content" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     nil
-    false]
-   [contact "entity/note/field/contact" "contact" (wake/Ref Contact)
+    false)
+   (contact "entity/note/field/contact" "contact" (wake/Ref Contact)
     (wake/->RefField (wake/->DeclaredEntityTarget contact-ref))
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     nil
-    false]
-   [created-at "entity/note/field/created-at" "created-at" String
+    false)
+   (created-at "entity/note/field/created-at" "created-at" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     nil
-    false]]
+    false)]
   []
   nil)
 

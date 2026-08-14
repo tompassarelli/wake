@@ -16,54 +16,54 @@
   release
   Release
   "entity/release"
-  [[id "entity/release/field/id" "id" String
+  [(id "entity/release/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-query-api/field/release/id"
-    true]
-   [title "entity/release/field/title" "title" String
+    true)
+   (title "entity/release/field/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-query-api/field/release/title"
-    true]
-   [aliases "entity/release/field/aliases" "aliases" (Vec String)
+    true)
+   (aliases "entity/release/field/aliases" "aliases" (Vec String)
     (wake/->StringField nil)
     (wake/->ManyField nil)
     (wake/->CreateWrite nil)
     "wake-query-api/field/release/aliases"
-    false]]
-  [[label
+    false)]
+  [(label
     "entity/release/field/label"
     "label"
     (wake/->ConcatDerivedExpr
       [(wake/->FieldDerivedExpr release-title-ref)])
-    [release-title-ref]]]
+    [release-title-ref])]
   "wake-query-api/entity/release")
 
 (wake/define-entity-model
   release-note
   ReleaseNote
   "entity/release-note"
-  [[id "entity/release-note/field/id" "id" String
+  [(id "entity/release-note/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-query-api/field/release-note/id"
-    true]
-   [release "entity/release-note/field/release" "release" (wake/Ref Release)
+    true)
+   (release "entity/release-note/field/release" "release" (wake/Ref Release)
     (wake/->RefField (wake/->DeclaredEntityTarget release-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-query-api/field/release-note/release"
-    true]
-   [summary "entity/release-note/field/summary" "summary" String
+    true)
+   (summary "entity/release-note/field/summary" "summary" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-query-api/field/release-note/summary"
-    true]]
+    true)]
   []
   "wake-query-api/entity/release-note")
 

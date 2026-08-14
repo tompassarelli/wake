@@ -9,23 +9,23 @@
   release
   Release
   "entity/release"
-  [[id "entity/release/field/id" "id" String
+  [(id "entity/release/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-query-api/field/release/id"
-    true]
-   [title "entity/release/field/title" "title" String
+    true)
+   (title "entity/release/field/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-query-api/field/release/title"
-    true]]
-  [[label
+    true)]
+  [(label
     "entity/release/field/label"
     "label"
     "title"
-    [release-title-ref]]]
+    [release-title-ref])]
   "wake-query-api/entity/release")
 
 (wake/application-root

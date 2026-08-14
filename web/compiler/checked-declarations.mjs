@@ -1,9 +1,9 @@
 import { canonicalJson, sha256Digest } from "./canonical.mjs";
 
 const BUNDLE_KIND = "beagle.checked-bundle";
-const BUNDLE_SCHEMA_VERSION = 2;
+const BUNDLE_SCHEMA_VERSION = 3;
 const CHECKED_PROGRAM_KIND = "beagle.checked-program";
-const CHECKED_PROGRAM_SCHEMA_VERSION = 2;
+const CHECKED_PROGRAM_SCHEMA_VERSION = 3;
 const WAKE_CORE_NAMESPACE = "wake.core";
 const WAKE_CORE_SOURCE_ID = "web/wake/core.bjs";
 const WAKE_IR_NAMESPACE = "wake.ir";
@@ -13,7 +13,7 @@ const WAKE_IR_SOURCE_ID = "web/compiler/ir.bjs";
 // own source, rather than caller-selected schemas that happen to type-check.
 export const CHECKED_DECLARATION_MODEL = Object.freeze({
   wakeCoreSourceSha256:
-    "sha256:5bc715518679d8150644d3f09670f8e41b5039479282c5d6d2bb3c593ba3263c",
+    "sha256:5a2f3f9ec6806852a59a4ae16387075083db999e342685e22ebc9da503914bf4",
   wakeIrSourceSha256:
     "sha256:8c8b778dd41daf319c52d77e23c00506b8f0f0c5cb5d071e2c2237ea801f503e",
 });
@@ -254,6 +254,15 @@ function validateType(type, label) {
   }
 }
 
+function validateUnconstrainedField(field, label) {
+  exactKeys(field, ["ann", "constraint", "constraintSynchronous", "name"], label);
+  nonemptyString(field.name, `${label} name`);
+  validateType(field.ann, `${label} annotation`);
+  if (field.constraint !== null || field.constraintSynchronous !== false) {
+    fail(`${label} must have a null, nonsynchronous constraint in Wake's declaration model`);
+  }
+}
+
 function validateProvenance(provenance, label) {
   const hasMacro = provenance?.macroExpansion !== undefined;
   exactKeys(provenance, hasMacro ? ["macroExpansion", "source"] : ["source"], label);
@@ -339,6 +348,11 @@ function validateExpression(node, label) {
 }
 
 function validateEntryProjection(ast, label) {
+  exactKeys(ast, [
+    "externs", "forms", "gen-class", "kind", "mode", "namespace", "phase",
+    "projectionSha256", "requires", "schemaVersion", "sourceId", "sourceSha256",
+    "target",
+  ], label);
   if (ast?.kind !== CHECKED_PROGRAM_KIND
       || ast.schemaVersion !== CHECKED_PROGRAM_SCHEMA_VERSION
       || ast.phase !== "checked"
@@ -350,6 +364,10 @@ function validateEntryProjection(ast, label) {
       || !Array.isArray(ast.externs)) {
     fail(`${label} is missing checked forms, requires, or externs`);
   }
+  nonemptyString(ast.namespace, `${label} namespace`);
+  nonemptyString(ast.sourceId, `${label} source ID`);
+  validateSha(ast.sourceSha256, `${label} source digest`);
+  if (typeof ast["gen-class"] !== "boolean") fail(`${label} gen-class must be boolean`);
   const projection = { ...ast };
   delete projection.projectionSha256;
   validateSha(ast.projectionSha256, `${label} projection digest`);
@@ -437,6 +455,54 @@ function definitionMap(projection, kind) {
   return definitions;
 }
 
+function validateModelDefinition(form, label) {
+  if (form.node === "record") {
+    exactKeys(form, form.provenance === undefined
+      ? ["fields", "name", "node"]
+      : ["fields", "name", "node", "provenance"], label);
+    nonemptyString(form.name, `${label} name`);
+    if (!Array.isArray(form.fields)) fail(`${label} fields must be a vector`);
+    const names = new Set();
+    form.fields.forEach((field, index) => {
+      validateUnconstrainedField(field, `${label} field ${index + 1}`);
+      if (names.has(field.name)) fail(`${label} repeats field '${field.name}'`);
+      names.add(field.name);
+    });
+    return;
+  }
+  exactKeys(form, form.provenance === undefined
+    ? ["member-fields", "members", "name", "node", "type-params"]
+    : ["member-fields", "members", "name", "node", "provenance", "type-params"], label);
+  nonemptyString(form.name, `${label} name`);
+  if (!Array.isArray(form.members) || form.members.length === 0
+      || new Set(form.members).size !== form.members.length) {
+    fail(`${label} members must be a nonempty unique vector`);
+  }
+  form.members.forEach((member, index) =>
+    nonemptyString(member, `${label} member ${index + 1}`));
+  if (form["type-params"] !== null
+      && (!Array.isArray(form["type-params"])
+        || new Set(form["type-params"]).size !== form["type-params"].length)) {
+    fail(`${label} type parameters must be null or a unique vector`);
+  }
+  objectEntries(form["member-fields"], `${label} member fields`);
+  const fieldMembers = Object.keys(form["member-fields"]);
+  if (fieldMembers.length !== form.members.length
+      || fieldMembers.some((member) => !form.members.includes(member))) {
+    fail(`${label} member fields must exactly cover its members`);
+  }
+  for (const member of form.members) {
+    const fields = form["member-fields"][member];
+    if (!Array.isArray(fields)) fail(`${label} member '${member}' fields must be a vector`);
+    const names = new Set();
+    fields.forEach((field, index) => {
+      validateUnconstrainedField(field, `${label} member '${member}' field ${index + 1}`);
+      if (names.has(field.name)) fail(`${label} member '${member}' repeats field '${field.name}'`);
+      names.add(field.name);
+    });
+  }
+}
+
 function normalizePublicType(type) {
   if (type.kind === "prim") {
     if (type.name === "Keyword") return { kind: "prim", name: "String" };
@@ -470,6 +536,8 @@ function normalizedDefinition(form) {
       fields: form.fields.map((field) => ({
         name: field.name,
         ann: normalizePublicType(field.ann),
+        constraint: field.constraint,
+        constraintSynchronous: field.constraintSynchronous,
       })),
     };
   }
@@ -482,6 +550,8 @@ function normalizedDefinition(form) {
         .map(([member, fields]) => [internalConstructor(member), fields.map((field) => ({
         name: field.name,
         ann: normalizePublicType(field.ann),
+        constraint: field.constraint,
+        constraintSynchronous: field.constraintSynchronous,
       }))])),
   };
 }
@@ -502,6 +572,14 @@ function internalDefinitionShape(form) {
 function validateModels(publicProjection, internalProjection) {
   const publicDefinitions = definitionMap(publicProjection, "public");
   const internalDefinitions = definitionMap(internalProjection, "internal");
+  for (const [kind, definitions] of [
+    ["public", publicDefinitions],
+    ["internal", internalDefinitions],
+  ]) {
+    for (const [name, form] of definitions) {
+      validateModelDefinition(form, `${kind} model '${name}'`);
+    }
+  }
   const declarationProgram = internalDefinitions.get("IrDeclarationProgram");
   const checkedProgram = internalDefinitions.get("IrCheckedDeclarationProgram");
   if (declarationProgram?.node !== "record") {
@@ -739,6 +817,13 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
     } else if (form?.node === "record") {
       exactKeys(form, ["fields", "name", "node", "provenance"], `form ${index + 1}`);
       if (!Array.isArray(form.fields)) fail(`record '${form.name}' fields must be a vector`);
+      const fieldNames = new Set();
+      form.fields.forEach((field, fieldIndex) => {
+        const fieldLabel = `record '${form.name}' field ${fieldIndex + 1}`;
+        validateUnconstrainedField(field, fieldLabel);
+        if (fieldNames.has(field.name)) fail(`record '${form.name}' repeats field '${field.name}'`);
+        fieldNames.add(field.name);
+      });
       validateProvenance(form.provenance, `record '${form.name}' provenance`);
       if (records.has(form.name)) fail(`projection repeats record '${form.name}'`);
       records.set(form.name, form);

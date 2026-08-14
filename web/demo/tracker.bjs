@@ -10,18 +10,18 @@
   task
   Task
   "entity/task"
-  [[title "entity/task/field/title" "title" String
+  [(title "entity/task/field/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     nil
-    false]
-   [done "entity/task/field/done" "done" String
+    false)
+   (done "entity/task/field/done" "done" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     nil
-    false]]
+    false)]
   []
   nil)
 

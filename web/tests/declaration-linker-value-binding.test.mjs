@@ -34,7 +34,7 @@ function checkedBundle(entrySourceId, sources) {
     cwd: repositoryRoot,
     stdin: Buffer.from(JSON.stringify({
       kind: "beagle.checked-bundle.request",
-      schemaVersion: 2,
+      schemaVersion: 3,
       entrySourceId,
       sources,
     })),

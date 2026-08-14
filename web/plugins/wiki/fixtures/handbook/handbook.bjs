@@ -9,13 +9,13 @@
   member
   Member
   "host/entity/member"
-  [[member-id "host/entity/member/field/id" "member-id" String
+  [(member-id "host/entity/member/field/id" "member-id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "handbook-fixture/field/member/id"
-    true]
-   [display-name
+    true)
+   (display-name
     "host/entity/member/field/display-name"
     "display-name"
     String
@@ -23,7 +23,7 @@
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "handbook-fixture/field/member/display-name"
-    true]]
+    true)]
   []
   "handbook-fixture/entity/member")
 
@@ -192,25 +192,25 @@
 (wake/extend-entity-fields
   wiki-revision-extension wiki-ref
   "entity-fields-port/revision-fields" "revision-fields"
-  [[audience
+  [(audience
     "host/extension/revision-fields/audience"
     "audience"
     (wake/->KeywordField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "handbook-fixture/field/edition/audience"
-    true]])
+    true)])
 (wake/extend-entity-fields
   wiki-receipt-extension wiki-ref
   "entity-fields-port/receipt-fields" "receipt-fields"
-  [[release-rule-digest
+  [(release-rule-digest
     "host/extension/receipt-fields/release-rule-digest"
     "release-rule-digest"
     (wake/->DigestField nil)
     (wake/->SingleField nil)
     (wake/->ServerWrite nil)
     "handbook-fixture/field/receipt/release-rule-digest"
-    true]])
+    true)])
 
 (wake/mount-route-slot
   wiki-browse-mount wiki-ref "route-slot/browse" "browse" "/handbook")

@@ -44,7 +44,7 @@ function checkedBundle(entrySourceId, sources) {
     cwd: repositoryRoot,
     stdin: Buffer.from(JSON.stringify({
       kind: "beagle.checked-bundle.request",
-      schemaVersion: 2,
+      schemaVersion: 3,
       entrySourceId,
       sources,
     })),
@@ -263,6 +263,79 @@ test("rejects stale checked models and a valid-looking raw AST bypass", () => {
       wakeIrModelBundle,
     },
   )).toThrow("input bundle has unsupported fields");
+});
+
+test("rejects v2 projections and missing, malformed, or non-null v3 constraint slots", () => {
+  const v2Bundle = structuredClone(applicationBundle);
+  v2Bundle.schemaVersion = 2;
+  reseal(v2Bundle);
+  expect(() => decode(v2Bundle)).toThrow("input bundle is not a supported checked bundle");
+
+  const v2Projection = mutate(applicationBundle, (bundle) => {
+    bundle.entryProjection.schemaVersion = 2;
+  });
+  expect(() => decode(v2Projection)).toThrow(
+    "input bundle entry projection is not a strict checked beagle/js projection",
+  );
+
+  const extraProjectionField = mutate(applicationBundle, (bundle) => {
+    bundle.entryProjection.futureContract = null;
+  });
+  expect(() => decode(extraProjectionField)).toThrow(
+    "input bundle entry projection has unsupported fields",
+  );
+
+  const entityRecord = (bundle) => bundle.entryProjection.forms.find((form) =>
+    form.node === "record" && form.name === "Principal");
+  const missingConstraint = mutate(applicationBundle, (bundle) => {
+    delete entityRecord(bundle).fields[0].constraint;
+  });
+  expect(() => decode(missingConstraint)).toThrow(
+    "record 'Principal' field 1 has unsupported fields",
+  );
+
+  const constrainedRecord = mutate(applicationBundle, (bundle) => {
+    entityRecord(bundle).fields[0].constraint = { node: "ref", name: "validator?" };
+  });
+  expect(() => decode(constrainedRecord)).toThrow(
+    "record 'Principal' field 1 must have a null, nonsynchronous constraint in Wake's declaration model",
+  );
+
+  const missingSynchronization = mutate(applicationBundle, (bundle) => {
+    delete entityRecord(bundle).fields[0].constraintSynchronous;
+  });
+  expect(() => decode(missingSynchronization)).toThrow(
+    "record 'Principal' field 1 has unsupported fields",
+  );
+
+  for (const invalid of [true, "false"]) {
+    const invalidSynchronization = mutate(applicationBundle, (bundle) => {
+      entityRecord(bundle).fields[0].constraintSynchronous = invalid;
+    });
+    expect(() => decode(invalidSynchronization)).toThrow(
+      "record 'Principal' field 1 must have a null, nonsynchronous constraint in Wake's declaration model",
+    );
+  }
+
+  const constrainedCore = mutate(wakeCoreModelBundle, (bundle) => {
+    const exportedRecord = bundle.entryProjection.forms.find((form) =>
+      form.node === "js-export" && form.form.node === "record");
+    exportedRecord.form.fields[0].constraint = { node: "ref", name: "validator?" };
+  });
+  expect(() => decode(applicationBundle, {
+    wakeCoreModelBundle: constrainedCore,
+  })).toThrow("public model");
+
+  const missingUnionConstraint = mutate(wakeCoreModelBundle, (bundle) => {
+    const exportedUnion = bundle.entryProjection.forms.find((form) =>
+      form.node === "js-export" && form.form.node === "defunion");
+    const firstFields = Object.values(exportedUnion.form["member-fields"])
+      .find((fields) => fields.length > 0);
+    delete firstFields[0].constraint;
+  });
+  expect(() => decode(applicationBundle, {
+    wakeCoreModelBundle: missingUnionConstraint,
+  })).toThrow("has unsupported fields");
 });
 
 test("rejects orphaned, duplicate, and mismatched plugin-use pairs", () => {

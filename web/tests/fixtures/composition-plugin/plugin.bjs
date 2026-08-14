@@ -19,18 +19,18 @@
   release
   Release
   "release"
-  [[id "release/id" "id" String
+  [(id "release/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-composition-plugin/field/release/id"
-    true]
-   [state "release/state" "state" String
+    true)
+   (state "release/state" "state" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     "wake-composition-plugin/field/release/state"
-    true]]
+    true)]
   []
   "wake-composition-plugin/entity/release")
 

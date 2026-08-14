@@ -10,24 +10,24 @@
   item
   Item
   "item"
-  [[id "item/id" "id" String
+  [(id "item/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-test-command-ux/field/item/id"
-    true]
-   [title "item/title" "title" String
+    true)
+   (title "item/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     "wake-test-command-ux/field/item/title"
-    true]
-   [status "item/status" "status" String
+    true)
+   (status "item/status" "status" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     "wake-test-command-ux/field/item/status"
-    true]]
+    true)]
   []
   "wake-test-command-ux/entity/item")
 

@@ -10,11 +10,11 @@
   Lifecycle
   "Lifecycle"
   "Lifecycle"
-  [[draft-state "Lifecycle/draft" "draft" :draft]
-   [published-state "Lifecycle/published" "published" :published]]
+  [(draft-state "Lifecycle/draft" "draft" :draft)
+   (published-state "Lifecycle/published" "published" :published)]
   draft-state
-  [[draft-state [published-state]]
-   [published-state []]])
+  [(draft-state [published-state])
+   (published-state [])])
 
 (wake/defentity-ref document "document" "document")
 
@@ -22,18 +22,18 @@
   document
   Document
   "document"
-  [[id "document/id" "id" String
+  [(id "document/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-configured-plugin/field/document/id"
-    true]
-   [state "document/state" "state" Keyword
+    true)
+   (state "document/state" "state" Keyword
     (wake/->StateField Lifecycle-ref)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     "wake-configured-plugin/field/document/state"
-    true]]
+    true)]
   []
   "wake-configured-plugin/entity/document")
 

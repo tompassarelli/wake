@@ -138,16 +138,16 @@
   RevisionLifecycle
   "RevisionLifecycle"
   "RevisionLifecycle"
-  [[draft "RevisionLifecycle/value/draft" "draft" :draft]
-   [published "RevisionLifecycle/value/published" "published" :published]
-   [superseded
+  [(draft "RevisionLifecycle/value/draft" "draft" :draft)
+   (published "RevisionLifecycle/value/published" "published" :published)
+   (superseded
     "RevisionLifecycle/value/superseded"
     "superseded"
-    :superseded]]
+    :superseded)]
   draft
-  [[draft [published superseded]]
-   [published [superseded]]
-   [superseded []]])
+  [(draft [published superseded])
+   (published [superseded])
+   (superseded [])])
 
 (wake/defentity-ref resource-entity "resource" "resource")
 (wake/defentity-ref revision-entity "revision" "revision")
@@ -156,13 +156,13 @@
   resource-entity
   Resource
   "resource"
-  [[resource-id "resource/id" "id" String
+  [(resource-id "resource/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-wiki/field/resource/id"
-    true]
-   [published-pointer
+    true)
+   (published-pointer
     "resource/published-revision"
     "published-revision"
     String
@@ -170,8 +170,8 @@
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wake-wiki/field/resource/published-revision"
-    false]
-   [draft-pointer
+    false)
+   (draft-pointer
     "resource/draft-revision"
     "draft-revision"
     String
@@ -179,7 +179,7 @@
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wake-wiki/field/resource/draft-revision"
-    false]]
+    false)]
   []
   "wake-wiki/entity/resource")
 
@@ -187,84 +187,84 @@
   revision-entity
   Revision
   "revision"
-  [[revision-id "revision/id" "id" String
+  [(revision-id "revision/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-wiki/field/revision/id"
-    true]
-   [owner-field "revision/resource" "resource" String
+    true)
+   (owner-field "revision/resource" "resource" String
     (wake/->RefField (wake/->DeclaredEntityTarget resource-entity-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/resource"
-    true]
-   [base-field "revision/based-on" "based-on" String
+    true)
+   (base-field "revision/based-on" "based-on" String
     (wake/->RefField (wake/->DeclaredEntityTarget revision-entity-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/based-on"
-    false]
-   [replaces-field "revision/replaces-draft" "replaces-draft" String
+    false)
+   (replaces-field "revision/replaces-draft" "replaces-draft" String
     (wake/->RefField (wake/->DeclaredEntityTarget revision-entity-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/replaces-draft"
-    false]
-   [state-field "revision/state" "state" Keyword
+    false)
+   (state-field "revision/state" "state" Keyword
     (wake/->StateField RevisionLifecycle-ref)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wake-wiki/field/revision/state"
-    true]
-   [author-field "revision/author" "author" String
+    true)
+   (author-field "revision/author" "author" String
     (wake/->RefField (wake/->ExternalEntityTarget actor-entity-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/author"
-    true]
-   [created-at-field "revision/created-at" "created-at" Instant
+    true)
+   (created-at-field "revision/created-at" "created-at" Instant
     (wake/->InstantField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/created-at"
-    true]
-   [published-at-field "revision/published-at" "published-at" Instant
+    true)
+   (published-at-field "revision/published-at" "published-at" Instant
     (wake/->InstantField nil)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wake-wiki/field/revision/published-at"
-    false]
-   [digest-field "revision/digest" "digest" String
+    false)
+   (digest-field "revision/digest" "digest" String
     (wake/->DigestField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/digest"
-    true]
-   [links-field "revision/links-to" "links-to" (Vec String)
+    true)
+   (links-field "revision/links-to" "links-to" (Vec String)
     (wake/->RefField (wake/->DeclaredEntityTarget resource-entity-ref))
     (wake/->ManyField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/links-to"
-    true]
-   [title-field "revision/title" "title" String
+    true)
+   (title-field "revision/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/title"
-    true]
-   [summary-field "revision/summary" "summary" String
+    true)
+   (summary-field "revision/summary" "summary" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/summary"
-    true]
-   [content-source-field "revision/content-source" "content-source" String
+    true)
+   (content-source-field "revision/content-source" "content-source" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-wiki/field/revision/content-source"
-    true]]
+    true)]
   []
   "wake-wiki/entity/revision")
 
@@ -367,7 +367,7 @@
          (wake/->LiteralBound 65536)
          nil)
        true)])
-  [[Block
+  [(Block
     (wake/->TaggedValueType
       "tag"
       [(wake/->ValueTaggedVariant
@@ -432,8 +432,8 @@
             "text"
             (wake/->StringValueType nil nil nil)
             true)])
-       (wake/->ValueTaggedVariant "thematicBreak" [])])]
-   [ListItem
+       (wake/->ValueTaggedVariant "thematicBreak" [])]))
+   (ListItem
     (wake/->RecordValueType
       [(wake/->ValueRecordField
          "blocks"
@@ -442,8 +442,8 @@
            nil
            (wake/->LiteralBound 65536)
            nil)
-         true)])]
-   [Inline
+         true)]))
+   (Inline
     (wake/->TaggedValueType
       "tag"
       [(wake/->ValueTaggedVariant
@@ -492,8 +492,8 @@
               (wake/->LiteralBound 65536)
               nil)
             true)])
-       (wake/->ValueTaggedVariant "lineBreak" [])])]
-   [SafeUrl
+       (wake/->ValueTaggedVariant "lineBreak" [])]))
+   (SafeUrl
     (wake/->TaggedValueType
       "kind"
       [(wake/->ValueTaggedVariant
@@ -507,7 +507,7 @@
          [(wake/->ValueRecordField
             "reference"
             (wake/->StringValueType (wake/->LiteralBound 1) nil nil)
-            true)])])]]
+            true)])]))]
   (wake/->ValueEnvelopeSpec
     (wake/->ConfiguredProjectionBound safe-document-max-bytes)
     (wake/->ConfiguredProjectionBound safe-document-max-depth)

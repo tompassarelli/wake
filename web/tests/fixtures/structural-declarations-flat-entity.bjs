@@ -1,0 +1,24 @@
+#lang beagle/js
+(ns wake.tests.structural-declarations-flat-entity
+  (:require [wake.core :as wake]))
+
+(def stray-field-validator? Bool true)
+
+(wake/defentity-ref item "entity/item" "item")
+
+(wake/define-entity-model
+  item
+  Item
+  "entity/item"
+  [(id
+     "entity/item/id"
+     "id"
+     String
+     (wake/->StringField nil)
+     (wake/->SingleField nil)
+     (wake/->IdentityWrite nil)
+     "store/item/id"
+     true)
+   stray-field-validator?]
+  []
+  "store/item")

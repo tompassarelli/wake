@@ -73,13 +73,13 @@ const singlePublicationProgram = `#lang beagle/js
   publish-status
   "PublishStatus"
   "PublishStatus"
-  [[draft "PublishStatus/draft" "draft" :draft]
-   [published "PublishStatus/published" "published" :published]
-   [retired "PublishStatus/retired" "retired" :retired]]
+  [(draft "PublishStatus/draft" "draft" :draft)
+   (published "PublishStatus/published" "published" :published)
+   (retired "PublishStatus/retired" "retired" :retired)]
   draft
-  [[draft [published retired]]
-   [published [retired]]
-   [retired []]])
+  [(draft [published retired])
+   (published [retired])
+   (retired [])])
 
 (wake/defentity-ref page "page" "page")
 (wake/defentity-ref revision "revision" "revision")
@@ -88,18 +88,18 @@ const singlePublicationProgram = `#lang beagle/js
   page
   Page
   "page"
-  [[slug "page/slug" "slug" String
+  [(slug "page/slug" "slug" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-test-single-publication/field/page/slug"
-    true]
-   [canonical-revision "page/canonical-revision" "canonical-revision" String
+    true)
+   (canonical-revision "page/canonical-revision" "canonical-revision" String
     (wake/->RefField (wake/->DeclaredEntityTarget revision-ref))
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wake-test-single-publication/field/page/canonical-revision"
-    false]]
+    false)]
   []
   "wake-test-single-publication/entity/page")
 
@@ -107,24 +107,24 @@ const singlePublicationProgram = `#lang beagle/js
   revision
   Revision
   "revision"
-  [[id "revision/id" "id" String
+  [(id "revision/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-test-single-publication/field/revision/id"
-    true]
-   [page-ref "revision/page-ref" "page-ref" String
+    true)
+   (page-ref "revision/page-ref" "page-ref" String
     (wake/->RefField (wake/->DeclaredEntityTarget page-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-test-single-publication/field/revision/page-ref"
-    true]
-   [status "revision/status" "status" Keyword
+    true)
+   (status "revision/status" "status" Keyword
     (wake/->StateField publish-status-ref)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     "wake-test-single-publication/field/revision/status"
-    true]]
+    true)]
   []
   "wake-test-single-publication/entity/revision")
 
@@ -193,18 +193,18 @@ const schemaOnlyProgram = `#lang beagle/js
   page
   Page
   "page"
-  [[id "page/id" "id" String
+  [(id "page/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-schema-only/field/page/id"
-    true]
-   [title "page/title" "title" String
+    true)
+   (title "page/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     "wake-schema-only/field/page/title"
-    true]]
+    true)]
   []
   "wake-schema-only/entity/page")
 

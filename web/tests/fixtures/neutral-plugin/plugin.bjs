@@ -10,18 +10,18 @@
   release
   Release
   "release"
-  [[id "release/id" "id" String
+  [(id "release/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-neutral-release/field/release/id"
-    true]
-   [state "release/state" "state" String
+    true)
+   (state "release/state" "state" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     "wake-neutral-release/field/release/state"
-    true]]
+    true)]
   []
   "wake-neutral-release/entity/release")
 

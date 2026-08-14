@@ -18,12 +18,12 @@
   release
   Release
   "entity/release"
-  [[id "entity/release/field/id" "id" String
+  [(id "entity/release/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-named-query-invalid-ref/field/release/id"
-    true]]
+    true)]
   []
   "wake-named-query-invalid-ref/entity/release")
 
@@ -31,12 +31,12 @@
   actor
   Actor
   "entity/actor"
-  [[id "entity/actor/field/id" "id" String
+  [(id "entity/actor/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-named-query-invalid-ref/field/actor/id"
-    true]]
+    true)]
   []
   "wake-named-query-invalid-ref/entity/actor")
 
@@ -44,24 +44,24 @@
   approval
   Approval
   "entity/approval"
-  [[id "entity/approval/field/id" "id" String
+  [(id "entity/approval/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-named-query-invalid-ref/field/approval/id"
-    true]
-   [release "entity/approval/field/release" "release" String
+    true)
+   (release "entity/approval/field/release" "release" String
     (wake/->RefField (wake/->DeclaredEntityTarget release-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-named-query-invalid-ref/field/approval/release"
-    true]
-   [actor "entity/approval/field/actor" "actor" String
+    true)
+   (actor "entity/approval/field/actor" "actor" String
     (wake/->RefField (wake/->DeclaredEntityTarget actor-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-named-query-invalid-ref/field/approval/actor"
-    true]]
+    true)]
   []
   "wake-named-query-invalid-ref/entity/approval")
 

@@ -11,31 +11,31 @@
   RevisionStatus
   "state/revision-status"
   "RevisionStatus"
-  [[draft "state/revision-status/value/draft" "draft" :draft]
-   [canonical "state/revision-status/value/canonical" "canonical" :canonical]
-   [obsolete "state/revision-status/value/obsolete" "obsolete" :obsolete]]
+  [(draft "state/revision-status/value/draft" "draft" :draft)
+   (canonical "state/revision-status/value/canonical" "canonical" :canonical)
+   (obsolete "state/revision-status/value/obsolete" "obsolete" :obsolete)]
   draft
-  [[draft [canonical obsolete]]
-   [canonical [obsolete]]
-   [obsolete []]])
+  [(draft [canonical obsolete])
+   (canonical [obsolete])
+   (obsolete [])])
 
 (wake/define-entity-model
   page
   Page
   "entity/page"
-  [[slug "entity/page/field/slug" "slug" String
+  [(slug "entity/page/field/slug" "slug" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     nil
-    false]
-   [title "entity/page/field/title" "title" String
+    false)
+   (title "entity/page/field/title" "title" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->SetWrite nil)
     nil
-    false]
-   [canonical-revision
+    false)
+   (canonical-revision
     "entity/page/field/canonical-revision"
     "canonical-revision"
     (wake/Ref Revision)
@@ -43,7 +43,7 @@
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     nil
-    false]]
+    false)]
   []
   nil)
 
@@ -51,31 +51,31 @@
   revision
   Revision
   "entity/revision"
-  [[id "entity/revision/field/id" "id" String
+  [(id "entity/revision/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     nil
-    false]
-   [page "entity/revision/field/page" "page" (wake/Ref Page)
+    false)
+   (page "entity/revision/field/page" "page" (wake/Ref Page)
     (wake/->RefField (wake/->DeclaredEntityTarget page-ref))
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     nil
-    false]
-   [body "entity/revision/field/body" "body" String
+    false)
+   (body "entity/revision/field/body" "body" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     nil
-    false]
-   [status "entity/revision/field/status" "status" Keyword
+    false)
+   (status "entity/revision/field/status" "status" Keyword
     (wake/->StateField RevisionStatus-ref)
     (wake/->SingleField nil)
     (wake/->CommandFieldWrite nil)
     nil
-    false]
-   [links-to
+    false)
+   (links-to
     "entity/revision/field/links-to"
     "links-to"
     (Vec (wake/Ref Page))
@@ -83,7 +83,7 @@
     (wake/->ManyField nil)
     (wake/->CreateWrite nil)
     nil
-    false]]
+    false)]
   []
   nil)
 

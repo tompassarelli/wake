@@ -1,0 +1,10 @@
+#lang beagle/js
+(ns wake.tests.structural-declarations-vector-value-type
+  (:require [wake.core :as wake]))
+
+(wake/defvalue-type
+  safe-text
+  "value/safe-text"
+  (wake/->StringValueType nil nil nil)
+  [[alias (wake/->StringValueType nil nil nil)]]
+  nil)

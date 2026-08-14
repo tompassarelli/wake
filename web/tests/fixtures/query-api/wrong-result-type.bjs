@@ -14,12 +14,12 @@
   release
   Release
   "entity/release"
-  [[id "entity/release/field/id" "id" String
+  [(id "entity/release/field/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-query-api/field/release/id"
-    true]]
+    true)]
   []
   "wake-query-api/entity/release")
 

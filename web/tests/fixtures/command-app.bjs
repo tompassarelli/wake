@@ -14,24 +14,24 @@
   entry
   Entry
   "entry"
-  [[id "entry/id" "id" String
+  [(id "entry/id" "id" String
     (wake/->StringField nil)
     (wake/->SingleField nil)
     (wake/->IdentityWrite nil)
     "wake-command-fixture/field/entry/id"
-    true]
-   [links "entry/links" "links" String
+    true)
+   (links "entry/links" "links" String
     (wake/->RefField (wake/->DeclaredEntityTarget entry-ref))
     (wake/->ManyField nil)
     (wake/->CreateWrite nil)
     "wake-command-fixture/field/entry/links"
-    true]
-   [digest "entry/digest" "digest" String
+    true)
+   (digest "entry/digest" "digest" String
     (wake/->DigestField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-command-fixture/field/entry/digest"
-    true]]
+    true)]
   []
   "wake-command-fixture/entity/entry")
 

@@ -74,14 +74,14 @@
   configured-ref
   "document-fields"
   "document-fields"
-  [[audience
+  [(audience
     "document-fields/audience"
     "audience"
     (wake/->KeywordField nil)
     (wake/->SingleField nil)
     (wake/->CreateWrite nil)
     "wake-configured-application/field/entry/audience"
-    true]])
+    true)])
 
 (wake/use-plugin
   configured
