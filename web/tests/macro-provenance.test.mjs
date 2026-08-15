@@ -101,7 +101,7 @@ function macroInventory(ast, source) {
 }
 
 function def(name, type) {
-  return ["def", name, type];
+  return ["def", name, `wake.core/${type}`];
 }
 
 function record(name) {
@@ -450,7 +450,7 @@ function literalArguments(form) {
 function expectDeterministicTokens(ast) {
   for (const form of ast.forms) {
     if (form.node !== "def") continue;
-    const type = form.value.inferredType?.name;
+    const type = form.value.inferredType?.name.replace(/^wake\.core\//u, "");
     const prefix = tokenPrefixes.get(type);
     if (prefix === undefined) continue;
     const literals = literalArguments(form);
@@ -460,7 +460,8 @@ function expectDeterministicTokens(ast) {
   }
 
   const identity = ast.forms.find((form) =>
-    form.node === "def" && form.value.inferredType?.name === "PluginIdentity");
+    form.node === "def"
+      && form.value.inferredType?.name === "wake.core/PluginIdentity");
   if (identity !== undefined) {
     const literals = literalArguments(identity);
     expect(literals.at(-1)).toBe(
@@ -483,7 +484,7 @@ function typedCalls(ast) {
   const names = new Set();
   walk(ast.forms, (node) => {
     if (node.node === "call" && typeof node.inferredType?.name === "string") {
-      names.add(node.inferredType.name.replace(/^wake\//u, ""));
+      names.add(node.inferredType.name.replace(/^wake(?:\.core)?\//u, ""));
     }
   });
   return names;
@@ -533,7 +534,9 @@ test("wiki-shaped plugin declarations have an exact macro-owned inventory", () =
     name: "history-route-ref",
   });
   expect(definition(ast, "history-superseded").value.args[4].items[1])
-    .toMatchObject({ inferredType: { kind: "prim", name: "QueryNonNullPredicate" } });
+    .toMatchObject({
+      inferredType: { kind: "prim", name: "wake.core/QueryNonNullPredicate" },
+    });
   executeGeneratedFixture(
     plugin,
     ["wake", "fixtures", "macro-provenance", "plugin"],
@@ -558,7 +561,7 @@ test("wiki-shaped host owns all imported bindings and nonempty composition", () 
     ["history-mount"],
   ]);
   expect(definition(ast, "application").value.args[5]).toMatchObject({
-    inferredType: { kind: "prim", name: "MountedDefaultRoute" },
+    inferredType: { kind: "prim", name: "wake.core/MountedDefaultRoute" },
   });
   executeGeneratedFixture(
     application,

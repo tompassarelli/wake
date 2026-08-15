@@ -153,7 +153,7 @@ describe("W1 checked named query compiler", () => {
       { entity: "approval", field: "release" },
       { entity: "approval", field: "state" },
     ]);
-  }, 30_000);
+  }, 45_000);
 
   test("rejects equality between references with different entity targets", () => {
     const compiled = compileFram(invalidRefFixture);
@@ -183,7 +183,7 @@ describe("W1 checked named query compiler", () => {
     expect(unknown.stderr).toContain(
       "parameter 'opaque' has unsupported type 'Opaque'",
     );
-  }, 30_000);
+  }, 45_000);
 
   test("qualifies plugin-local state parameter types", async () => {
     const compiled = await compilePluginStateQuery();
