@@ -154,7 +154,9 @@ test("declaration collections require outer vectors", () => {
     },
     {
       name: "derived fields",
-      overrides: { derivedFields: "()" },
+      overrides: {
+        derivedFields: `(${declarations.derivedFields.slice(1, -1)})`,
+      },
       expected: "Derived field declarations must be a vector of complete forms.",
     },
     {
@@ -164,7 +166,9 @@ test("declaration collections require outer vectors", () => {
     },
     {
       name: "extension fields",
-      overrides: { extensionFields: "()" },
+      overrides: {
+        extensionFields: `(${declarations.extensionFields.slice(1, -1)})`,
+      },
       expected: "Extension field declarations must be a vector of complete forms.",
     },
   ];
@@ -263,20 +267,25 @@ test("list declarations compile while flat and vector forms retain source spans"
       span: 157,
     },
   ];
-  const result = sourceDiagnostics([
-    parenthesized,
-    ...cases.map(({ file }) => join(fixtureRoot, file)),
-  ]);
-  const output = diagnostics(result);
-  expect(result.exitCode, output).toBe(1);
+  const parenthesizedResult = sourceDiagnostics([parenthesized]);
+  expect(
+    parenthesizedResult.exitCode,
+    diagnostics(parenthesizedResult),
+  ).toBe(0);
 
-  const found = parseJsonDiagnostics(result);
-  expect(found, output).toHaveLength(cases.length);
   for (const expected of cases) {
-    const diagnostic = found.find(({ file }) => (
-      typeof file === "string" && file.endsWith(expected.file)
-    ));
-    expect(diagnostic, expected.file).toBeDefined();
+    const result = sourceDiagnostics([join(fixtureRoot, expected.file)]);
+    const output = diagnostics(result);
+    expect(result.exitCode, output).toBe(1);
+
+    const found = parseJsonDiagnostics(result);
+    expect(found, output).toHaveLength(1);
+    const [diagnostic] = found;
+    expect(
+      typeof diagnostic.file === "string"
+        && diagnostic.file.endsWith(expected.file),
+      expected.file,
+    ).toBe(true);
     expect(diagnostic.kind).toBe("macro-expansion-parse-error");
     expect(diagnostic["original-kind"]).toBe("macro-source-error");
     expect(diagnostic["macro-name"]).toBe(expected.macro);
@@ -285,11 +294,6 @@ test("list declarations compile while flat and vector forms retain source spans"
     expect(diagnostic.col).toBe(expected.col);
     expect(diagnostic["error-span"]).toBe(expected.span);
   }
-  const parentFailure = found.find(({ file }) => (
-    typeof file === "string"
-      && file.endsWith("structural-declarations-parenthesized.bjs")
-  ));
-  expect(parentFailure).toBeUndefined();
 }, 60_000);
 
 test("declaration macros reject flattened, stray, under-, and over-arity forms", () => {

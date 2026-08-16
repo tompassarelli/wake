@@ -327,7 +327,7 @@ test("query results and derived expressions remain closed typed unions", () => {
     sourcePaths.wakeCore,
     sourcePaths.wrongResult,
   ]);
-  expect(wrongResult).toContain("expected QueryResultSpec, got Keyword");
+  expect(wrongResult).toContain("expected wake.core/QueryResultSpec, got Keyword");
 
   const wrongDerived = failedBeagle([
     "check",
@@ -335,7 +335,7 @@ test("query results and derived expressions remain closed typed unions", () => {
     sourcePaths.wakeCore,
     sourcePaths.wrongDerived,
   ]);
-  expect(wrongDerived).toContain("expected DerivedExpr, got String");
+  expect(wrongDerived).toContain("expected wake.core/DerivedExpr, got String");
 }, 60_000);
 
 test("query fixtures stay accepted by the candidate Beagle compiler", () => {

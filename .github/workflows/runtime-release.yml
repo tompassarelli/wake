@@ -35,6 +35,20 @@ jobs:
           test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = \
             "$(git rev-parse HEAD^{commit})"
 
+      - name: Verify authored release notes
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+        run: |
+          notes_path=".github/release-notes/$RELEASE_TAG.md"
+          if [[ ! -s "$notes_path" ]]; then
+            echo "::error::missing authored release notes at $notes_path"
+            exit 1
+          fi
+          if [[ "$(sed -n '1p' "$notes_path")" != "# Wake $RELEASE_TAG" ]]; then
+            echo "::error::$notes_path must start with # Wake $RELEASE_TAG"
+            exit 1
+          fi
+
       - name: Install Racket
         uses: Bogdanp/setup-racket@v1.14
         with:
@@ -158,4 +172,4 @@ jobs:
           --repo "$GITHUB_REPOSITORY"
           --verify-tag
           --title "Wake $RELEASE_TAG"
-          --notes "Source-bound Wake runtime artifacts. The attached receipt binds the archive to this annotated tag, commit, and file digests."
+          --notes-file ".github/release-notes/$RELEASE_TAG.md"
