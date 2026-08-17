@@ -19,13 +19,13 @@ const sourcePaths = Object.freeze({
   application: join(webRoot, "tests", "fixtures", "macro-provenance", "application.bjs"),
   plugin: join(webRoot, "tests", "fixtures", "macro-provenance", "plugin.bjs"),
   wakeCore: join(webRoot, "wake", "core.bjs"),
-  wakeIr: join(webRoot, "compiler", "ir.bjs"),
+  wakeIr: join(webRoot, "wake", "ir.bjs"),
 });
 const sourceIds = Object.freeze({
   application: "web/tests/fixtures/macro-provenance/application.bjs",
   plugin: "web/tests/fixtures/macro-provenance/plugin.bjs",
   wakeCore: "web/wake/core.bjs",
-  wakeIr: "web/compiler/ir.bjs",
+  wakeIr: "web/wake/ir.bjs",
 });
 const sourceText = Object.freeze(Object.fromEntries(
   Object.entries(sourcePaths).map(([name, path]) => [name, readFileSync(path, "utf8")]),

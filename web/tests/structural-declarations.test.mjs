@@ -14,6 +14,7 @@ const beagleRoot = process.env.BEAGLE_PROJECTION_ROOT
   ?? process.env.BEAGLE_ROOT
   ?? join(homedir(), "code", "beagle", "main");
 const beagle = join(beagleRoot, "bin", "beagle");
+const moduleRoot = ["--module-root", `web=${webRoot}`];
 
 const completeField = `(id "entity/item/id" "id" String
   (wake/->StringField nil)
@@ -114,7 +115,7 @@ function diagnostics(result) {
 }
 
 function sourceDiagnostics(paths) {
-  return Bun.spawnSync([beagle, "check", corePath, ...paths], {
+  return Bun.spawnSync([beagle, "check", ...moduleRoot, corePath, ...paths], {
     cwd: webRoot,
     env: { ...process.env, BEAGLE_ERROR_FORMAT: "json" },
     stdout: "pipe",

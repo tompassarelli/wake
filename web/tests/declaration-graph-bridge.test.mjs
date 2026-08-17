@@ -238,7 +238,7 @@ beforeAll(async () => {
     const output = join(buildDir, `${moduleName}.js.tmp`);
     const built = spawnSync(
       beagle,
-      ["build", join(webRoot, "compiler", `${moduleName}.bjs`), output],
+      ["build", "--module-root", `web=${webRoot}`, join(webRoot, "wake", `${moduleName}.bjs`), output],
       { cwd: join(webRoot, ".."), env: environment },
     );
     assert.equal(built.status, 0, built.stderr || built.stdout);
@@ -260,7 +260,7 @@ beforeAll(async () => {
   }
 
   graph = await import(pathToFileURL(join(buildDir, "graph.js")).href);
-});
+}, 30_000);
 
 afterAll(() => {
   rmSync(buildDir, { force: true, recursive: true });

@@ -11,12 +11,14 @@
 set -euo pipefail
 
 wake_root="$(cd "$(dirname "$0")/.." && pwd)"
-compiler="$wake_root/compiler"
+compiler="$wake_root/wake"
+driver="$wake_root/compiler"
 
 BEAGLE_ROOT="${BEAGLE_ROOT:-$HOME/code/beagle/main}"
 BEAGLE_BUILD="${BEAGLE_BUILD:-$BEAGLE_ROOT/bin/beagle-build}"
 BEAGLE="${BEAGLE:-$BEAGLE_ROOT/bin/beagle}"
 BEAGLE_RUNTIME_DIR="${BEAGLE_RUNTIME_DIR:-$BEAGLE_ROOT/beagle-lib/lib/beagle}"
+BEAGLE_MODULE_ROOT=(--module-root "web=$wake_root")
 
 if ! command -v bun >/dev/null; then
   echo "wake-compile: Bun is not installed" >&2
@@ -39,8 +41,15 @@ done
 # the generated imports resolvable by Bun without a global package install.
 compile() {
   local source="$1" output="$2"
-  BEAGLE_JS_RUNTIME_PREFIX='./beagle/' \
-    "$BEAGLE_BUILD" "$source" "$output" >/dev/null
+  local module="$(basename "$source" .bjs)"
+  local cached="$compile_cache_dir/$module.js"
+  if [[ ! -f "$cached" ]]; then
+    local temporary="$compile_cache_dir/$module.$$.tmp"
+    BEAGLE_JS_RUNTIME_PREFIX='./beagle/' \
+      "$BEAGLE_BUILD" "${BEAGLE_MODULE_ROOT[@]}" "$source" "$temporary" >/dev/null
+    mv -f "$temporary" "$cached"
+  fi
+  cp "$cached" "$output"
 }
 
 append_function_exports() {
@@ -60,6 +69,15 @@ echo "using Beagle builder at $BEAGLE_BUILD" >&2
 staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/wake-compile.XXXXXX")"
 trap 'rm -rf "${staging_dir:?}"' EXIT
 dist="$staging_dir/dist"
+
+compile_cache_root="${WAKE_COMPILE_CACHE:-${TMPDIR:-/tmp}/wake-compile-cache}"
+mkdir -p "$compile_cache_root"
+compile_cache_key="$({
+  printf '%s\n' "$BEAGLE_BUILD" "$BEAGLE_RUNTIME_DIR"
+  sha256sum "$BEAGLE_BUILD" "$BEAGLE_RUNTIME_DIR/core.js" "$BEAGLE_RUNTIME_DIR/hamt.js" "$compiler"/*.bjs
+} | sha256sum | cut -d' ' -f1)"
+compile_cache_dir="$compile_cache_root/$compile_cache_key"
+mkdir -p "$compile_cache_dir"
 
 mkdir -p "$dist/beagle"
 cp "$wake_root/package.json" "$staging_dir/package.json"
@@ -103,12 +121,41 @@ run_driver() {
   local mode="$1" source="$2" output="$3"
   local absolute_source
   absolute_source="$(realpath "$source")"
+  local source_hash
+  source_hash="$(sha256sum "$absolute_source" | cut -d' ' -f1)"
+  local artifact_cache_key
+  artifact_cache_key="$(printf '%s\n%s\n' "$mode" "$source_hash" | sha256sum | cut -d' ' -f1)"
+  local artifact_cache_dir="$compile_cache_dir/artifacts/$artifact_cache_key"
+  if [[ "$mode" == "all" && -f "$artifact_cache_dir/app.js" ]]; then
+    for artifact in app.js wake-client.js app.fram.json app.wake.manifest.json app.wake.deployment.json; do
+      cp "$artifact_cache_dir/$artifact" "$output/$artifact"
+    done
+    return
+  fi
+  if [[ "$mode" == "fram" && "$output" != "-" && -f "$artifact_cache_dir/app.fram.json" ]]; then
+    cp "$artifact_cache_dir/app.fram.json" "$output"
+    return
+  fi
+  if [[ "$mode" == "js" && "$output" != "-" && -f "$artifact_cache_dir/app.js" ]]; then
+    cp "$artifact_cache_dir/app.js" "$output"
+    return
+  fi
   BEAGLE="$BEAGLE" BEAGLE_ROOT="$BEAGLE_ROOT" \
-    bun --no-install "$compiler/compile-driver.mjs" \
+    bun --no-install "$driver/compile-driver.mjs" \
     --dist "$dist" \
     --mode "$mode" \
     --source "$absolute_source" \
     --output "$output"
+  mkdir -p "$artifact_cache_dir"
+  if [[ "$mode" == "all" ]]; then
+    for artifact in app.js wake-client.js app.fram.json app.wake.manifest.json app.wake.deployment.json; do
+      cp "$output/$artifact" "$artifact_cache_dir/$artifact"
+    done
+  elif [[ "$output" != "-" ]]; then
+    local artifact_name="app.js"
+    if [[ "$mode" == "fram" ]]; then artifact_name="app.fram.json"; fi
+    cp "$output" "$artifact_cache_dir/$artifact_name"
+  fi
 }
 
 if [[ $# -ge 1 && "$1" == "--all" ]]; then

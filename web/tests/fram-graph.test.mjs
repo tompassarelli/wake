@@ -131,7 +131,7 @@ beforeAll(async () => {
   const output = join(buildDir, "graph.js.tmp");
   const built = spawnSync(
     "beagle",
-    ["build", join(webRoot, "compiler", "graph.bjs"), output],
+    ["build", "--module-root", `web=${webRoot}`, join(webRoot, "wake", "graph.bjs"), output],
     {
       env: { ...process.env, BEAGLE_JS_RUNTIME_PREFIX: "./beagle/" },
     },

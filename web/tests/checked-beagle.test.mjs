@@ -16,6 +16,7 @@ const beagleRoot = process.env.BEAGLE_PROJECTION_ROOT
   ?? process.env.BEAGLE_ROOT
   ?? `${process.env.HOME}/code/beagle/main`;
 const beagle = `${beagleRoot}/bin/beagle`;
+const moduleRoot = ["--module-root", `web=${webRoot}`];
 
 function compileDriver(arguments_) {
   return Bun.spawnSync(
@@ -25,7 +26,7 @@ function compileDriver(arguments_) {
 }
 
 test("Wake source is an ordinary typed Beagle program", () => {
-  const result = Bun.spawnSync([beagle, "ast", source], {
+  const result = Bun.spawnSync([beagle, "ast", ...moduleRoot, source], {
     cwd: webRoot,
     stderr: "pipe",
     stdout: "pipe",

@@ -32,13 +32,13 @@ const sourcePaths = Object.freeze({
   plugin: join(pluginRoot, "plugin.bjs"),
   substrate: join(pluginRoot, "fixtures", "substrate", "substrate.bjs"),
   wakeCore: join(webRoot, "wake", "core.bjs"),
-  wakeIr: join(webRoot, "compiler", "ir.bjs"),
+  wakeIr: join(webRoot, "wake", "ir.bjs"),
 });
 const sourceIds = Object.freeze({
   plugin: "plugin.bjs",
   substrate: "substrate.bjs",
   wakeCore: "web/wake/core.bjs",
-  wakeIr: "web/compiler/ir.bjs",
+  wakeIr: "web/wake/ir.bjs",
 });
 const sourceTexts = Object.freeze(Object.fromEntries(
   Object.entries(sourcePaths).map(([name, path]) => [
@@ -129,7 +129,7 @@ beforeAll(async () => {
     const output = join(buildDir, `${moduleName}.js.tmp`);
     run(
       beagle,
-      ["build", join(webRoot, "compiler", `${moduleName}.bjs`), output],
+      ["build", "--module-root", `web=${webRoot}`, join(webRoot, "wake", `${moduleName}.bjs`), output],
       { env: environment },
     );
   }
@@ -154,7 +154,7 @@ beforeAll(async () => {
     );
   }
   graph = await import(pathToFileURL(join(buildDir, "graph.js")).href);
-});
+}, 30_000);
 
 afterAll(() => {
   rmSync(buildDir, { force: true, recursive: true });

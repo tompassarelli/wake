@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: tompassarelli/beagle
-          ref: 987a2d15477670ddb51fd44b50487b52ae9c6343
+          ref: 4aaf833c1edd27f155fbb744dfbbfa8ba9f1b55d
           path: .beagle
 
       - name: Link Beagle packages
@@ -41,7 +41,7 @@ jobs:
           echo "BEAGLE_ROOT=$GITHUB_WORKSPACE/.beagle" >> "$GITHUB_ENV"
 
       - name: Check Beagle sources
-        run: .beagle/bin/beagle check --agent web/compiler
+        run: .beagle/bin/beagle check --module-root "web=$GITHUB_WORKSPACE/web" --agent web/wake
 
       - name: Build compiler and projections
         run: |

@@ -23,9 +23,15 @@ const beagleRoot = process.env.BEAGLE_PROJECTION_ROOT
   ?? process.env.BEAGLE_ROOT
   ?? join(homedir(), "code", "beagle", "main");
 const beagle = join(beagleRoot, "bin", "beagle");
+const moduleRoot = ["--module-root", `web=${webRoot}`];
 
 function runBeagle(args) {
-  const result = Bun.spawnSync([beagle, ...args], {
+  const command = args[0] === "build" && args[1] === "--target"
+    // The source-profile build is the JS hosted target and accepts closed
+    // module roots; explicit --target rejects module roots in Beagle v0.22.
+    ? [args[0], ...moduleRoot, ...args.slice(3)]
+    : [args[0], ...moduleRoot, ...args.slice(1)];
+  const result = Bun.spawnSync([beagle, ...command], {
     cwd: webRoot,
     stdout: "pipe",
     stderr: "pipe",
@@ -541,7 +547,7 @@ test("wiki-shaped plugin declarations have an exact macro-owned inventory", () =
     plugin,
     ["wake", "fixtures", "macro-provenance", "plugin"],
   );
-});
+}, 60_000);
 
 test("wiki-shaped host owns all imported bindings and nonempty composition", () => {
   runBeagle(["check", "--agent", core, application]);
@@ -567,4 +573,4 @@ test("wiki-shaped host owns all imported bindings and nonempty composition", () 
     application,
     ["wake", "fixtures", "macro-provenance", "application"],
   );
-});
+}, 60_000);

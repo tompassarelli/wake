@@ -14,6 +14,7 @@ const beagleRoot = process.env.BEAGLE_PROJECTION_ROOT
   ?? process.env.BEAGLE_ROOT
   ?? join(homedir(), "code", "beagle", "main");
 const beagle = join(beagleRoot, "bin", "beagle");
+const moduleRoot = ["--module-root", `web=${webRoot}`];
 const sourcePaths = Object.freeze({
   derivedString: join(
     webRoot,
@@ -24,7 +25,7 @@ const sourcePaths = Object.freeze({
   ),
   results: join(webRoot, "tests", "fixtures", "query-api", "results.bjs"),
   wakeCore: join(webRoot, "wake", "core.bjs"),
-  wakeIr: join(webRoot, "compiler", "ir.bjs"),
+  wakeIr: join(webRoot, "wake", "ir.bjs"),
   wrongDerived: join(
     webRoot,
     "tests",
@@ -44,7 +45,7 @@ const sourceIds = Object.freeze({
   derivedString: "web/tests/fixtures/query-api/derived-string.bjs",
   results: "web/tests/fixtures/query-api/results.bjs",
   wakeCore: "web/wake/core.bjs",
-  wakeIr: "web/compiler/ir.bjs",
+  wakeIr: "web/wake/ir.bjs",
 });
 const sourceText = Object.freeze(Object.fromEntries(
   Object.entries(sourcePaths).map(([name, path]) => [name, readFileSync(path, "utf8")]),
@@ -59,7 +60,7 @@ function suppliedSource(sourceId, text, authority) {
 }
 
 function runBeagle(args) {
-  const result = Bun.spawnSync([beagle, ...args], {
+  const result = Bun.spawnSync([beagle, args[0], ...moduleRoot, ...args.slice(1)], {
     cwd: webRoot,
     stdout: "pipe",
     stderr: "pipe",

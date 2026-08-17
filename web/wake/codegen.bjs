@@ -10,7 +10,7 @@
 ;; --- Typed records ---
 
 (defrecord RenderResult [(code String) (vname String) (bindings Any)])
-(defrecord Binding [(prop String) (vname String) (dom-prop String)])
+(defrecord Binding [(prop String) (vname String) (dom_prop String)])
 (defrecord LayoutRef [(id String) (vname String)])
 (defrecord LayoutResult [(code String) (refs (Vec LayoutRef))])
 
@@ -33,7 +33,7 @@
 (defrecord JsConst [(name String) (value JsExpr)])
 (defrecord JsAssign [(target JsExpr) (value JsExpr)])
 (defrecord JsReturn [(expr JsExpr)])
-(defrecord JsIf [(test JsExpr) (then (Vec JsStmt)) (else-branch (Vec JsStmt))])
+(defrecord JsIf [(test JsExpr) (then (Vec JsStmt)) (else_branch (Vec JsStmt))])
 (defrecord JsBlock [(stmts (Vec JsStmt))])
 (defrecord JsExprStmt [(expr JsExpr)])
 
@@ -2109,7 +2109,7 @@ async function wakeFramStart() {
    (allow-delete Bool)]
   Any
   (let [prop (js/get node .prop)
-        wc (get counter "n")
+        (wc Int) (get counter "n")
         when-var (str "when_" wc)
         anchor-var (str "whenAnchor_" wc)]
     (js/set! counter .n (+ wc 1))
@@ -2150,7 +2150,7 @@ async function wakeFramStart() {
   Any
   (if (not (nil? (js/get el .prop)))
     nil
-    (let [c (get counter "n")
+    (let [(c Int) (get counter "n")
           var-name (str "el_" c)
           tag (js/get el .tag)
           attrs (js/get el .attrs)
@@ -2241,7 +2241,8 @@ async function wakeFramStart() {
         root-var (if (= (count root-results) 1)
                    (js/get (nth root-results 0) .vname)
                    (let [wrapper-var (str "el_" (js/get counter .n))]
-                     (js/set! counter .n (+ (js/get counter .n) 1))
+                     (let [(next-counter Int) (js/get counter .n)]
+                       (js/set! counter .n (+ next-counter 1)))
                      wrapper-var))
         needs-wrapper (> (count root-results) 1)
         wrapper-code (if needs-wrapper

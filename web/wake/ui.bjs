@@ -15,20 +15,20 @@
 
 (defrecord UiBind [(target String) (field String) (prop String)])
 
-(defrecord UiQuery [(store String) (sort-by Any) (filter-by Any)])
+(defrecord UiQuery [(store String) (sort_by Any) (filter_by Any)])
 
-(defrecord UiEach [(query Any) (item-component Any)])
+(defrecord UiEach [(query Any) (item_component Any)])
 
 (defrecord UiWhen [(condition Any) (then Any) (otherwise Any)])
 
-(defrecord UiAction [(event String) (handler-type String) (config Any)])
+(defrecord UiAction [(event String) (handler_type String) (config Any)])
 
 (defrecord UiElement
-  [(tag String) (css-class String) (attrs Any) (children Any)])
+  [(tag String) (css_class String) (attrs Any) (children Any)])
 
 (defrecord UiText [(content String)])
 
-(defrecord UiStore [(name String) (entity String) (fk-methods (Vec String))])
+(defrecord UiStore [(name String) (entity String) (fk_methods (Vec String))])
 
 (defrecord UiState [(name String) (initial Any)])
 
@@ -37,7 +37,7 @@
 (defrecord UiRelated
   [(entity String)
    (store String)
-   (fk-field String)
+   (fk_field String)
    (key String)
    (label String)
    (display (Vec String))])
@@ -49,27 +49,28 @@
    (fields (Vec String))
    (required (Vec String))
    (label String)
-   (status-default String?)
-   (field-info (Vec UiFieldInfo))])
+   (status_default String?)
+   (field_info (Vec UiFieldInfo))])
 
 (defrecord UiGraph
   [(entity String)
-   (store-name String)
+   (store_name String)
    (title String)
    (columns (Vec String))
-   (search-cols (Vec String))
-   (overview-fields Any)
+   (search_cols (Vec String))
+   (overview_fields Any)
    (derived Any)
    (related (Vec UiRelated))
    (stores (Vec UiStore))
    (states (Vec UiState))
    (form UiForm?)
    (persist Any)
-   (all-field-info (Vec UiFieldInfo))])
+   (all_field_info (Vec UiFieldInfo))])
 
 ;; --- Expansion: list-detail → UI graph ---
 
-(defn expand-list-detail [(graph Any) (ld Any) (sf Any)] UiGraph
+(js/export
+ (defn expand-list-detail [(graph Any) (ld Any) (sf Any)] UiGraph
   (let [en (js/get ld .entity_name)
         ge (first (filterv (fn [e] Bool (= (js/get e .name) en)) (js/get graph .entities)))
         store-name (js/get ge .store_name)
@@ -150,4 +151,4 @@
     (->UiGraph en store-name title columns search-cols overview-fields
                derived related stores states
                form
-               (js/get graph .persist) all-fi)))
+               (js/get graph .persist) all-fi))))

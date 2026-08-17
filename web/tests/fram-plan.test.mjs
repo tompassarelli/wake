@@ -155,9 +155,9 @@ function assertAppScopedTerm(term, app) {
 
 beforeAll(async () => {
   buildDir = mkdtempSync(join(tmpdir(), "wake-fram-plan-"));
-  const source = join(wakeRoot, "web", "compiler", "emit-fram.bjs");
+  const source = join(wakeRoot, "web", "wake", "emit-fram.bjs");
   const output = join(buildDir, "emit-fram.mjs");
-  const built = spawnSync("beagle", ["build", source, output], {
+  const built = spawnSync("beagle", ["build", "--module-root", `web=${join(wakeRoot, "web")}`, source, output], {
     env: { ...process.env, BEAGLE_JS_RUNTIME_PREFIX: "./beagle/" },
   });
 

@@ -1,5 +1,5 @@
 #lang beagle/js
-(ns wake.emit-fram)
+(ns wake.emit_fram)
 
 ;; A subject template has one substitution hole: the checked identity field.
 ;; Its recursive scope is load-bearing: the stable application and storage IDs

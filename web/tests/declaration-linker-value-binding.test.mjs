@@ -19,7 +19,7 @@ const sourceIds = Object.freeze({
   application: "web/tests/fixtures/macro-provenance/application.bjs",
   plugin: "web/tests/fixtures/macro-provenance/plugin.bjs",
   wakeCore: "web/wake/core.bjs",
-  wakeIr: "web/compiler/ir.bjs",
+  wakeIr: "web/wake/ir.bjs",
 });
 const sourceTexts = Object.freeze(Object.fromEntries(
   Object.entries(sourceIds).map(([name, path]) => [name, readFileSync(join(repositoryRoot, path), "utf8")]),

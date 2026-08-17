@@ -27,13 +27,13 @@ const declarationPaths = Object.freeze({
   handbook: `${pluginRoot}/fixtures/handbook/handbook.bjs`,
   plugin: `${pluginRoot}/plugin.bjs`,
   wakeCore: `${webRoot}/wake/core.bjs`,
-  wakeIr: `${webRoot}/compiler/ir.bjs`,
+  wakeIr: `${webRoot}/wake/ir.bjs`,
 });
 const declarationSourceIds = Object.freeze({
   handbook: "handbook.bjs",
   plugin: "plugin.bjs",
   wakeCore: "web/wake/core.bjs",
-  wakeIr: "web/compiler/ir.bjs",
+  wakeIr: "web/wake/ir.bjs",
 });
 const declarationSourceTexts = Object.freeze(Object.fromEntries(
   Object.entries(declarationPaths).map(([name, path]) => [
