@@ -7,7 +7,7 @@ const CHECKED_PROGRAM_SCHEMA_VERSION = 4;
 const WAKE_CORE_NAMESPACE = "wake.core";
 const WAKE_CORE_SOURCE_ID = "web/wake/core.bjs";
 const WAKE_IR_NAMESPACE = "wake.ir";
-const WAKE_IR_SOURCE_ID = "web/compiler/ir.bjs";
+const WAKE_IR_SOURCE_ID = "web/wake/ir.bjs";
 
 // These hashes make the checked model artifacts evidence for the compiler's
 // own source, rather than caller-selected schemas that happen to type-check.
@@ -15,7 +15,7 @@ export const CHECKED_DECLARATION_MODEL = Object.freeze({
   wakeCoreSourceSha256:
     "sha256:5a2f3f9ec6806852a59a4ae16387075083db999e342685e22ebc9da503914bf4",
   wakeIrSourceSha256:
-    "sha256:8c8b778dd41daf319c52d77e23c00506b8f0f0c5cb5d071e2c2237ea801f503e",
+    "sha256:a3bd2c543918ce82969b1b8581aaa3cb8e1864622a3ec724bfb819bf06227dff",
 });
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -310,7 +310,19 @@ function validateExpression(node, label) {
       validateOptionalProvenance(node, `${label} provenance`);
       return;
     case "ref":
-      exactKeys(node, expressionKeys(node, ["name", "node"]), label);
+      if (node.qualifier !== undefined || node.providerId !== undefined) {
+        exactKeys(
+          node,
+          expressionKeys(node, ["name", "node", "providerId", "qualifier"]),
+          label,
+        );
+        nonemptyString(node.qualifier, `${label} qualifier`);
+        if (node.providerId !== null) {
+          nonemptyString(node.providerId, `${label} provider ID`);
+        }
+      } else {
+        exactKeys(node, expressionKeys(node, ["name", "node"]), label);
+      }
       nonemptyString(node.name, `${label} name`);
       validateOptionalProvenance(node, `${label} provenance`);
       return;
@@ -466,7 +478,7 @@ function baseTypeName(type) {
 function definitionMap(projection, kind) {
   const definitions = new Map();
   for (const candidate of projection.forms) {
-    const form = kind === "public" ? candidate?.form : candidate;
+    const form = candidate?.node === "js-export" ? candidate.form : candidate;
     if (kind === "public" && candidate?.node !== "js-export") continue;
     if (form?.node !== "record" && form?.node !== "defunion") continue;
     if (definitions.has(form.name)) fail(`${kind} model repeats '${form.name}'`);
@@ -554,7 +566,7 @@ function normalizedDefinition(form) {
       node: "record",
       name: internalName(form.name),
       fields: form.fields.map((field) => ({
-        name: field.name,
+        name: field.name.replaceAll("-", "_"),
         ann: normalizePublicType(field.ann),
         constraint: field.constraint,
         constraintSynchronous: field.constraintSynchronous,
@@ -567,8 +579,8 @@ function normalizedDefinition(form) {
     "type-params": form["type-params"],
     members: form.members.map(internalConstructor),
     "member-fields": Object.fromEntries(Object.entries(form["member-fields"])
-        .map(([member, fields]) => [internalConstructor(member), fields.map((field) => ({
-        name: field.name,
+      .map(([member, fields]) => [internalConstructor(member), fields.map((field) => ({
+        name: field.name.replaceAll("-", "_"),
         ann: normalizePublicType(field.ann),
         constraint: field.constraint,
         constraintSynchronous: field.constraintSynchronous,
@@ -609,7 +621,7 @@ function validateModels(publicProjection, internalProjection) {
       || checkedProgram.fields.length !== 2
       || checkedProgram.fields[0].name !== "program"
       || checkedProgram.fields[0].ann?.name !== "IrDeclarationProgram"
-      || checkedProgram.fields[1].name !== "declaration-provenance") {
+      || checkedProgram.fields[1].name !== "declaration_provenance") {
     fail("internal model is missing the exact checked declaration wrapper");
   }
   const reachable = new Set();
@@ -806,6 +818,13 @@ function inferredName(node) {
   return baseTypeName(node?.inferredType);
 }
 
+function checkedReferenceName(reference) {
+  if (reference?.qualifier !== undefined || reference?.providerId !== undefined) {
+    return `${reference.qualifier}/${reference.name}`;
+  }
+  return reference?.name;
+}
+
 function typeNameForNode(node) {
   if (node?.node === "literal") {
     return new Map([
@@ -906,7 +925,8 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
     if (definition?.node !== "record") {
       fail(`${label} names unsupported nominal model ${typeName}`);
     }
-    if (node?.node !== "call" || node.fn?.node !== "ref" || node.fn.name !== expected
+    if (node?.node !== "call" || node.fn?.node !== "ref"
+        || checkedReferenceName(node.fn) !== expected
         || node.args.length !== definition.fields.length) {
       fail(`${label} must use the exact checked ${typeName} constructor`);
     }
@@ -1035,7 +1055,7 @@ function checkedDeclarationDecoder(projection, schema, alias, sourceId, sourceTe
     if (node.node !== "call" || node.fn?.node !== "ref") {
       fail(`${label} must be a checked ${expectedName} constructor call`);
     }
-    const constructor = node.fn.name;
+    const constructor = checkedReferenceName(node.fn);
     const expectedPrefix = `${alias}/->`;
     const helperPrefix = `${alias}/`;
     const helperConstructor = constructor.startsWith(helperPrefix)

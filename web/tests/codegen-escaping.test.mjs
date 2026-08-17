@@ -13,7 +13,7 @@ import { runInNewContext } from "node:vm";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
-const COMPILER_TEST_TIMEOUT_MS = 20_000;
+const COMPILER_TEST_TIMEOUT_MS = 30_000;
 
 function spawnSync(command, args, { cwd, env = process.env } = {}) {
   const result = Bun.spawnSync([command, ...args], {

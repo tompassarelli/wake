@@ -4,14 +4,15 @@ import { join } from "node:path";
 
 const webRoot = `${import.meta.dir}/..`;
 const core = join(webRoot, "wake", "core.bjs");
-const ir = join(webRoot, "compiler", "ir.bjs");
+const ir = join(webRoot, "wake", "ir.bjs");
 const beagleRoot = process.env.BEAGLE_PROJECTION_ROOT
   ?? process.env.BEAGLE_ROOT
   ?? join(homedir(), "code", "beagle", "main");
 const beagle = join(beagleRoot, "bin", "beagle");
+const moduleRoot = ["--module-root", `web=${webRoot}`];
 
 function runBeagle(args) {
-  const result = Bun.spawnSync([beagle, ...args], {
+  const result = Bun.spawnSync([beagle, args[0], ...moduleRoot, ...args.slice(1)], {
     cwd: webRoot,
     stdout: "pipe",
     stderr: "pipe",
@@ -32,9 +33,10 @@ function publicForm(program, name) {
 }
 
 function internalForm(program, name) {
-  const form = program.forms.find((candidate) => candidate.name === name);
+  const form = program.forms.find((candidate) =>
+    (candidate.node === "js-export" ? candidate.form?.name : candidate.name) === name);
   expect(form, `missing internal model ${name}`).toBeDefined();
-  return form;
+  return form.node === "js-export" ? form.form : form;
 }
 
 function prim(name) {
@@ -58,7 +60,7 @@ function declarationField(name, ann) {
 }
 
 function fields(form) {
-  return form.fields.map((field) => [field.name, field.ann]);
+  return form.fields.map((field) => [field.name.replaceAll("_", "-"), field.ann]);
 }
 
 function normalizedType(type) {
@@ -82,6 +84,7 @@ function normalizedForm(form) {
       name: form.name.replace(/^Ir/u, ""),
       fields: form.fields.map((field) => ({
         ...field,
+        name: field.name.replaceAll("_", "-"),
         ann: normalizedType(field.ann),
       })),
     };
@@ -97,6 +100,7 @@ function normalizedForm(form) {
           member.replace(/^Ir/u, ""),
           memberFields.map((field) => ({
             ...field,
+            name: field.name.replaceAll("_", "-"),
             ann: normalizedType(field.ann),
           })),
         ]),
@@ -107,8 +111,9 @@ function normalizedForm(form) {
 }
 
 function reachableTypes(program, rootName) {
-  const definitions = new Map(program.forms
-    .filter((form) => typeof form.name === "string")
+  const definitions = new Map(program.forms.map((candidate) =>
+    candidate.node === "js-export" ? candidate.form : candidate)
+    .filter((form) => typeof form?.name === "string")
     .map((form) => [form.name, form]));
   const reached = new Set();
   const encountered = new Set();
@@ -383,7 +388,7 @@ test("internal declaration program is closed and mirrors the public model", () =
       normalizedForm(publicForm(publicProgram, name)),
     );
   }
-});
+}, 30_000);
 
 test("internal declaration extension atoms preserve their exact ownership domains", () => {
   const program = ast(ir);

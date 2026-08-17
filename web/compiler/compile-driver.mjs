@@ -1,3 +1,6 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+
 import {
   canonicalDocument,
   parseCanonicalDocument,
@@ -19,7 +22,7 @@ const HTTP_OPERATION_PROTOCOL_VERSION = 2;
 const COMPILER_NAME = "wake";
 const BUNDLE_SCHEMA_VERSION = 4;
 const WAKE_CORE_SOURCE_ID = "web/wake/core.bjs";
-const WAKE_IR_SOURCE_ID = "web/compiler/ir.bjs";
+const WAKE_IR_SOURCE_ID = "web/wake/ir.bjs";
 
 const CONTRIBUTION_NAMES = new Map([
   ["IrSchemaContribution", "schema"],
@@ -186,13 +189,31 @@ function exactSourceTexts(bundles, available) {
 
 async function checkedModels({ beagle, webRoot }) {
   const coreText = await Bun.file(join(webRoot, "wake/core.bjs")).text();
-  const irText = await Bun.file(join(webRoot, "compiler/ir.bjs")).text();
+  const irText = await Bun.file(join(webRoot, "wake/ir.bjs")).text();
+  const modelCacheDirectory = join(
+    process.env.WAKE_COMPILE_CACHE ?? join(tmpdir(), "wake-compile-cache"),
+    "checked-models",
+  );
+  mkdirSync(modelCacheDirectory, { recursive: true });
+  const modelCachePath = join(
+    modelCacheDirectory,
+    sha256Digest(`${beagle}\n${coreText}\n${irText}`).slice("sha256:".length) + ".json",
+  );
+  try {
+    const cached = JSON.parse(await Bun.file(modelCachePath).text());
+    if (cached.coreBundle !== undefined && cached.irBundle !== undefined) {
+      return { coreBundle: cached.coreBundle, coreText, irBundle: cached.irBundle, irText };
+    }
+  } catch (_) {
+    // A partial or stale cache only costs the two model projections again.
+  }
   const coreBundle = checkedBundle(beagle, webRoot, WAKE_CORE_SOURCE_ID, [
     suppliedSource(WAKE_CORE_SOURCE_ID, coreText, "trusted"),
   ], "wake.core model");
   const irBundle = checkedBundle(beagle, webRoot, WAKE_IR_SOURCE_ID, [
     suppliedSource(WAKE_IR_SOURCE_ID, irText, "trusted"),
   ], "wake.ir model");
+  await Bun.write(modelCachePath, JSON.stringify({ coreBundle, irBundle }));
   return { coreBundle, coreText, irBundle, irText };
 }
 
