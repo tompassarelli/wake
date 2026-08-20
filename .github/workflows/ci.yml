@@ -57,8 +57,8 @@ jobs:
         working-directory: web
         run: >-
           bun test
-          runtime/fram-gateway.test.mjs
-          runtime/fram-http.test.mjs
+          runtime/store-gateway.test.mjs
+          runtime/store-http.test.mjs
           tests/*.test.mjs
 
       - name: Install Chromium for Playwright
