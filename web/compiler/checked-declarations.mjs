@@ -13,9 +13,9 @@ const WAKE_IR_SOURCE_ID = "web/wake/ir.bjs";
 // own source, rather than caller-selected schemas that happen to type-check.
 export const CHECKED_DECLARATION_MODEL = Object.freeze({
   wakeCoreSourceSha256:
-    "sha256:5a2f3f9ec6806852a59a4ae16387075083db999e342685e22ebc9da503914bf4",
+    "sha256:6303e754384ec72ec27dc9164b79a66266cacf173337fe4f8f202f5211167530",
   wakeIrSourceSha256:
-    "sha256:a3bd2c543918ce82969b1b8581aaa3cb8e1864622a3ec724bfb819bf06227dff",
+    "sha256:9eaed4f88f82887490dd2c8bcc77430a37e10403ca22eba0f136556bfacf3e09",
 });
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -265,7 +265,14 @@ function validateUnconstrainedField(field, label) {
 
 function validateProvenance(provenance, label) {
   const hasMacro = provenance?.macroExpansion !== undefined;
-  exactKeys(provenance, hasMacro ? ["macroExpansion", "source"] : ["source"], label);
+  const hasSource = provenance?.source !== undefined;
+  if (!hasMacro && !hasSource) fail(`${label} must name a source or macro expansion`);
+  exactKeys(
+    provenance,
+    [hasMacro ? "macroExpansion" : null, hasSource ? "source" : null]
+      .filter((key) => key !== null),
+    label,
+  );
   if (hasMacro) {
     exactKeys(provenance.macroExpansion, ["chain"], `${label} macro expansion`);
     if (!Array.isArray(provenance.macroExpansion.chain)) {
@@ -279,11 +286,13 @@ function validateProvenance(provenance, label) {
       nonemptyString(entry.name, `${label} macro ${index + 1} name`);
     });
   }
-  exactKeys(
-    provenance.source,
-    ["canonical", "col", "line", "origin", "pos", "sourceId", "span"],
-    `${label} source`,
-  );
+  if (hasSource) {
+    exactKeys(
+      provenance.source,
+      ["canonical", "col", "line", "origin", "pos", "sourceId", "span"],
+      `${label} source`,
+    );
+  }
 }
 
 function expressionKeys(node, keys) {
@@ -767,29 +776,6 @@ function validateExpressionInvocation(node, invocation, alias, macro, sourceId, 
   const actual = exactInvocation(node.provenance, alias, macro, sourceId, sourceText, label);
   if (!sameInvocation(actual, invocation)) {
     fail(`${label} does not come from its declaration invocation`);
-  }
-  if (node.node === "call") {
-    validateExpressionInvocation(
-      node.fn, invocation, alias, macro, sourceId, sourceText, `${label} callee`,
-    );
-    node.args.forEach((argument, index) => validateExpressionInvocation(
-      argument, invocation, alias, macro, sourceId, sourceText,
-      `${label} argument ${index + 1}`,
-    ));
-  } else if (node.node === "vec") {
-    node.items.forEach((item, index) => validateExpressionInvocation(
-      item, invocation, alias, macro, sourceId, sourceText, `${label} item ${index + 1}`,
-    ));
-  } else if (node.node === "map") {
-    node.pairs.forEach((pair, index) => {
-      validateExpressionInvocation(
-        pair.key, invocation, alias, macro, sourceId, sourceText, `${label} key ${index + 1}`,
-      );
-      validateExpressionInvocation(
-        pair.val, invocation, alias, macro, sourceId, sourceText,
-        `${label} value ${index + 1}`,
-      );
-    });
   }
 }
 

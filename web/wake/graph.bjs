@@ -364,10 +364,11 @@
 (defn plugin-spec
   [program IrDeclarationProgram
    context String] IrPluginSpec
-  (match (js/get program .root)
-    [(IrPluginDeclarationRoot plugin) plugin]
-    [(IrApplicationDeclarationRoot application)
-     (graph-error (str context " requires a plugin declaration root"))]))
+  (let [root (js/get program .root)]
+    (match root
+      [(IrPluginDeclarationRoot _) (js/get root .plugin)]
+      [(IrApplicationDeclarationRoot _)
+       (graph-error (str context " requires a plugin declaration root"))])))
 
 (defn entity-field-name-target [target IrFieldNameRoleTarget] IrFieldRef?
   (match target
@@ -565,9 +566,13 @@
    program IrDeclarationProgram
    resolver DeclarationResolver
    label String] Any
-  (match source
-      [(IrStringValueType minimum-bound maximum-bound bytes-bound)
-        (let [minimum Int? (if (nil? minimum-bound) nil
+  (let [shape Any source]
+    (match source
+      [(IrStringValueType _ _ _)
+        (let [minimum-bound IrBoundInt? (js/get shape .minimum_scalars)
+              maximum-bound IrBoundInt? (js/get shape .maximum_scalars)
+              bytes-bound IrBoundInt? (js/get shape .maximum_bytes)
+              minimum Int? (if (nil? minimum-bound) nil
                   (resolved-bound-int minimum-bound resolver label))
               maximum Int? (if (nil? maximum-bound) nil
                   (resolved-bound-int maximum-bound resolver label))
@@ -587,8 +592,10 @@
             (some? maximum) {"kind" "string" "maxLength" maximum}
             (some? bytes) {"kind" "string" "maxBytes" bytes}
             :else {"kind" "string"}))]
-      [(IrIntegerValueType minimum-bound maximum-bound)
-        (let [minimum Int? (if (nil? minimum-bound) nil
+      [(IrIntegerValueType _ _)
+        (let [minimum-bound IrBoundInt? (js/get shape .minimum)
+              maximum-bound IrBoundInt? (js/get shape .maximum)
+              minimum Int? (if (nil? minimum-bound) nil
                   (resolved-bound-int minimum-bound resolver label))
               maximum Int? (if (nil? maximum-bound) nil
                   (resolved-bound-int maximum-bound resolver label))]
@@ -602,47 +609,55 @@
       [(IrDigestValueType _) {"kind" "digest"}]
       [(IrInstantValueType _) {"kind" "instant"}]
       [(IrKeywordValueType _) {"kind" "keyword"}]
-      [(IrEnumValueType allowed)
-        {"kind" "enum"
-         "values"
-         (mapv
-           (fn [literal IrValueLiteral] Any
-             (value-type-literal literal label))
-           allowed)}]
+      [(IrEnumValueType _)
+        (let [allowed (Vec IrValueLiteral) (js/get shape .allowed)]
+          {"kind" "enum"
+           "values"
+           (mapv
+             (fn [literal IrValueLiteral] Any
+               (value-type-literal literal label))
+             allowed)})]
       [(IrEntityReferenceValueType _) {"kind" "string"}]
       [(IrStateValueType _) {"kind" "keyword"}]
-      [(IrRecordValueType fields)
-        {"kind" "record"
-         "fields"
-         (mapv
-           (fn [field IrValueRecordField] Any
-             {"name" (js/get field .name)
-              "required" (js/get field .required)
-              "value"
-              (lower-value-descriptor
-                (js/get field .value_type) program resolver
-                (str label "." (js/get field .name)))})
-           fields)}]
-      [(IrTaggedValueType tag-field variants)
-        {"kind" "tagged"
-         "tag" tag-field
-         "variants"
-         (mapv
-           (fn [variant IrValueTaggedVariant] Any
-             {"tag" (js/get variant .tag)
-              "fields"
-              (mapv
-                (fn [field IrValueRecordField] Any
-                  {"name" (js/get field .name)
-                   "required" (js/get field .required)
-                   "value"
-                   (lower-value-descriptor
-                     (js/get field .value_type) program resolver
-                     (str label "." (js/get field .name)))})
-                (js/get variant .fields))})
-           variants)}]
-      [(IrListValueType item minimum-items maximum-items normalization)
-        (let [maximum Int (if (nil? maximum-items)
+      [(IrRecordValueType _)
+        (let [fields (Vec IrValueRecordField) (js/get shape .fields)]
+          {"kind" "record"
+           "fields"
+           (mapv
+             (fn [field IrValueRecordField] Any
+               {"name" (js/get field .name)
+                "required" (js/get field .required)
+                "value"
+                (lower-value-descriptor
+                  (js/get field .value_type) program resolver
+                  (str label "." (js/get field .name)))})
+             fields)})]
+      [(IrTaggedValueType _ _)
+        (let [tag-field String (js/get shape .tag_field)
+              variants (Vec IrValueTaggedVariant) (js/get shape .variants)]
+          {"kind" "tagged"
+           "tag" tag-field
+           "variants"
+           (mapv
+             (fn [variant IrValueTaggedVariant] Any
+               {"tag" (js/get variant .tag)
+                "fields"
+                (mapv
+                  (fn [field IrValueRecordField] Any
+                    {"name" (js/get field .name)
+                     "required" (js/get field .required)
+                     "value"
+                     (lower-value-descriptor
+                       (js/get field .value_type) program resolver
+                       (str label "." (js/get field .name)))})
+                  (js/get variant .fields))})
+             variants)})]
+      [(IrListValueType _ _ _ _)
+        (let [item IrValueTypeSpec (js/get shape .item)
+              minimum-items IrBoundInt? (js/get shape .minimum_items)
+              maximum-items IrBoundInt? (js/get shape .maximum_items)
+              normalization IrListNormalization? (js/get shape .normalization)
+              maximum Int (if (nil? maximum-items)
                 (graph-error (str label " list requires a maximum bound"))
                 (resolved-bound-int maximum-items resolver label))]
           (if (some? minimum-items)
@@ -662,18 +677,22 @@
                "maxItems" maximum
                "normalizer" "sort-unique"}
               (graph-error (str label " uses unsupported list normalization")))))]
-      [(IrNullableValueType value-type)
-        {"kind" "nullable"
-         "value"
-         (lower-value-descriptor
-           value-type program resolver (str label " nullable value"))}]
-      [(IrNamedValueType value-type)
-        {"kind" "ref" "name" (js/get value-type .name)}]
-      [(IrLiteralValueType literal)
-        {"kind" "literal" "value" (value-type-literal literal label)}]
-      [(IrExtensionValueType port)
-        {"kind" "extension"
-         "port" (imported-port-name (js/get resolver .prefix) port)}]))
+      [(IrNullableValueType _)
+        (let [value-type IrValueTypeSpec (js/get shape .value_type)]
+          {"kind" "nullable"
+           "value"
+           (lower-value-descriptor
+             value-type program resolver (str label " nullable value"))})]
+      [(IrNamedValueType _)
+        (let [value-type IrValueTypeRef (js/get shape .value_type)]
+          {"kind" "ref" "name" (js/get value-type .name)})]
+      [(IrLiteralValueType _)
+        (let [literal IrValueLiteral (js/get shape .literal)]
+          {"kind" "literal" "value" (value-type-literal literal label)})]
+      [(IrExtensionValueType _)
+        (let [port IrEntityFieldsPortRef (js/get shape .port)]
+          {"kind" "extension"
+           "port" (imported-port-name (js/get resolver .prefix) port)})])))
 
 (defn lower-value-type-declaration
   [source IrValueTypeDeclarationSpec
@@ -1124,10 +1143,9 @@
   (let [tag (js/get node ._tag)]
     (cond
       (= tag "IrDeclarationElement")
-        (let [attrs (reduce
-                (fn [result name] Any
-                  (let [attr (get (js/get node .attrs) name)
-                        attr-tag (js/get attr ._tag)
+        (let [attrs (reduce-kv
+                (fn [result Any name String attr IrUiAttrSpec] Any
+                  (let [attr-tag (js/get attr ._tag)
                         lowered (cond
                           (= attr-tag "IrStaticUiAttr")
                             {"type" "static" "value" (js/get attr .value)}
@@ -1148,7 +1166,7 @@
                                    attr-tag "'")))]
                     (assoc result name lowered)))
                 {}
-                (set (keys (js/get node .attrs))))]
+                (js/get node .attrs))]
           (ir/->IrElement
             (js/get node .tag)
             attrs
@@ -2084,9 +2102,11 @@
    resolver DeclarationResolver
    extensions (Vec ResolvedPluginExtension)
    label String] (Vec Any)
-  (match source
-      [(IrFieldCommandWrite write)
-        (let [field String (resolved-name resolver "field" (js/get write .field))
+  (let [shape Any source]
+    (match source
+      [(IrFieldCommandWrite _)
+        (let [write IrCommandWrite (js/get shape .write)
+              field String (resolved-name resolver "field" (js/get write .field))
               value Any (lower-command-expression (js/get write .value) program resolver label)
               allowed-current IrCommandExpr? (js/get write .allowed_current)]
           (if (= op "create")
@@ -2098,31 +2118,33 @@
                 "allowedCurrent"
                 (lower-command-expression
                   allowed-current program resolver label)}])))]
-      [(IrExtensionCommandWrite port input)
-        (if (not (= op "create"))
-          (graph-error (str label " cannot use extension fields in update"))
-          (let [extension (command-extension extensions port label)]
-            (if (not (= (js/get extension .target) entity))
-              (graph-error (str label " extension targets the wrong entity"))
-              nil)
-            (mapv
-              (fn [field IrExtensionFieldSpec] Any
-                (let [name (js/get (js/get field .ref) .name)]
-                  (if (or (not (js/get field .required))
-                          (not (= (js/get (js/get field .write) ._tag) "IrCreateWrite"))
-                          (not (= (js/get (js/get field .cardinality) ._tag) "IrSingleField")))
-                    (graph-error
-                      (str label " extension field '" name
-                           "' must be required, single, and create-only"))
-                    nil)
-                  {"field" name
-                   "value"
-                   {"kind" "get"
-                    "value" {"kind" "input"
-                             "name" (strip-colon input)}
-                    "field" name}
-                   "omitIfNull" false}))
-              (js/get (js/get extension .source) .fields))))]))
+      [(IrExtensionCommandWrite _ _)
+        (let [port IrEntityFieldsPortRef (js/get shape .port)
+              input String (js/get shape .input)]
+          (if (not (= op "create"))
+            (graph-error (str label " cannot use extension fields in update"))
+            (let [extension (command-extension extensions port label)]
+              (if (not (= (js/get extension .target) entity))
+                (graph-error (str label " extension targets the wrong entity"))
+                nil)
+              (mapv
+                (fn [field IrExtensionFieldSpec] Any
+                  (let [name (js/get (js/get field .ref) .name)]
+                    (if (or (not (js/get field .required))
+                            (not (= (js/get (js/get field .write) ._tag) "IrCreateWrite"))
+                            (not (= (js/get (js/get field .cardinality) ._tag) "IrSingleField")))
+                      (graph-error
+                        (str label " extension field '" name
+                             "' must be required, single, and create-only"))
+                      nil)
+                    {"field" name
+                     "value"
+                     {"kind" "get"
+                      "value" {"kind" "input"
+                               "name" (strip-colon input)}
+                      "field" name}
+                     "omitIfNull" false}))
+                (js/get (js/get extension .source) .fields)))))])))
 
 (defn lower-command-step
   [source IrCommandStep
@@ -2855,7 +2877,11 @@
   (let [name (js/get defstate .name)
         transitions (js/get defstate .transitions)
         source-names (set (keys transitions))
-        states (mapv strip-colon source-names)
+        states (reduce-kv
+          (fn [result (Vec String) source-name String _ Any] (Vec String)
+            (conj result (strip-colon source-name)))
+          []
+          transitions)
         initial (strip-colon (js/get defstate .initial))]
     (if (= (count states) 0)
       (graph-error (str "defstate '" name "' must declare at least one state"))
