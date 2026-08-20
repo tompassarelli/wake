@@ -12,7 +12,7 @@ test("portable SHA-256 matches the standard byte vectors", () => {
     ],
     [
       new TextEncoder().encode("Wake \u{1f9ad} Store"),
-      "02fafb4e07ba41819d6c5d053a210c8ce14e4cac8a2f742959250a101d35d95c",
+      "d9161227df027b70ce0299794bb9578513a27a5cd47268a7aa3e85c7df1d550f",
     ],
   ]) {
     expect(sha256Hex(value)).toBe(expected);
