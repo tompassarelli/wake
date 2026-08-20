@@ -102,30 +102,23 @@
     ld Any
     sf Any] UiGraph
    (let [en String (js/get ld .entity_name)
-         ge Any
-         (first (filterv (fn [e Any] Bool (= (js/get e .name) en)) (js/get graph .entities)))
+         ge Any (first (filterv (fn [e Any] Bool (= (js/get e .name) en)) (js/get graph .entities)))
          store-name String (js/get ge .store_name)
          columns (Vec String) (js/get ld .columns)
          search-cols (Vec String) (or (js/get ld .search_cols) columns)
          detail-tabs (Vec Any) (or (js/get ld .detail_tabs) [])
-         overview-tab Any
-         (first (filterv (fn [t Any] Bool (= (js/get t .content_type) "fields")) detail-tabs))
-         related-tabs (Vec Any)
-         (filterv (fn [t Any] Bool (= (js/get t .content_type) "related")) detail-tabs)
-         requested-overview-fields (Vec String)
-         (if (nil? overview-tab) columns (js/get overview-tab .fields))
+         overview-tab Any (first (filterv (fn [t Any] Bool (= (js/get t .content_type) "fields")) detail-tabs))
+         related-tabs (Vec Any) (filterv (fn [t Any] Bool (= (js/get t .content_type) "related")) detail-tabs)
+         requested-overview-fields (Vec String) (if (nil? overview-tab) columns (js/get overview-tab .fields))
          derived (Vec Any) (js/get ge .derived_fields)
          derived-names (Vec String) (mapv (fn [field Any] String (js/get field .name)) derived)
-         overview-fields (Vec String)
-         (filterv (fn [field String] Bool (not (js/call derived-names .includes field))) requested-overview-fields)
+         overview-fields (Vec String) (filterv (fn [field String] Bool (not (js/call derived-names .includes field))) requested-overview-fields)
          title String (or (js/get ld .title) en)
-         related (Vec UiRelated)
-         (mapv
+         related (Vec UiRelated) (mapv
            (fn [rt Any] UiRelated
              (let [rel-en String (js/get rt .entity_name)
                    rel-display (Vec String) (js/get rt .display_fields)
-                   rel-ge Any
-                   (first (filterv (fn [e Any] Bool (= (js/get e .name) rel-en)) (js/get graph .entities)))
+                   rel-ge Any (first (filterv (fn [e Any] Bool (= (js/get e .name) rel-en)) (js/get graph .entities)))
                    fk-field String (js/get rt .relation_field)]
                (->UiRelated rel-en (js/get rel-ge .store_name) fk-field
                             (js/call (js/get rt .label) .toLowerCase)
@@ -135,18 +128,14 @@
          form-required (Vec String) (if (nil? sf) [] (or (js/get sf .required) []))
          form-label String (if (nil? sf) "Submit" (or (js/get sf .submit_label) "Submit"))
          form-name String (if (nil? sf) "" (js/get sf .name))
-         stores (Vec UiStore)
-         (into [(->UiStore store-name en [])]
+         stores (Vec UiStore) (into [(->UiStore store-name en [])]
                (mapv (fn [r UiRelated] UiStore
                        (->UiStore (js/get r .store) (js/get r .entity) [(js/get r .fk_field)]))
                      related))
-         states (Vec UiState)
-         [(->UiState "selectedEid" nil)
+         states (Vec UiState) [(->UiState "selectedEid" nil)
           (->UiState "activeTab" "overview")
           (->UiState "searchTerm" "")]
-         status-default String?
-         (let [sm Any
-               (first (filterv (fn [m Any] Bool (= (js/get m .entity) en))
+         status-default String? (let [sm Any (first (filterv (fn [m Any] Bool (= (js/get m .entity) en))
                                (js/get graph .state_machines)))]
            (if (nil? sm)
              nil
@@ -154,15 +143,11 @@
                (if (js/call s .startsWith ":") (subs s 1) s))))
          all-fields (Vec Any) (js/get ge .fields)
          sms (Vec Any) (js/get graph .state_machines)
-         build-fi (Fn [String] UiFieldInfo)
-         (fn [fname String] UiFieldInfo
-           (let [gf Any
-                 (first (filterv (fn [f Any] Bool (= (js/get f .name) fname)) all-fields))
+         build-fi (Fn [String] UiFieldInfo) (fn [fname String] UiFieldInfo
+           (let [gf Any (first (filterv (fn [f Any] Bool (= (js/get f .name) fname)) all-fields))
                  typ String (if (nil? gf) "String" (js/get gf .type))
-                 sm Any
-                 (first (filterv (fn [m Any] Bool (= (js/get m .state_type) typ)) sms))
-                 strip (Fn [String] String)
-                 (fn [s String] String
+                 sm Any (first (filterv (fn [m Any] Bool (= (js/get m .state_type) typ)) sms))
+                 strip (Fn [String] String) (fn [s String] String
                    (if (js/call s .startsWith ":") (subs s 1) s))]
              (cond
                (not (nil? sm))
@@ -172,12 +157,10 @@
                (= typ "Int") (->UiFieldInfo fname "number" [])
                :else (->UiFieldInfo fname "text" []))))
          field-info (Vec UiFieldInfo) (mapv build-fi form-fields)
-         form UiForm?
-         (if (nil? sf)
+         form UiForm? (if (nil? sf)
            nil
            (->UiForm form-name form-fields form-required form-label status-default field-info))
-         all-fi (Vec UiFieldInfo)
-         (mapv (fn [f Any] UiFieldInfo (build-fi (js/get f .name))) all-fields)]
+         all-fi (Vec UiFieldInfo) (mapv (fn [f Any] UiFieldInfo (build-fi (js/get f .name))) all-fields)]
      (->UiGraph en store-name title columns search-cols overview-fields
                derived related stores states
                form

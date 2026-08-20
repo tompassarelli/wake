@@ -1144,7 +1144,10 @@
     (cond
       (= tag "IrDeclarationElement")
         (let [attrs (reduce-kv
-                (fn [result Any name String attr IrUiAttrSpec] Any
+                (fn
+                  [result Any
+                   name String
+                   attr IrUiAttrSpec] Any
                   (let [attr-tag (js/get attr ._tag)
                         lowered (cond
                           (= attr-tag "IrStaticUiAttr")
@@ -2878,7 +2881,10 @@
         transitions (js/get defstate .transitions)
         source-names (set (keys transitions))
         states (reduce-kv
-          (fn [result (Vec String) source-name String _ Any] (Vec String)
+          (fn
+            [result (Vec String)
+             source-name String
+             _ Any] (Vec String)
             (conj result (strip-colon source-name)))
           []
           transitions)

@@ -88,8 +88,9 @@
 
 (defn transition-plan [transitions Any] Any
   (reduce
-    (fn [plan (Map String (Vec String))
-         state String] (Map String (Vec String))
+    (fn
+      [plan (Map String (Vec String))
+       state String] (Map String (Vec String))
       (assoc
         plan
         (state-name state)
