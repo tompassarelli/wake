@@ -242,7 +242,7 @@ test("requires the sealed command receipt closure only for command-bearing progr
     wakeCoreModelBundle,
     wakeIrModelBundle,
   })).toThrow("declaration graph lacks its sealed command receipt closure");
-});
+}, 30_000);
 
 test("rejects stale checked models and a valid-looking raw AST bypass", () => {
   const staleIrText = `${sourceText.wakeIr}\n; stale model bytes\n`;

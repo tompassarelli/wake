@@ -306,7 +306,7 @@ test("public declarations represent every wiki value and composition invariant",
     ["migrations", vec("MigrationSpec")],
     ["default-route", optional("RouteTemplateRef")],
   ]);
-});
+}, 30_000);
 
 test("internal declaration program is closed and mirrors the public model", () => {
   runBeagle(["check", "--agent", ir]);

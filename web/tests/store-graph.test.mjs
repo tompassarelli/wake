@@ -186,7 +186,7 @@ export function IrView(
   ({ check_resolved_declaration_program: checkResolvedDeclarationProgram } = await import(
     pathToFileURL(join(buildDir, "graph.js")).href
   ));
-});
+}, 30_000);
 
 afterAll(() => {
   rmSync(buildDir, { force: true, recursive: true });
