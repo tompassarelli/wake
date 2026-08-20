@@ -135,8 +135,8 @@ test("the wiki compiles as a Store-native Wake application", () => {
       "app.wake.manifest.json was not emitted",
     );
     assert.deepEqual(readdirSync(outputDir).sort(), [
-      "app.store.json",
       "app.js",
+      "app.store.json",
       "app.wake.deployment.json",
       "app.wake.manifest.json",
       "wake-client.js",
