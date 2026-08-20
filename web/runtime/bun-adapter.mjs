@@ -191,15 +191,18 @@ function checkedPlanPlugin(value, index) {
   }, label, code);
 }
 
-function documentArtifact(input, label, { canonical = false } = {}) {
+function artifactBytes(input, invalidMessage) {
   const bytes = input instanceof Uint8Array
     ? input.slice()
     : typeof input === "string"
       ? new TextEncoder().encode(input)
       : null;
-  if (bytes === null) {
-    fail("adapter/invalid-config", `${label} must be exact UTF-8 bytes or text`);
-  }
+  if (bytes === null) fail("adapter/invalid-config", invalidMessage);
+  return bytes;
+}
+
+function documentArtifact(input, label, { canonical = false } = {}) {
+  const bytes = artifactBytes(input, `${label} must be exact UTF-8 bytes or text`);
   let text;
   let value;
   try {
@@ -538,13 +541,7 @@ function checkedAuthorizationDecision(value, actor) {
 }
 
 function bytesArtifact(input, label) {
-  const bytes = input instanceof Uint8Array
-    ? input.slice()
-    : typeof input === "string"
-      ? new TextEncoder().encode(input)
-      : null;
-  if (bytes === null) fail("adapter/invalid-config", `${label} must be a string or Uint8Array`);
-  return bytes;
+  return artifactBytes(input, `${label} must be a string or Uint8Array`);
 }
 
 function pagedQueries(plan) {
