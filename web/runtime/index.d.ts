@@ -7,7 +7,7 @@ export type WakeTerm =
   | readonly ["instant", string, string]
   | readonly ["triple", WakeTerm, WakeTerm, WakeTerm];
 
-export interface WakeFramResponse<Result> {
+export interface WakeStoreResponse<Result> {
   readonly space?: string;
   readonly operation?: string;
   readonly servedVersion: bigint;
@@ -20,8 +20,8 @@ export interface WakeFramResponse<Result> {
   readonly payload?: WakeTerm | null;
 }
 
-export interface WakeFramClient {
-  status(options?: Readonly<{ signal?: AbortSignal }>): Promise<WakeFramResponse<unknown>>;
+export interface WakeStoreClient {
+  status(options?: Readonly<{ signal?: AbortSignal }>): Promise<WakeStoreResponse<unknown>>;
   query(
     query: unknown,
     options?: Readonly<{
@@ -31,7 +31,7 @@ export interface WakeFramClient {
       since?: unknown;
       timeoutMs?: bigint | number | string;
     }>,
-  ): Promise<WakeFramResponse<WakeTerm[][]>>;
+  ): Promise<WakeStoreResponse<WakeTerm[][]>>;
 }
 
 export interface WakeSchemaClient {
@@ -46,7 +46,7 @@ export interface WakeApplicationReceipt {
   readonly deploymentArtifactReceiptDigest: string;
   readonly operationSurfaceDigest: string;
   readonly protocols: Readonly<{
-    framPlanSchemaVersion: 2;
+    storePlanSchemaVersion: 2;
     httpOperationProtocolVersion: 2;
     pluginAbiVersion: 1;
   }>;
@@ -62,7 +62,7 @@ export interface WakeCompilerMetadata {
 }
 
 export interface WakeCompilerProtocols {
-  readonly framPlanSchemaVersion: 2;
+  readonly storePlanSchemaVersion: 2;
   readonly httpOperationProtocolVersion: 2;
   readonly pluginAbiVersion: 1;
 }
@@ -166,7 +166,7 @@ export interface WakeApplicationAdapterInput {
   readonly browserJavaScript: string | Uint8Array;
   readonly cursor?: WakeCursorConfiguration;
   readonly deploymentReceipt: string | Uint8Array;
-  readonly fram: WakeFramClient;
+  readonly store: WakeStoreClient;
   readonly manifest: string | Uint8Array;
   readonly plan: string | Uint8Array;
   readonly providers?: Readonly<Record<
@@ -180,7 +180,7 @@ export interface WakeApplicationAdapterInput {
 export interface LoadApplicationReceiptInput {
   readonly applicationId: string;
   readonly deploymentReceipt: string | Uint8Array;
-  readonly fram: Pick<WakeFramClient, "query">;
+  readonly store: Pick<WakeStoreClient, "query">;
   readonly manifest: string | Uint8Array;
   readonly plan: string | Uint8Array;
 }

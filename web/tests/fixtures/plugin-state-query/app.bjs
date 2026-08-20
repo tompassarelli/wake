@@ -23,7 +23,7 @@
 (wake/application-root
   application
   "wake-plugin-state-query-app"
-  (wake/->FramAuthority "fram")
+  (wake/->StoreAuthority "store")
   []
   []
   [fixture-composition]

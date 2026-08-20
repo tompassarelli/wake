@@ -17,7 +17,7 @@ const webRoot = join(testDir, "..");
 const beagleRoot = process.env.BEAGLE_ROOT ?? join(homedir(), "code", "beagle", "main");
 const sourceUnit = {
   source_id: "test:root",
-  path: "fram-graph.test.bjs",
+  path: "store-graph.test.bjs",
   package_id: "",
   package_version: "",
 };
@@ -83,7 +83,7 @@ function resolvedEntity(source) {
 }
 
 function resolvedProgram({
-  backend = { kind: "fram" },
+  backend = { kind: "store" },
   entities,
   defstates = [],
   publications = [],
@@ -127,7 +127,7 @@ function resolvedProgram({
 }
 
 beforeAll(async () => {
-  buildDir = mkdtempSync(join(tmpdir(), "wake-fram-graph-"));
+  buildDir = mkdtempSync(join(tmpdir(), "wake-store-graph-"));
   const output = join(buildDir, "graph.js.tmp");
   const built = spawnSync(
     "beagle",
@@ -192,7 +192,7 @@ afterAll(() => {
   rmSync(buildDir, { force: true, recursive: true });
 });
 
-test("FRAM rejects misspelled stored field types", () => {
+test("Store rejects misspelled stored field types", () => {
   const source = resolvedProgram({
     entities: [
       {
@@ -207,7 +207,7 @@ test("FRAM rejects misspelled stored field types", () => {
 
   assert.throws(
     () => checkResolvedDeclarationProgram(source),
-    /FRAM-backed field 'page\.title' has unsupported type 'Strng'/,
+    /Store-backed field 'page\.title' has unsupported type 'Strng'/,
   );
 });
 
@@ -261,7 +261,7 @@ test("generated JavaScript surfaces reject prototype-chain names", () => {
   }
 });
 
-test("FRAM add forms require identity and exclude command-only fields", () => {
+test("Store add forms require identity and exclude command-only fields", () => {
   const entity = {
     name: "page",
     attrs: [
@@ -334,7 +334,7 @@ test("FRAM add forms require identity and exclude command-only fields", () => {
   })));
 });
 
-test("FRAM accepts literal aliases, known references, and defstate types", () => {
+test("Store accepts literal aliases, known references, and defstate types", () => {
   const defstates = [
     {
       name: "Lifecycle",

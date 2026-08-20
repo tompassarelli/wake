@@ -57,7 +57,7 @@ test("typed Beagle input reaches Wake graph and code generation", () => {
     });
     expect(result.exitCode, result.stderr.toString()).toBe(0);
 
-    const plan = JSON.parse(readFileSync(join(temporary, "app.fram.json"), "utf8"));
+    const plan = JSON.parse(readFileSync(join(temporary, "app.store.json"), "utf8"));
     expect(plan.applicationId).toBe("wake-checked-beagle-fixture");
     expect(plan.entities.map((entity) => entity.name)).toEqual(["page", "revision"]);
     expect(readFileSync(join(temporary, "app.js"), "utf8")).toContain(
@@ -77,7 +77,7 @@ test("typed Beagle input reaches Wake graph and code generation", () => {
     for (const [receiptKey, artifactKey] of [
       ["browserClientDigest", "browserClient"],
       ["browserJavaScriptDigest", "browserJavaScript"],
-      ["framPlanDigest", "framPlan"],
+      ["storePlanDigest", "storePlan"],
     ]) {
       expect(deployment[receiptKey]).toBe(manifest.artifacts[artifactKey].sha256);
     }
@@ -90,7 +90,7 @@ test("compile driver exposes no caller-supplied AST route", () => {
   const result = compileDriver([
     "--ast", "/tmp/forged.json",
     "--dist", "/tmp/unreachable",
-    "--mode", "fram",
+    "--mode", "store",
     "--source", source,
     "--output", "-",
   ]);
@@ -105,10 +105,10 @@ test("external source identity depends only on exact bytes", () => {
     for (const directory of ["first", "second"]) {
       const root = join(temporary, directory);
       const externalSource = join(root, "application.bjs");
-      const output = join(root, "app.fram.json");
+      const output = join(root, "app.store.json");
       mkdirSync(root);
       copyFileSync(source, externalSource);
-      const result = Bun.spawnSync([compile, "--fram", externalSource, output], {
+      const result = Bun.spawnSync([compile, "--store", externalSource, output], {
         cwd: webRoot,
         env: {
           ...process.env,

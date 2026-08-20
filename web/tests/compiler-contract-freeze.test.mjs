@@ -140,7 +140,7 @@ describe("W0C frozen compiler contracts", () => {
     ]);
     expect(Object.keys(manifest.value.artifacts).sort()).toEqual([
       "browserJavaScript",
-      "framPlan",
+      "storePlan",
     ]);
     expect(Object.keys(manifest.value.plugins[0]).sort()).toEqual([
       "alias",

@@ -9,7 +9,7 @@ const fingerprint = `sha256:${"1".repeat(64)}`;
 const operationDigest = `sha256:${"2".repeat(64)}`;
 const storageDigest = `sha256:${"3".repeat(64)}`;
 const protocols = Object.freeze({
-  framPlanSchemaVersion: 2,
+  storePlanSchemaVersion: 2,
   httpOperationProtocolVersion: 2,
   pluginAbiVersion: 1,
 });
@@ -110,7 +110,7 @@ function checkedArtifacts() {
   };
   const planValue = {
     applicationId,
-    backend: "fram",
+    backend: "store",
     composition: {
       extensions: [],
       fills: [],
@@ -155,7 +155,7 @@ function checkedArtifacts() {
     artifacts: {
       browserClient: { path: "wake-client.js", sha256: sha256Digest(browserClient) },
       browserJavaScript: { path: "app.js", sha256: sha256Digest(browserJavaScript) },
-      framPlan: { path: "app.fram.json", sha256: sha256Digest(plan) },
+      storePlan: { path: "app.store.json", sha256: sha256Digest(plan) },
     },
     checkedApplication: { fingerprint, schemaVersion: 1 },
     compiler: { name: "wake", sourceCommit: "b".repeat(40), version: "0.1.0" },
@@ -174,7 +174,7 @@ function checkedArtifacts() {
     applicationManifestDigest: sha256Digest(manifest),
     browserClientDigest: sha256Digest(browserClient),
     browserJavaScriptDigest: sha256Digest(browserJavaScript),
-    framPlanDigest: sha256Digest(plan),
+    storePlanDigest: sha256Digest(plan),
     schemaVersion: 1,
   });
   return {
@@ -208,7 +208,7 @@ test("checked provider rejections propagate directly and map to HTTP 400 without
     });
     rejectProviderInput(publicMessage, publicDetail);
   };
-  const fram = {
+  const store = {
     async query() {
       calls.query += 1;
       return {
@@ -223,7 +223,7 @@ test("checked provider rejections propagate directly and map to HTTP 400 without
   };
   const mutation = async () => {
     calls.schema += 1;
-    throw new Error("provider rejection must precede FRAM mutation");
+    throw new Error("provider rejection must precede Store mutation");
   };
   const schema = {
     createUnique: mutation,
@@ -238,7 +238,7 @@ test("checked provider rejections propagate directly and map to HTTP 400 without
   const adapter = createWakeBunAdapter({
     ...checkedArtifacts(),
     authorize: () => ({ actor, allowed: true }),
-    fram,
+    store,
     providers: { "content-parser": provider },
     schema,
   });

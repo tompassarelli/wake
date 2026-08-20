@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 
-import { createWakeHttpHandler } from "./fram-http.mjs";
+import { createWakeHttpHandler } from "./store-http.mjs";
 
 const origin = "https://wake.test";
 const fingerprint = `sha256:${"f".repeat(64)}`;

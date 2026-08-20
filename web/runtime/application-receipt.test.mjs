@@ -13,7 +13,7 @@ const storageDigest = `sha256:${"3".repeat(64)}`;
 const browserDigest = `sha256:${"4".repeat(64)}`;
 const browserClientDigest = `sha256:${"7".repeat(64)}`;
 const protocols = Object.freeze({
-  framPlanSchemaVersion: 2,
+  storePlanSchemaVersion: 2,
   httpOperationProtocolVersion: 2,
   pluginAbiVersion: 1,
 });
@@ -46,7 +46,7 @@ function artifacts() {
   };
   const planValue = {
     applicationId,
-    backend: "fram",
+    backend: "store",
     entities: [],
     pluginClosure: [planPlugin],
     publications: [],
@@ -61,7 +61,7 @@ function artifacts() {
     artifacts: {
       browserClient: { path: "wake-client.js", sha256: browserClientDigest },
       browserJavaScript: { path: "app.js", sha256: browserDigest },
-      framPlan: { path: "app.fram.json", sha256: sha256Digest(plan) },
+      storePlan: { path: "app.store.json", sha256: sha256Digest(plan) },
     },
     checkedApplication: { fingerprint, schemaVersion: 1 },
     compiler: { name: "wake", sourceCommit: "a".repeat(40), version: "0.1.0" },
@@ -81,7 +81,7 @@ function artifacts() {
     applicationManifestDigest: sha256Digest(manifest),
     browserClientDigest,
     browserJavaScriptDigest: browserDigest,
-    framPlanDigest: sha256Digest(plan),
+    storePlanDigest: sha256Digest(plan),
     schemaVersion: 1,
   });
   const receipt = Object.freeze({
@@ -144,7 +144,7 @@ function runtime(replies) {
     input: {
       applicationId,
       deploymentReceipt: checked.deploymentReceipt,
-      fram: {
+      store: {
         async query(query, options) {
           calls.push({ options, query });
           if (queue instanceof Error) throw queue;
@@ -186,7 +186,7 @@ describe("durable application receipt loader", () => {
     }
   });
 
-  test("rejects invalid or incompatible compiler metadata before querying FRAM", async () => {
+  test("rejects invalid or incompatible compiler metadata before querying Store", async () => {
     const cases = [
       [mutateArtifact("manifest", value => { value.compiler = null; }),
         "compiler/invalid-metadata"],
@@ -335,7 +335,7 @@ describe("durable application receipt loader", () => {
     expect(drift.calls).toHaveLength(0);
   });
 
-  test("closes malformed and unavailable FRAM results", async () => {
+  test("closes malformed and unavailable Store results", async () => {
     const malformed = runtime([
       subjectResponse(),
       {

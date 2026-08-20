@@ -22,7 +22,7 @@ test("links commands through the checked graph and generated artifacts", async (
   }).stdout.toString().trim();
   try {
     run([`${webRoot}/bin/wake-compile`, "--all", source, output]);
-    const plan = JSON.parse(await Bun.file(`${output}/app.fram.json`).text());
+    const plan = JSON.parse(await Bun.file(`${output}/app.store.json`).text());
     expect(plan.entities.map(entity => entity.name)).toEqual([
       "entry",
       "wake.core/command-receipt",
@@ -59,9 +59,9 @@ test("links commands through the checked graph and generated artifacts", async (
       links: ["entry-a", "entry-b"],
     });
     const application = await Bun.file(`${output}/app.js`).text();
-    expect(application).toContain('const wakeFramFieldMeta = Object.assign');
+    expect(application).toContain('const wakeStoreFieldMeta = Object.assign');
     expect(application).toContain('["entry"]: Object.assign');
-    expect(application).toContain('const wakeFramBindings = new Map');
+    expect(application).toContain('const wakeStoreBindings = new Map');
   } finally {
     Bun.spawnSync(["rm", "-rf", "--", output]);
   }

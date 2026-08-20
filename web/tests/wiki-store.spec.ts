@@ -21,7 +21,7 @@ type WakePublish = {
   expectedPointer: unknown | null;
 };
 
-test("wiki add forms issue typed FRAM create commands", async ({ page }) => {
+test("wiki add forms issue typed Store create commands", async ({ page }) => {
   const rows: Record<string, Row[]> = { page: [], revision: [] };
   const commands: WakeCreate[] = [];
   let servedVersion = 1;

@@ -71,7 +71,7 @@ const checkedWiki = {
   semantic_fingerprint: semanticFingerprint,
   plugin_closure: pluginClosure,
   ns: "wiki.app",
-  backend: { kind: "fram" },
+  backend: { kind: "store" },
   entities: [
     {
       name: "page",
@@ -145,7 +145,7 @@ const checkedWiki = {
 };
 
 let buildDir;
-let genFram;
+let genStore;
 
 function assertAppScopedTerm(term, app) {
   assert.equal(term[0], "triple");
@@ -154,9 +154,9 @@ function assertAppScopedTerm(term, app) {
 }
 
 beforeAll(async () => {
-  buildDir = mkdtempSync(join(tmpdir(), "wake-fram-plan-"));
-  const source = join(wakeRoot, "web", "wake", "emit-fram.bjs");
-  const output = join(buildDir, "emit-fram.mjs");
+  buildDir = mkdtempSync(join(tmpdir(), "wake-store-plan-"));
+  const source = join(wakeRoot, "web", "wake", "emit-store.bjs");
+  const output = join(buildDir, "emit-store.mjs");
   const built = spawnSync("beagle", ["build", "--module-root", `web=${join(wakeRoot, "web")}`, source, output], {
     env: { ...process.env, BEAGLE_JS_RUNTIME_PREFIX: "./beagle/" },
   });
@@ -168,25 +168,25 @@ beforeAll(async () => {
     join(buildDir, "beagle", "core.js"),
   );
   writeFileSync(join(buildDir, "package.json"), '{"type":"module"}\n');
-  ({ gen_fram: genFram } = await import(pathToFileURL(output).href));
+  ({ gen_store: genStore } = await import(pathToFileURL(output).href));
 });
 
 afterAll(() => {
   rmSync(buildDir, { force: true, recursive: true });
 });
 
-test("FRAM plan emission is byte-deterministic", () => {
-  const first = genFram(checkedWiki);
-  const second = genFram(checkedWiki);
+test("Store plan emission is byte-deterministic", () => {
+  const first = genStore(checkedWiki);
+  const second = genStore(checkedWiki);
 
   assert.equal(first, second);
   assert.ok(first.endsWith("\n"));
   assert.ok(!first.endsWith("\n\n"));
 });
 
-test("FRAM subject and predicate Terms cannot alias across apps", () => {
-  const wiki = JSON.parse(genFram(checkedWiki));
-  const other = JSON.parse(genFram({
+test("Store subject and predicate Terms cannot alias across apps", () => {
+  const wiki = JSON.parse(genStore(checkedWiki));
+  const other = JSON.parse(genStore({
     ...checkedWiki,
     application_id: "other.app",
   }));
@@ -210,12 +210,12 @@ test("FRAM subject and predicate Terms cannot alias across apps", () => {
   }
 });
 
-test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
-  const plan = JSON.parse(genFram(checkedWiki));
+test("Store plan preserves wiki identities, fields, and recursive Terms", () => {
+  const plan = JSON.parse(genStore(checkedWiki));
 
   assert.equal(plan.schemaVersion, 2);
   assert.equal(plan.applicationId, "wiki.app");
-  assert.equal(plan.backend, "fram");
+  assert.equal(plan.backend, "store");
   assert.equal(plan.semanticFingerprint, semanticFingerprint);
   assert.deepEqual(plan.pluginClosure, pluginClosure);
   assert.deepEqual(Object.keys(plan), [
@@ -306,8 +306,8 @@ test("FRAM plan preserves wiki identities, fields, and recursive Terms", () => {
   assert.equal(revision.fields[4].write, "command");
 });
 
-test("FRAM plan emits deterministic publication policy", () => {
-  const { publications } = JSON.parse(genFram(checkedWiki));
+test("Store plan emits deterministic publication policy", () => {
+  const { publications } = JSON.parse(genStore(checkedWiki));
 
   assert.deepEqual(publications, [
     {
@@ -327,8 +327,8 @@ test("FRAM plan emits deterministic publication policy", () => {
   ]);
 });
 
-test("FRAM plan normalizes state machines in declaration order", () => {
-  const { stateMachines } = JSON.parse(genFram(checkedWiki));
+test("Store plan normalizes state machines in declaration order", () => {
+  const { stateMachines } = JSON.parse(genStore(checkedWiki));
 
   assert.deepEqual(stateMachines, [
     {

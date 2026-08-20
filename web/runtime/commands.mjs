@@ -523,11 +523,11 @@ function validateCommand(command, index) {
 }
 
 function compileCommands(plan) {
-  if (!plainObject(plan) || plan.schemaVersion !== 2 || plan.backend !== "fram"
+  if (!plainObject(plan) || plan.schemaVersion !== 2 || plan.backend !== "store"
       || typeof plan.applicationId !== "string" || plan.applicationId.length === 0
       || typeof plan.semanticFingerprint !== "string" || plan.semanticFingerprint.length === 0
       || !Array.isArray(plan.commands)) {
-    fail("command/invalid-plan", "expected a Wake FRAM plan with checked commands");
+    fail("command/invalid-plan", "expected a Wake Store plan with checked commands");
   }
   const commands = plan.commands.map(validateCommand);
   uniqueNames(commands, "commands");

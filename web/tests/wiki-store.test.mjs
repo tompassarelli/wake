@@ -101,8 +101,8 @@ function entityPlan(app, name, identityField, identityType, fields) {
   };
 }
 
-test("the wiki compiles as a FRAM-native Wake application", () => {
-  const outputDir = mkdtempSync(join(tmpdir(), "wake-wiki-fram-"));
+test("the wiki compiles as a Store-native Wake application", () => {
+  const outputDir = mkdtempSync(join(tmpdir(), "wake-wiki-store-"));
 
   try {
     const compiled = spawnSync(
@@ -116,12 +116,12 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
     ].filter(Boolean).join("\n");
     assert.equal(compiled.status, 0, diagnostics);
 
-    const framPath = join(outputDir, "app.fram.json");
+    const storePath = join(outputDir, "app.store.json");
     const appPath = join(outputDir, "app.js");
     const clientPath = join(outputDir, "wake-client.js");
     const deploymentPath = join(outputDir, "app.wake.deployment.json");
     const manifestPath = join(outputDir, "app.wake.manifest.json");
-    assert.equal(existsSync(framPath), true, "app.fram.json was not emitted");
+    assert.equal(existsSync(storePath), true, "app.store.json was not emitted");
     assert.equal(existsSync(appPath), true, "app.js was not emitted");
     assert.equal(existsSync(clientPath), true, "wake-client.js was not emitted");
     assert.equal(
@@ -135,32 +135,32 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
       "app.wake.manifest.json was not emitted",
     );
     assert.deepEqual(readdirSync(outputDir).sort(), [
-      "app.fram.json",
+      "app.store.json",
       "app.js",
       "app.wake.deployment.json",
       "app.wake.manifest.json",
       "wake-client.js",
     ]);
 
-    const framSource = readFileSync(framPath, "utf8");
-    assert.ok(framSource.endsWith("\n"));
-    assert.ok(!framSource.endsWith("\n\n"));
-    const framPlan = JSON.parse(framSource);
+    const storeSource = readFileSync(storePath, "utf8");
+    assert.ok(storeSource.endsWith("\n"));
+    assert.ok(!storeSource.endsWith("\n\n"));
+    const storePlan = JSON.parse(storeSource);
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     assert.match(
-      framPlan.semanticFingerprint,
+      storePlan.semanticFingerprint,
       /^sha256:[0-9a-f]{64}$/u,
     );
     assert.equal(
-      framPlan.semanticFingerprint,
+      storePlan.semanticFingerprint,
       manifest.checkedApplication.fingerprint,
     );
     assert.equal(manifest.applicationId, WIKI_APP);
-    assert.deepEqual(framPlan, {
+    assert.deepEqual(storePlan, {
       schemaVersion: 2,
       applicationId: WIKI_APP,
-      backend: "fram",
-      semanticFingerprint: framPlan.semanticFingerprint,
+      backend: "store",
+      semanticFingerprint: storePlan.semanticFingerprint,
       pluginClosure: [],
       composition: {
         extensions: [],
@@ -250,10 +250,10 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
     const appSource = readFileSync(appPath, "utf8");
     assert.equal(
       appSource.split("\n")[0],
-      `// wake: checked-application ${framPlan.semanticFingerprint}`,
+      `// wake: checked-application ${storePlan.semanticFingerprint}`,
     );
     assert.ok(appSource.includes(
-      `const wakeApplicationFingerprint = ${JSON.stringify(framPlan.semanticFingerprint)};`,
+      `const wakeApplicationFingerprint = ${JSON.stringify(storePlan.semanticFingerprint)};`,
     ));
     assert.ok(appSource.includes(
       "JSON.stringify({ ...body, fingerprint: wakeApplicationFingerprint })",
@@ -266,12 +266,12 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
     ]) {
       assert.ok(
         appSource.includes(token),
-        `app.js is missing FRAM gateway connector token ${token}`,
+        `app.js is missing Store gateway connector token ${token}`,
       );
     }
     assert.ok(appSource.includes('["canonical-revision"]'));
     assert.ok(appSource.includes('["links-to"]:'));
-    assert.ok(appSource.includes("function wakeFramReadInput(input, meta)"));
+    assert.ok(appSource.includes("function wakeStoreReadInput(input, meta)"));
     assert.ok(appSource.includes(".split(',')"));
     assert.ok(appSource.includes(".map(piece => piece.trim())"));
     assert.ok(appSource.includes(".filter(piece => piece.length > 0)"));
@@ -280,18 +280,18 @@ test("the wiki compiles as a FRAM-native Wake application", () => {
     ));
     assert.match(
       appSource,
-      /\["links-to"\]: wakeFramReadInput\([^,]+, wakeFramFieldMeta\["revision"\]\["links-to"\]\)/,
+      /\["links-to"\]: wakeStoreReadInput\([^,]+, wakeStoreFieldMeta\["revision"\]\["links-to"\]\)/,
     );
     assert.doesNotMatch(
       appSource,
-      /\["canonical-revision"\]: wakeFramReadInput/,
+      /\["canonical-revision"\]: wakeStoreReadInput/,
     );
     for (const token of [
-      "const wakeFramPublications",
-      "async function wakeFramPublish",
+      "const wakeStorePublications",
+      "async function wakeStorePublish",
       "op: 'publish'",
       "expectedPointer: currentPointer == null ? null : currentPointer",
-      "wakeFramAttachPublicationActions",
+      "wakeStoreAttachPublicationActions",
       "Publish ${String(revision)}",
     ]) {
       assert.ok(appSource.includes(token), `app.js is missing publication token ${token}`);

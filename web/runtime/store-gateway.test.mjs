@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 
-import { GatewayError, createFramGateway } from "./fram-gateway.mjs";
+import { GatewayError, createStoreGateway } from "./store-gateway.mjs";
 
 const keyword = value => ["keyword", value];
 const string = value => ["string", value];
@@ -40,7 +40,7 @@ const REVISION = Object.freeze({
 const plan = {
   schemaVersion: 2,
   applicationId: APP,
-  backend: "fram",
+  backend: "store",
   semanticFingerprint: SEMANTIC_FINGERPRINT,
   pluginClosure: [],
   commands: [],
@@ -157,10 +157,10 @@ function mocks(responses = [], schemaOverrides = {}) {
   const queue = [...responses];
   return {
     calls,
-    fram: {
+    store: {
       async query(query, options) {
         calls.query.push({ query, options });
-        assert.ok(queue.length > 0, "unexpected FRAM query");
+        assert.ok(queue.length > 0, "unexpected Store query");
         return queue.shift();
       },
     },
@@ -196,7 +196,7 @@ function mocks(responses = [], schemaOverrides = {}) {
 
 function gatewayWith(responses = [], schemaOverrides = {}) {
   const mock = mocks(responses, schemaOverrides);
-  return { ...mock, gateway: createFramGateway(plan, mock) };
+  return { ...mock, gateway: createStoreGateway(plan, mock) };
 }
 
 function rejectsCode(code) {
@@ -328,7 +328,7 @@ test("decoded rows preserve prototype-shaped field names as own data", async () 
     ],
     page: null,
   }]);
-  const gateway = createFramGateway(special, mock);
+  const gateway = createStoreGateway(special, mock);
   const result = await gateway.list("page");
   const row = result.rows[0];
 
@@ -415,7 +415,7 @@ test("generic writes cannot preclaim or mutate command receipts", async () => {
     ],
   });
   const fixture = mocks();
-  const gateway = createFramGateway(reservedPlan, fixture);
+  const gateway = createStoreGateway(reservedPlan, fixture);
   const receiptId = `sha256:${"d".repeat(64)}`;
 
   await assert.rejects(
@@ -685,8 +685,8 @@ test("publish rejects unknown policies and requires the batch schema primitive",
     rejectsCode("gateway/unknown-publication"),
   );
   assert.throws(
-    () => createFramGateway(plan, {
-      fram: { query() {} },
+    () => createStoreGateway(plan, {
+      store: { query() {} },
       schema: { createUnique() {}, updateUnique() {} },
     }),
     rejectsCode("gateway/invalid-client"),
@@ -775,18 +775,18 @@ test("gateway rejects empty or relabeled app scopes", () => {
   const mismatchedPredicate = planForApp("other.app");
   mismatchedPredicate.entities[0].fields[0].predicateTerm = PAGE.slug;
   assert.throws(
-    () => createFramGateway({ ...plan, applicationId: "" }, mock),
+    () => createStoreGateway({ ...plan, applicationId: "" }, mock),
     rejectsCode("gateway/invalid-plan"),
   );
   assert.throws(
-    () => createFramGateway({ ...plan, applicationId: "other.app" }, mock),
+    () => createStoreGateway({ ...plan, applicationId: "other.app" }, mock),
     rejectsCode("gateway/invalid-plan"),
   );
   assert.throws(
-    () => createFramGateway(mismatchedPredicate, mock),
+    () => createStoreGateway(mismatchedPredicate, mock),
     rejectsCode("gateway/invalid-plan"),
   );
-  assert.doesNotThrow(() => createFramGateway(planForApp("other.app"), mock));
+  assert.doesNotThrow(() => createStoreGateway(planForApp("other.app"), mock));
 });
 
 test("gateway accepts only the current plan-v2 application envelope", () => {
@@ -798,13 +798,13 @@ test("gateway accepts only the current plan-v2 application envelope", () => {
     { ...plan, pluginClosure: ["wake-wiki"] },
   ]) {
     assert.throws(
-      () => createFramGateway(invalid, mock),
+      () => createStoreGateway(invalid, mock),
       rejectsCode("gateway/invalid-plan"),
     );
   }
 });
 
-test("app-scoped Terms isolate same-named schemas in one FRAM database", async () => {
+test("app-scoped Terms isolate same-named schemas in one Store database", async () => {
   const foreignApp = "other.app";
   const foreignPlan = planForApp(foreignApp);
   const localHome = subject("page", "home");
@@ -816,8 +816,8 @@ test("app-scoped Terms isolate same-named schemas in one FRAM database", async (
   assert.notDeepEqual(PAGE.slug, foreignSlug);
 
   const sharedWrites = mocks();
-  const localWriter = createFramGateway(plan, sharedWrites);
-  const foreignWriter = createFramGateway(foreignPlan, sharedWrites);
+  const localWriter = createStoreGateway(plan, sharedWrites);
+  const foreignWriter = createStoreGateway(foreignPlan, sharedWrites);
   await localWriter.create("page", { slug: "home", title: "Local home" });
   await foreignWriter.create("page", { slug: "home", title: "Foreign home" });
   assert.deepEqual(
@@ -842,14 +842,14 @@ test("app-scoped Terms isolate same-named schemas in one FRAM database", async (
   const localRead = mocks([mixedRead]);
   const foreignRead = mocks([mixedRead]);
   assert.deepEqual(
-    await createFramGateway(plan, localRead).list("page"),
+    await createStoreGateway(plan, localRead).list("page"),
     {
       rows: [{ slug: "home", aliases: [], title: "Local home" }],
       servedVersion: 60n,
     },
   );
   assert.deepEqual(
-    await createFramGateway(foreignPlan, foreignRead).list("page"),
+    await createStoreGateway(foreignPlan, foreignRead).list("page"),
     {
       rows: [{ slug: "home", aliases: [], title: "Foreign home" }],
       servedVersion: 60n,
@@ -885,14 +885,14 @@ test("app-scoped Terms isolate same-named schemas in one FRAM database", async (
   const localChanges = mocks([mixedChanges]);
   const foreignChanges = mocks([mixedChanges]);
   assert.deepEqual(
-    await createFramGateway(plan, localChanges).changes(60n),
+    await createStoreGateway(plan, localChanges).changes(60n),
     {
       changes: [{ entity: "page", identities: ["local-change"] }],
       servedVersion: 61n,
     },
   );
   assert.deepEqual(
-    await createFramGateway(foreignPlan, foreignChanges).changes(60n),
+    await createStoreGateway(foreignPlan, foreignChanges).changes(60n),
     {
       changes: [{ entity: "page", identities: ["foreign-change"] }],
       servedVersion: 61n,
@@ -929,7 +929,7 @@ function numericPlan() {
 function numericGateway(responses = []) {
   const numeric = numericPlan();
   const mock = mocks(responses);
-  return { ...mock, plan: numeric, gateway: createFramGateway(numeric, mock) };
+  return { ...mock, plan: numeric, gateway: createStoreGateway(numeric, mock) };
 }
 
 test("Float identities and Number fields accept every finite JSON-exact value", async () => {
@@ -1002,7 +1002,7 @@ test("Float identities and fields reject non-finite values and negative zero bef
   assert.equal(calls.updateUnique.length, 0);
 });
 
-test("FRAM reads reject non-JSON-exact Float identities and fields", async () => {
+test("Store reads reject non-JSON-exact Float identities and fields", async () => {
   const numeric = numericPlan();
   const page = numeric.entities.find(entity => entity.name === "page");
   const slug = page.fields.find(field => field.name === "slug").predicateTerm;

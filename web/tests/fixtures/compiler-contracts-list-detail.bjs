@@ -197,7 +197,7 @@
 (wake/application-root
   application
   "wake-test-compiler-contracts"
-  (wake/->FramAuthority "fram")
+  (wake/->StoreAuthority "store")
   [(wake/->StorageSpec blog-owner-ref "wake-test-compiler-contracts/entity/blog_post")
    (wake/->StorageSpec blog-post-ref "wake-test-compiler-contracts/entity/blog-post")
    (wake/->StorageSpec blog-note-ref "wake-test-compiler-contracts/entity/blog-note")]

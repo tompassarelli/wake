@@ -177,7 +177,7 @@ const command = Object.freeze({
 
 const plan = Object.freeze({
   applicationId: "neutral-release",
-  backend: "fram",
+  backend: "store",
   commands: [command],
   schemaVersion: 2,
   semanticFingerprint: fingerprint,

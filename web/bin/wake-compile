@@ -5,7 +5,7 @@
 # Usage:
 #   bin/wake-compile                           # verify all compiler modules build
 #   bin/wake-compile FILE [OUT]                # emit direct-DOM JavaScript
-#   bin/wake-compile --fram FILE [OUT]         # emit a FRAM plan as JSON
+#   bin/wake-compile --store FILE [OUT]         # emit a Store plan as JSON
 #   bin/wake-compile --all FILE [OUT_DIR]      # emit the deployment artifact set
 
 set -euo pipefail
@@ -84,7 +84,7 @@ cp "$wake_root/package.json" "$staging_dir/package.json"
 cp "$BEAGLE_RUNTIME_DIR/core.js" "$dist/beagle/core.js"
 cp "$BEAGLE_RUNTIME_DIR/hamt.js" "$dist/beagle/hamt.js"
 
-modules=(ir graph ui js-ast emit-fram codegen)
+modules=(ir graph ui js-ast emit-store codegen)
 for mod in "${modules[@]}"; do
   echo "compiling $mod.bjs..." >&2
   compile "$compiler/$mod.bjs" "$dist/$mod.js.tmp"
@@ -99,9 +99,9 @@ append_function_exports "$dist/graph.js.imports" "$dist/graph.js"
 append_function_exports "$dist/ui.js.tmp" "$dist/ui.js"
 append_function_exports "$dist/js-ast.js.tmp" "$dist/js-ast.js"
 
-# emit-fram owns its public js/export declaration in source.
+# emit-store owns its public js/export declaration in source.
 sed "s|from './wake/graph.js';|from './graph.js';|" \
-  "$dist/emit-fram.js.tmp" > "$dist/emit-fram.js"
+  "$dist/emit-store.js.tmp" > "$dist/emit-store.js"
 
 {
   sed "s|from './wake/ir.js';|from './ir.js';|; s|from './wake/graph.js';|from './graph.js';|; s|from './wake/ui.js';|from './ui.js';|" \
@@ -127,13 +127,13 @@ run_driver() {
   artifact_cache_key="$(printf '%s\n%s\n' "$mode" "$source_hash" | sha256sum | cut -d' ' -f1)"
   local artifact_cache_dir="$compile_cache_dir/artifacts/$artifact_cache_key"
   if [[ "$mode" == "all" && -f "$artifact_cache_dir/app.js" ]]; then
-    for artifact in app.js wake-client.js app.fram.json app.wake.manifest.json app.wake.deployment.json; do
+    for artifact in app.js wake-client.js app.store.json app.wake.manifest.json app.wake.deployment.json; do
       cp "$artifact_cache_dir/$artifact" "$output/$artifact"
     done
     return
   fi
-  if [[ "$mode" == "fram" && "$output" != "-" && -f "$artifact_cache_dir/app.fram.json" ]]; then
-    cp "$artifact_cache_dir/app.fram.json" "$output"
+  if [[ "$mode" == "store" && "$output" != "-" && -f "$artifact_cache_dir/app.store.json" ]]; then
+    cp "$artifact_cache_dir/app.store.json" "$output"
     return
   fi
   if [[ "$mode" == "js" && "$output" != "-" && -f "$artifact_cache_dir/app.js" ]]; then
@@ -148,12 +148,12 @@ run_driver() {
     --output "$output"
   mkdir -p "$artifact_cache_dir"
   if [[ "$mode" == "all" ]]; then
-    for artifact in app.js wake-client.js app.fram.json app.wake.manifest.json app.wake.deployment.json; do
+    for artifact in app.js wake-client.js app.store.json app.wake.manifest.json app.wake.deployment.json; do
       cp "$output/$artifact" "$artifact_cache_dir/$artifact"
     done
   elif [[ "$output" != "-" ]]; then
     local artifact_name="app.js"
-    if [[ "$mode" == "fram" ]]; then artifact_name="app.fram.json"; fi
+    if [[ "$mode" == "store" ]]; then artifact_name="app.store.json"; fi
     cp "$output" "$artifact_cache_dir/$artifact_name"
   fi
 }
@@ -167,12 +167,12 @@ if [[ $# -ge 1 && "$1" == "--all" ]]; then
   run_driver all "$wake_file" "$out_dir"
   "$wake_root/bin/wake-lint-output" "$out_dir/app.js" >&2
   "$wake_root/bin/wake-lint-output" "$out_dir/wake-client.js" >&2
-  echo "$wake_file -> $out_dir/ (wake-client.js + app.js + app.fram.json + app.wake.manifest.json + app.wake.deployment.json)" >&2
-elif [[ $# -ge 1 && "$1" == "--fram" ]]; then
+  echo "$wake_file -> $out_dir/ (wake-client.js + app.js + app.store.json + app.wake.manifest.json + app.wake.deployment.json)" >&2
+elif [[ $# -ge 1 && "$1" == "--store" ]]; then
   [[ $# -ge 2 && $# -le 3 ]] || usage
-  run_driver fram "$2" "${3:--}"
+  run_driver store "$2" "${3:--}"
   if [[ -n "${3:-}" ]]; then
-    echo "$2 -> $3 (FRAM plan)" >&2
+    echo "$2 -> $3 (Store plan)" >&2
   fi
 elif [[ $# -ge 1 && "$1" == --* ]]; then
   echo "wake-compile: unknown option '$1'" >&2

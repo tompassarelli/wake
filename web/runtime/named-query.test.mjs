@@ -331,15 +331,15 @@ const providedQuery = {
   result: { kind: "optional" },
 };
 
-function mockFram(responses) {
+function mockStore(responses) {
   const queue = [...responses];
   const calls = [];
   return {
     calls,
-    fram: {
+    store: {
       async query(query, options) {
         calls.push({ query, options });
-        if (queue.length === 0) throw new Error("unexpected FRAM query");
+        if (queue.length === 0) throw new Error("unexpected Store query");
         return queue.shift();
       },
     },
@@ -375,16 +375,16 @@ async function expectRejectsCode(promise, code) {
 }
 
 describe("named query plan lowering", () => {
-  test("lowers checked fields and exact typed parameters to one structured FRAM query", async () => {
+  test("lowers checked fields and exact typed parameters to one structured Store query", async () => {
     const cursor = triple(keyword("cursor"), string("release"), ["integer", "1"]);
-    const mock = mockFram([
+    const mock = mockStore([
       response(
         [[subject("release", "r-1"), string("r-1"), string("First")]],
         7n,
         { ordinal: 0, done: false, nextCursor: cursor },
       ),
     ]);
-    const runtime = createNamedQueryRuntime([pageQuery], { fram: mock.fram, entities });
+    const runtime = createNamedQueryRuntime([pageQuery], { store: mock.store, entities });
 
     await expect(runtime.execute(
       "releases-by-channel",
@@ -450,8 +450,8 @@ describe("named query plan lowering", () => {
 
   test("passes the raw internal cursor unchanged on a pinned page continuation", async () => {
     const cursor = triple(keyword("cursor"), string("release"), ["integer", "1"]);
-    const mock = mockFram([response([], 8n, { ordinal: 1, done: true, nextCursor: null })]);
-    const runtime = createNamedQueryRuntime([pageQuery], { fram: mock.fram, entities });
+    const mock = mockStore([response([], 8n, { ordinal: 1, done: true, nextCursor: null })]);
+    const runtime = createNamedQueryRuntime([pageQuery], { store: mock.store, entities });
 
     await runtime.execute(
       "releases-by-channel",
@@ -506,7 +506,7 @@ describe("named query plan lowering", () => {
     expect(Object.isFrozen(capabilities)).toBe(true);
   });
 
-  test("rejects open records and forged operand metadata before FRAM is reachable", () => {
+  test("rejects open records and forged operand metadata before Store is reachable", () => {
     const adversarial = [
       { ...pageQuery, extension: true },
       { ...pageQuery, parameters: [{ ...pageQuery.parameters[0], extension: true }] },
@@ -542,10 +542,10 @@ describe("named query plan lowering", () => {
 
 describe("named query execution", () => {
   test("roundtrips canonical Digest values as string Terms without Keyword fallback", async () => {
-    const mock = mockFram([
+    const mock = mockStore([
       response([[subject("release", "r-1"), string(canonicalDigest)]], 19n),
     ]);
-    const runtime = createNamedQueryRuntime([digestQuery], { fram: mock.fram, entities });
+    const runtime = createNamedQueryRuntime([digestQuery], { store: mock.store, entities });
 
     await expect(runtime.execute(
       "release-by-digest",
@@ -562,9 +562,9 @@ describe("named query execution", () => {
     expect(predicateClause.args[1]).not.toEqual(keyword(canonicalDigest));
   });
 
-  test("rejects malformed Digest input before FRAM dispatch", async () => {
-    const mock = mockFram([]);
-    const runtime = createNamedQueryRuntime([digestQuery], { fram: mock.fram, entities });
+  test("rejects malformed Digest input before Store dispatch", async () => {
+    const mock = mockStore([]);
+    const runtime = createNamedQueryRuntime([digestQuery], { store: mock.store, entities });
     const malformed = [
       `sha256:${"A".repeat(64)}`,
       "sha256:not-a-digest",
@@ -588,9 +588,9 @@ describe("named query execution", () => {
     ]) {
       const runtime = createNamedQueryRuntime([digestQuery], {
         entities,
-        fram: mockFram([
+        store: mockStore([
           response([[subject("release", "r-1"), stored]], 19n),
-        ]).fram,
+        ]).store,
       });
 
       await expectRejectsCode(
@@ -602,14 +602,14 @@ describe("named query execution", () => {
 
   test("replaces internal hydrated fields with revalidated provider results", async () => {
     const calls = [];
-    const mock = mockFram([response(
+    const mock = mockStore([response(
       [[subject("release", "r-1"), string("r-1"), string("# Safe")]],
       21n,
       { ordinal: 0, done: true, nextCursor: null },
     )]);
     const runtime = createNamedQueryRuntime([providedQuery], {
       entities,
-      fram: mock.fram,
+      store: mock.store,
       providers: {
         "render-content": async (input, context) => {
           calls.push({ context, input });
@@ -642,7 +642,7 @@ describe("named query execution", () => {
   test("fails closed on missing, failed, malformed, and forged result providers", async () => {
     expectThrowsCode(() => createNamedQueryRuntime([providedQuery], {
       entities,
-      fram: mockFram([]).fram,
+      store: mockStore([]).store,
     }), "gateway/missing-provider");
 
     for (const [provider, code] of [
@@ -651,11 +651,11 @@ describe("named query execution", () => {
     ]) {
       const runtime = createNamedQueryRuntime([providedQuery], {
         entities,
-        fram: mockFram([response(
+        store: mockStore([response(
           [[subject("release", "r-1"), string("r-1"), string("source")]],
           22n,
           { ordinal: 0, done: true, nextCursor: null },
-        )]).fram,
+        )]).store,
         providers: { "render-content": provider },
       });
       await expectRejectsCode(runtime.execute(
@@ -702,10 +702,10 @@ describe("named query execution", () => {
   });
 
   test("requires one exact checked capability and authorizes any declared choice", async () => {
-    const allowed = mockFram([
+    const allowed = mockStore([
       response([], 6n, { ordinal: 0, done: true, nextCursor: null }),
     ]);
-    const runtime = createNamedQueryRuntime([pageQuery], { fram: allowed.fram, entities });
+    const runtime = createNamedQueryRuntime([pageQuery], { store: allowed.store, entities });
 
     await expect(runtime.execute(
       "releases-by-channel",
@@ -720,9 +720,9 @@ describe("named query execution", () => {
     expect(allowed.calls).toHaveLength(1);
   });
 
-  test("rejects missing, empty, malformed, and denied authority before FRAM dispatch", async () => {
-    const mock = mockFram([]);
-    const runtime = createNamedQueryRuntime([pageQuery], { fram: mock.fram, entities });
+  test("rejects missing, empty, malformed, and denied authority before Store dispatch", async () => {
+    const mock = mockStore([]);
+    const runtime = createNamedQueryRuntime([pageQuery], { store: mock.store, entities });
     const denied = [
       undefined,
       null,
@@ -765,7 +765,7 @@ describe("named query execution", () => {
       owner,
       string("Ada"),
     ];
-    const mock = mockFram([
+    const mock = mockStore([
       response([rootRow], 11n, { ordinal: 0, done: true, nextCursor: null }),
       response([[string("runtime")]], 11n, { ordinal: 0, done: false, nextCursor: cursor }),
       response(
@@ -774,7 +774,7 @@ describe("named query execution", () => {
         { ordinal: 1, done: true, nextCursor: null },
       ),
     ]);
-    const runtime = createNamedQueryRuntime([oneQuery], { fram: mock.fram, entities });
+    const runtime = createNamedQueryRuntime([oneQuery], { store: mock.store, entities });
 
     await expect(runtime.execute("release-by-id", { id: "r-1" }, { asOf: 11n }, reader)).resolves.toEqual({
       row: {
@@ -813,7 +813,7 @@ describe("named query execution", () => {
   test("hydrates an absent multi field as an empty array at the root snapshot", async () => {
     const release = subject("release", "r-1");
     const owner = subject("person", "p-1");
-    const mock = mockFram([
+    const mock = mockStore([
       response([[
         release,
         owner,
@@ -824,7 +824,7 @@ describe("named query execution", () => {
       ]], 15n, { ordinal: 0, done: true, nextCursor: null }),
       response([], 15n, { ordinal: 0, done: true, nextCursor: null }),
     ]);
-    const runtime = createNamedQueryRuntime([oneQuery], { fram: mock.fram, entities });
+    const runtime = createNamedQueryRuntime([oneQuery], { store: mock.store, entities });
 
     await expect(runtime.execute("release-by-id", { id: "r-1" }, {}, reader)).resolves.toEqual({
       row: {
@@ -843,7 +843,7 @@ describe("named query execution", () => {
     const optional = { ...oneQuery, name: "maybe-release", result: { kind: "optional" } };
     const runtime = createNamedQueryRuntime([optional], {
       entities,
-      fram: mockFram([response([], 4n, { ordinal: 0, done: true, nextCursor: null })]).fram,
+      store: mockStore([response([], 4n, { ordinal: 0, done: true, nextCursor: null })]).store,
     });
 
     await expect(runtime.execute("maybe-release", { id: "absent" }, {}, reader)).resolves.toEqual({
@@ -853,8 +853,8 @@ describe("named query execution", () => {
   });
 
   test("rejects exact-input violations before sending a query", async () => {
-    const mock = mockFram([]);
-    const runtime = createNamedQueryRuntime([pageQuery], { fram: mock.fram, entities });
+    const mock = mockStore([]);
+    const runtime = createNamedQueryRuntime([pageQuery], { store: mock.store, entities });
 
     await expectRejectsCode(
       runtime.execute("releases-by-channel", {}, {}, reader),
@@ -888,9 +888,9 @@ describe("named query execution", () => {
     ];
     const runtime = createNamedQueryRuntime([oneQuery], {
       entities,
-      fram: mockFram([
+      store: mockStore([
         response([row("First"), row("Conflicting")], 12n, { ordinal: 0, done: true, nextCursor: null }),
-      ]).fram,
+      ]).store,
     });
 
     await expectRejectsCode(
@@ -911,9 +911,9 @@ describe("named query execution", () => {
     ];
     const multiple = createNamedQueryRuntime([oneQuery], {
       entities,
-      fram: mockFram([
+      store: mockStore([
         response([row("r-1"), row("r-2")], 13n, { ordinal: 0, done: true, nextCursor: null }),
-      ]).fram,
+      ]).store,
     });
     await expectRejectsCode(
       multiple.execute("release-by-id", { id: "r-1" }, {}, reader),
@@ -923,10 +923,10 @@ describe("named query execution", () => {
     const cursor = triple(keyword("cursor"), string("skew"), ["integer", "1"]);
     const skew = createNamedQueryRuntime([oneQuery], {
       entities,
-      fram: mockFram([
+      store: mockStore([
         response([row("r-1")], 13n, { ordinal: 0, done: false, nextCursor: cursor }),
         response([row("r-1")], 14n, { ordinal: 1, done: true, nextCursor: null }),
-      ]).fram,
+      ]).store,
     });
     await expectRejectsCode(
       skew.execute("release-by-id", { id: "r-1" }, {}, reader),

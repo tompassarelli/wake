@@ -42,8 +42,8 @@ function run(command, args) {
   assert.equal(result.status, 0, diagnostics);
 }
 
-function compileFram(source) {
-  return spawnSync(compile, ["--fram", source, "-"], { cwd: webRoot });
+function compileStore(source) {
+  return spawnSync(compile, ["--store", source, "-"], { cwd: webRoot });
 }
 
 async function compileAll(source, outputDir) {
@@ -170,7 +170,7 @@ const singlePublicationProgram = `#lang beagle/js
 (wake/application-root
   application
   "wake-test-single-publication"
-  (wake/->FramAuthority "fram")
+  (wake/->StoreAuthority "store")
   [(wake/->StorageSpec page-ref "wake-test-single-publication/entity/page")
    (wake/->StorageSpec revision-ref "wake-test-single-publication/entity/revision")]
   [(wake/->IdentitySpec page-ref page-slug-ref)
@@ -211,7 +211,7 @@ const schemaOnlyProgram = `#lang beagle/js
 (wake/application-root
   application
   "wake-schema-only"
-  (wake/->FramAuthority "fram")
+  (wake/->StoreAuthority "store")
   [(wake/->StorageSpec page-ref "wake-schema-only/entity/page")]
   [(wake/->IdentitySpec page-ref page-id-ref)]
   []
@@ -222,7 +222,7 @@ const schemaOnlyProgram = `#lang beagle/js
   [])
 `;
 
-test("generated bindings are injective and related FRAM creates obey the entity contract", async () => {
+test("generated bindings are injective and related Store creates obey the entity contract", async () => {
   const outputDir = mkdtempSync(join(tmpdir(), "wake-compiler-contracts-"));
   try {
     const generated = await compileAll(
@@ -246,21 +246,21 @@ test("generated bindings are injective and related FRAM creates obey the entity 
     assert.ok(rendererCalls.length >= 2, "tabs and store watchers must call the same renderer");
     assert.match(
       generated,
-      /wakeFramAttachPublicationActions\("blog-post", entity, rowEntry,/,
+      /wakeStoreAttachPublicationActions\("blog-post", entity, rowEntry,/,
     );
     assert.match(
       generated,
-      /const wakeFramFieldMeta = Object\.assign\(Object\.create\(null\),/,
+      /const wakeStoreFieldMeta = Object\.assign\(Object\.create\(null\),/,
     );
     assert.match(
       generated,
-      /const wakeFramPublications = Object\.assign\(Object\.create\(null\),/,
+      /const wakeStorePublications = Object\.assign\(Object\.create\(null\),/,
     );
 
     const relatedCreate = generated.match(
       /const values = Object\.create\(null\);\n([\s\S]*?)await ([A-Za-z_$][\w$]*)\.add\(values\);/,
     )?.[1];
-    assert.ok(relatedCreate, "related Add must build an explicit FRAM payload");
+    assert.ok(relatedCreate, "related Add must build an explicit Store payload");
     assert.match(relatedCreate, /values\["note-id"\]/);
     assert.match(relatedCreate, /values\["summary"\]/);
     assert.match(relatedCreate, /values\["contact-ref"\]/);
@@ -281,11 +281,11 @@ test("read-only single views compile and attach publication actions on add and l
     const generated = await compileAll(sourcePath, join(outputDir, "out"));
     assert.match(
       generated,
-      /wakeFramAttachPublicationActions\("revision", evt\.entity, inst,/,
+      /wakeStoreAttachPublicationActions\("revision", evt\.entity, inst,/,
     );
     assert.match(
       generated,
-      /wakeFramAttachPublicationActions\("revision", entity, inst,/,
+      /wakeStoreAttachPublicationActions\("revision", entity, inst,/,
     );
   } finally {
     rmSync(outputDir, { force: true, recursive: true });
@@ -324,7 +324,7 @@ test("compiler rejects list-detail declarations it cannot all generate", () => {
       "[blog-post-detail-ref blog-note-detail-ref])",
     ));
   try {
-    const result = compileFram(sourcePath);
+    const result = compileStore(sourcePath);
     assert.notEqual(result.status, 0);
     assert.match(
       `${result.stdout}\n${result.stderr}`,
@@ -359,13 +359,13 @@ test("list-detail mode omits creation UI when no form is declared", async () => 
   }
 }, COMPILER_TEST_TIMEOUT_MS);
 
-test("schema-only FRAM programs remain valid", () => {
-  const temporary = mkdtempSync(join(tmpdir(), "wake-schema-only-fram-"));
+test("schema-only Store programs remain valid", () => {
+  const temporary = mkdtempSync(join(tmpdir(), "wake-schema-only-store-"));
   const sourcePath = join(temporary, "schema-only.bjs");
   writeFileSync(sourcePath, schemaOnlyProgram);
   try {
-    const fram = compileFram(sourcePath);
-    assert.equal(fram.status, 0, `${fram.stdout}\n${fram.stderr}`);
+    const store = compileStore(sourcePath);
+    assert.equal(store.status, 0, `${store.stdout}\n${store.stderr}`);
   } finally {
     rmSync(temporary, { force: true, recursive: true });
   }
@@ -456,7 +456,7 @@ for (const [name, source, expected] of uiRootTopologyCases) {
     const sourcePath = join(temporary, "application.bjs");
     writeFileSync(sourcePath, source);
     try {
-      const result = compileFram(sourcePath);
+      const result = compileStore(sourcePath);
       assert.notEqual(result.status, 0);
       assert.match(`${result.stdout}\n${result.stderr}`, expected);
     } finally {

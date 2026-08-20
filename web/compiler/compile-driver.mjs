@@ -17,7 +17,7 @@ import { linkCheckedDeclarations } from "./declaration-linker.mjs";
 import { generateDeploymentReceipt } from "./deployment-receipt.mjs";
 
 const DRIVER_SCHEMA_VERSION = 1;
-const FRAM_PLAN_SCHEMA_VERSION = 2;
+const STORE_PLAN_SCHEMA_VERSION = 2;
 const HTTP_OPERATION_PROTOCOL_VERSION = 2;
 const COMPILER_NAME = "wake";
 const BUNDLE_SCHEMA_VERSION = 4;
@@ -107,7 +107,7 @@ function parseArguments(argv) {
     if (!values.has(option)) fail(`driver requires ${option}`);
   }
   const mode = values.get("--mode");
-  if (!["all", "fram", "js"].includes(mode)) fail(`unknown driver mode ${mode}`);
+  if (!["all", "store", "js"].includes(mode)) fail(`unknown driver mode ${mode}`);
   const source = nonempty(values.get("--source"), "source path");
   if (!source.startsWith("/")) fail("source path must be absolute");
   if (!source.endsWith(".bjs")) fail("Wake source must use the .bjs extension");
@@ -427,7 +427,7 @@ function applicationManifest({
   compilerCommit,
   compilerVersion,
   fingerprint,
-  framPlan,
+  storePlan,
   generatedJavaScript,
   linked,
 }) {
@@ -438,7 +438,7 @@ function applicationManifest({
     artifacts: {
       browserClient: { path: "wake-client.js", sha256: sha256Digest(browserClient) },
       browserJavaScript: { path: "app.js", sha256: sha256Digest(generatedJavaScript) },
-      framPlan: { path: "app.fram.json", sha256: sha256Digest(framPlan) },
+      storePlan: { path: "app.store.json", sha256: sha256Digest(storePlan) },
     },
     checkedApplication: { fingerprint, schemaVersion: checked.schema_version },
     compiler: { name: COMPILER_NAME, sourceCommit: compilerCommit, version: compilerVersion },
@@ -450,7 +450,7 @@ function applicationManifest({
     hostCapabilities,
     plugins: pluginManifestEntries(linked),
     protocols: {
-      framPlanSchemaVersion: FRAM_PLAN_SCHEMA_VERSION,
+      storePlanSchemaVersion: STORE_PLAN_SCHEMA_VERSION,
       httpOperationProtocolVersion: HTTP_OPERATION_PROTOCOL_VERSION,
       pluginAbiVersion: pluginContractVersions.pluginAbi,
     },
@@ -499,7 +499,7 @@ async function main() {
     fail("compiled graph lacks check-linked-declaration-program");
   }
   const { gen_program_bang: generateProgram } = await import(new URL("codegen.js", distUrl).href);
-  const { gen_fram: generateFram } = await import(new URL("emit-fram.js", distUrl).href);
+  const { gen_store: generateStore } = await import(new URL("emit-store.js", distUrl).href);
   const { generateWakeClient } = await import("./emit-client.mjs");
 
   const checkedGraph = checkLinkedDeclarations(linked);
@@ -515,21 +515,21 @@ async function main() {
     await writeOutput(options.output, generated);
     return;
   }
-  if (options.mode === "fram") {
-    await writeOutput(options.output, generateFram(checkedWithFingerprint));
+  if (options.mode === "store") {
+    await writeOutput(options.output, generateStore(checkedWithFingerprint));
     return;
   }
 
   const generatedJavaScript = `// wake: checked-application ${fingerprint}\n${generateProgram(checkedWithFingerprint)}`;
   const browserClient = generateWakeClient(checkedWithFingerprint);
-  const framPlan = generateFram(checkedWithFingerprint);
+  const storePlan = generateStore(checkedWithFingerprint);
   const manifest = applicationManifest({
     browserClient,
     checked: checkedWithFingerprint,
     compilerCommit: compilerSourceCommit(webRoot),
     compilerVersion,
     fingerprint,
-    framPlan,
+    storePlan,
     generatedJavaScript,
     linked,
   });
@@ -537,12 +537,12 @@ async function main() {
   const deploymentReceipt = generateDeploymentReceipt({
     browserClient,
     browserJavaScript: generatedJavaScript,
-    framPlan,
+    storePlan,
     manifest: manifestDocument,
   });
   await Bun.write(join(options.output, "app.js"), generatedJavaScript);
   await Bun.write(join(options.output, "wake-client.js"), browserClient);
-  await Bun.write(join(options.output, "app.fram.json"), framPlan);
+  await Bun.write(join(options.output, "app.store.json"), storePlan);
   await Bun.write(join(options.output, "app.wake.manifest.json"), manifestDocument);
   await Bun.write(join(options.output, "app.wake.deployment.json"), deploymentReceipt);
 }

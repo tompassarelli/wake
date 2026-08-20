@@ -8,7 +8,7 @@ export const wakeRuntimeCompilerContract = Object.freeze({
   }),
   manifestSchemaVersion: 1,
   protocols: Object.freeze({
-    framPlanSchemaVersion: 2,
+    storePlanSchemaVersion: 2,
     httpOperationProtocolVersion: 2,
     pluginAbiVersion: 1,
   }),

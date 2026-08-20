@@ -121,7 +121,7 @@ function linkedApplication({ titleValueTypeTag = "IrStringField" } = {}) {
         application: {
           _tag: "IrApplicationRootSpec",
           id: "bridge-fixture",
-          authority: { _tag: "IrFramAuthority", service: "fram" },
+          authority: { _tag: "IrStoreAuthority", service: "store" },
           storage: [{
             _tag: "IrStorageSpec",
             entity: pageRef,
@@ -276,7 +276,7 @@ test("lowers an exact linked declaration program without erasing its typed sidec
   assert.equal(checked.application_id, "bridge-fixture");
   assert.strictEqual(checked.linked_declarations, linked);
   assert.deepEqual(checked.source_units, [sourceUnit]);
-  assert.equal(checked.backend.kind, "fram");
+  assert.equal(checked.backend.kind, "store");
   assert.deepEqual(checked.value_types, [{
     name: "Document",
     descriptor: {

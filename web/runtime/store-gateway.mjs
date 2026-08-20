@@ -70,7 +70,7 @@ function canonicalInteger(value, label) {
   if (!INTEGER.test(text)) fail("gateway/type-mismatch", `${label} is not a canonical integer`);
   const integer = BigInt(text);
   if (integer < I64_MIN || integer > I64_MAX) {
-    fail("gateway/type-mismatch", `${label} is outside FRAM's integer range`);
+    fail("gateway/type-mismatch", `${label} is outside Store's integer range`);
   }
   return text;
 }
@@ -226,16 +226,16 @@ function matchTemplate(template, value) {
 }
 
 function cloneRuntimeTerm(value) {
-  if (!Array.isArray(value)) fail("gateway/protocol", "FRAM returned a malformed Term");
+  if (!Array.isArray(value)) fail("gateway/protocol", "Store returned a malformed Term");
   if (value[0] === "triple") {
-    if (value.length !== 4) fail("gateway/protocol", "FRAM returned a malformed Triple Term");
+    if (value.length !== 4) fail("gateway/protocol", "Store returned a malformed Triple Term");
     return ["triple", cloneRuntimeTerm(value[1]), cloneRuntimeTerm(value[2]), cloneRuntimeTerm(value[3])];
   }
   if (["string", "integer", "float64", "boolean", "keyword"].includes(value[0]) && value.length === 2) {
     return [value[0], value[1]];
   }
   if (value[0] === "instant" && value.length === 3) return ["instant", value[1], value[2]];
-  fail("gateway/protocol", "FRAM returned a malformed Term");
+  fail("gateway/protocol", "Store returned a malformed Term");
 }
 
 function encodeLiteral(type, value, label) {
@@ -330,7 +330,7 @@ function decodeLiteral(type, value, label) {
 }
 
 function compilePlan(plan) {
-  if (!plainObject(plan) || plan.schemaVersion !== 2 || plan.backend !== "fram"
+  if (!plainObject(plan) || plan.schemaVersion !== 2 || plan.backend !== "store"
       || typeof plan.applicationId !== "string"
       || typeof plan.semanticFingerprint !== "string"
       || !SHA256.test(plan.semanticFingerprint)
@@ -338,7 +338,7 @@ function compilePlan(plan) {
       || !Array.isArray(plan.entities)
       || !Array.isArray(plan.queries)
       || !Array.isArray(plan.stateMachines) || !Array.isArray(plan.publications)) {
-    fail("gateway/invalid-plan", "expected a Wake FRAM plan with schemaVersion 2");
+    fail("gateway/invalid-plan", "expected a Wake Store plan with schemaVersion 2");
   }
   const applicationId = requiredName(plan.applicationId, "applicationId");
   const semanticFingerprint = plan.semanticFingerprint;
@@ -629,7 +629,7 @@ function changesQuery() {
   };
 }
 
-async function drainQuery(fram, query, baseOptions) {
+async function drainQuery(store, query, baseOptions) {
   let cursor;
   let pages = 0;
   let servedVersion;
@@ -640,18 +640,18 @@ async function drainQuery(fram, query, baseOptions) {
       ...baseOptions,
       page: { limit: PAGE_LIMIT, ...(cursor === undefined ? {} : { cursor }) },
     };
-    const response = await fram.query(query, options);
+    const response = await store.query(query, options);
     if (!plainObject(response) || !Array.isArray(response.result)
         || (typeof response.servedVersion !== "bigint" && !Number.isSafeInteger(response.servedVersion))) {
-      fail("gateway/protocol", "FRAM returned an invalid query response");
+      fail("gateway/protocol", "Store returned an invalid query response");
     }
     if (servedVersion === undefined) servedVersion = BigInt(response.servedVersion);
     else if (servedVersion !== BigInt(response.servedVersion)) {
-      fail("gateway/protocol", "FRAM changed the served version inside a cursor-pinned read");
+      fail("gateway/protocol", "Store changed the served version inside a cursor-pinned read");
     }
     const done = !response.page || response.page.done === true;
     if (!done && (response.page.nextCursor === null || response.page.nextCursor === undefined)) {
-      fail("gateway/protocol", "FRAM omitted the next cursor for an unfinished page");
+      fail("gateway/protocol", "Store omitted the next cursor for an unfinished page");
     }
     const exceedsRows = response.result.length > MAX_QUERY_ROWS - rows.length;
     if (!exceedsRows) rows.push(...response.result);
@@ -668,7 +668,7 @@ function mergeRows(entity, rawRows) {
   const groups = new Map();
   for (const raw of rawRows) {
     if (!Array.isArray(raw) || raw.length !== 3) {
-      fail("gateway/protocol", "FRAM returned a malformed entity query row");
+      fail("gateway/protocol", "Store returned a malformed entity query row");
     }
     const [subject, predicate, value] = raw;
     const identity = matchTemplate(entity.template, subject);
@@ -819,8 +819,8 @@ function replacementField(entity, field, value) {
   return { field: planned, requireUnique };
 }
 
-export function createFramGateway(plan, {
-  fram,
+export function createStoreGateway(plan, {
+  store,
   generateId = () => crypto.randomUUID(),
   now = () => {
     const milliseconds = Date.now();
@@ -835,17 +835,17 @@ export function createFramGateway(plan, {
   serverValues = {},
 } = {}) {
   const compiled = compilePlan(plan);
-  if (!fram || typeof fram.query !== "function") {
-    fail("gateway/invalid-client", "fram.query is required");
+  if (!store || typeof store.query !== "function") {
+    fail("gateway/invalid-client", "store.query is required");
   }
   if (!schema || typeof schema.createUnique !== "function"
       || typeof schema.updateUnique !== "function"
       || typeof schema.updateUniqueMany !== "function"
       || typeof schema.transactUnique !== "function") {
-    fail("gateway/invalid-client", "the FRAM schema client is incomplete");
+    fail("gateway/invalid-client", "the Store schema client is incomplete");
   }
   const namedQueries = createNamedQueryRuntime(plan.queries, {
-    fram,
+    store,
     entities: plan.entities,
     providers,
   });
@@ -888,7 +888,7 @@ export function createFramGateway(plan, {
   const readOne = async (entityName, identityValue) => {
     const entity = entityNamed(entityName);
     const identity = encodeLiteral(entity.identity.type, identityValue, `${entity.name}.${entity.identity.field}`);
-    const response = await drainQuery(fram, readQuery(entity, identity), { timeoutMs: QUERY_TIMEOUT_MS });
+    const response = await drainQuery(store, readQuery(entity, identity), { timeoutMs: QUERY_TIMEOUT_MS });
     if (response.limited) {
       fail("gateway/result-limit", `${entity.name} lookup exceeds Wake's ${MAX_QUERY_ROWS}-row read limit`);
     }
@@ -948,7 +948,7 @@ export function createFramGateway(plan, {
 
     async list(entityName) {
       const entity = entityNamed(entityName);
-      const response = await drainQuery(fram, readQuery(entity), { timeoutMs: QUERY_TIMEOUT_MS });
+      const response = await drainQuery(store, readQuery(entity), { timeoutMs: QUERY_TIMEOUT_MS });
       if (response.limited) {
         fail("gateway/result-limit", `${entity.name} list exceeds Wake's ${MAX_QUERY_ROWS}-row read limit`);
       }
@@ -989,7 +989,7 @@ export function createFramGateway(plan, {
       if (mutation.requireUnique.length > 0) input.requireUnique = mutation.requireUnique;
       const result = await schema.createUnique(input);
       if (!plainObject(result) || typeof result.servedVersion !== "bigint") {
-        fail("gateway/protocol", "FRAM schema create returned an invalid result");
+        fail("gateway/protocol", "Store schema create returned an invalid result");
       }
       return { created: true, identity, servedVersion: result.servedVersion };
     },
@@ -1021,7 +1021,7 @@ export function createFramGateway(plan, {
       };
       const result = await schema.updateUnique(input);
       if (!plainObject(result) || typeof result.servedVersion !== "bigint" || typeof result.changed !== "boolean") {
-        fail("gateway/protocol", "FRAM schema update returned an invalid result");
+        fail("gateway/protocol", "Store schema update returned an invalid result");
       }
       return { changed: result.changed, identity, servedVersion: result.servedVersion };
     },
@@ -1150,7 +1150,7 @@ export function createFramGateway(plan, {
       if (!plainObject(result) || typeof result.servedVersion !== "bigint"
           || typeof result.changed !== "boolean" || !Array.isArray(result.subjects)
           || result.subjects.length !== updates.length) {
-        fail("gateway/protocol", "FRAM schema publication update returned an invalid result");
+        fail("gateway/protocol", "Store schema publication update returned an invalid result");
       }
       return {
         changed: result.changed,
@@ -1174,7 +1174,7 @@ export function createFramGateway(plan, {
     async changes(sinceVersion) {
       const lowerExclusive = BigInt(canonicalInteger(sinceVersion, "sinceVersion"));
       if (lowerExclusive < 0n) fail("gateway/invalid-input", "sinceVersion must be nonnegative");
-      const response = await drainQuery(fram, changesQuery(), {
+      const response = await drainQuery(store, changesQuery(), {
         timeoutMs: QUERY_TIMEOUT_MS,
         since: { lowerExclusive, upper: "current" },
       });
@@ -1184,11 +1184,11 @@ export function createFramGateway(plan, {
       const affected = new Map();
       for (const raw of response.rows) {
         if (!Array.isArray(raw) || raw.length !== 3) {
-          fail("gateway/protocol", "FRAM returned a malformed occurrence query row");
+          fail("gateway/protocol", "Store returned a malformed occurrence query row");
         }
         const proposition = raw[2];
         if (!Array.isArray(proposition) || proposition[0] !== "triple" || proposition.length !== 4) {
-          fail("gateway/protocol", "FRAM returned a malformed occurrence proposition");
+          fail("gateway/protocol", "Store returned a malformed occurrence proposition");
         }
         const exactProposition = cloneRuntimeTerm(proposition);
         const entry = compiled.predicates.get(termKey(exactProposition[2]));

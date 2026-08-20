@@ -6,1066 +6,1322 @@
 
 (js/export
 (defrecord SourceSpan
-  [(source_id String)
-   (start_offset Int)
-   (end_offset Int)
-   (start_line Int)
-   (start_column Int)
-   (end_line Int)
-   (end_column Int)]))
+  [source_id String
+   start_offset Int
+   end_offset Int
+   start_line Int
+   start_column Int
+   end_line Int
+   end_column Int]))
 (js/export
 (defrecord IrSourceUnit
-  [(source_id String)
-   (path String)
-   (package_id String)
-   (package_version String)]))
+  [source_id String
+   path String
+   package_id String
+   package_version String]))
 (js/export
-(defrecord IrProvenance [(source IrSourceUnit) (span SourceSpan)]))
+(defrecord IrProvenance
+  [source IrSourceUnit
+   span SourceSpan]))
 (js/export
 (defrecord IrDeclarationProvenance
-  [(kind String) (name String) (provenance IrProvenance)]))
+  [kind String
+   name String
+   provenance IrProvenance]))
 
 (js/export
 (defrecord IrEntityRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrFieldRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrStateRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrStateValueRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrValueTypeRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrProviderPortRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrRendererRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrCapabilityRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrQueryRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrCommandRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrComponentRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrViewRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrRouteTemplateRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrEntityFieldsPortRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrComponentSlotRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrRouteSlotRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrPublicationRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrFormRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrListDetailRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrReceiptEntityRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrReceiptFieldRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrExtensionFieldRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrPluginUseRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrIntRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrStringRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrBoolRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrKeywordRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrEntityNameRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrFieldNameRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrStateNameRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrStateValueNameRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrExternalEntityRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrValueRoleRef
-  [(declaration_id String) (name String) (provenance_token String)]))
+  [declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedIntRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedStringRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedBoolRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedKeywordRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedEntityNameRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedFieldNameRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedStateNameRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedStateValueNameRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedExternalEntityRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedValueRoleRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedProviderPortRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedEntityFieldsPortRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedComponentSlotRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 (js/export
 (defrecord IrImportedRouteSlotRef
-  [(use IrPluginUseRef)
-   (declaration_id String)
-   (name String)
-   (provenance_token String)]))
+  [use IrPluginUseRef
+   declaration_id String
+   name String
+   provenance_token String]))
 
 (js/export
 (defunion IrAuthoritySpec
-  (IrFramAuthority [(service String)])
-  (IrLocalStorageAuthority [(namespace String)])
-  (IrMemoryAuthority [(namespace String)])))
+  (IrStoreAuthority [service String])
+  (IrLocalStorageAuthority [namespace String])
+  (IrMemoryAuthority [namespace String])))
 
 (js/export
-(defrecord IrStorageSpec [(entity IrEntityRef) (storage_id String)]))
+(defrecord IrStorageSpec
+  [entity IrEntityRef
+   storage_id String]))
 (js/export
-(defrecord IrIdentitySpec [(entity IrEntityRef) (field IrFieldRef)]))
+(defrecord IrIdentitySpec
+  [entity IrEntityRef
+   field IrFieldRef]))
 (js/export
 (defunion IrEntityReferenceTarget
-  (IrDeclaredEntityTarget [(entity IrEntityRef)])
-  (IrExternalEntityTarget [(role IrExternalEntityRoleRef)])))
+  (IrDeclaredEntityTarget [entity IrEntityRef])
+  (IrExternalEntityTarget [role IrExternalEntityRoleRef])))
 (js/export
 (defunion IrEntityFieldsTarget
-  (IrDeclaredEntityFieldsTarget [(entity IrEntityRef)])
-  (IrReceiptEntityFieldsTarget [(entity IrReceiptEntityRef)])))
+  (IrDeclaredEntityFieldsTarget [entity IrEntityRef])
+  (IrReceiptEntityFieldsTarget [entity IrReceiptEntityRef])))
 (js/export
 (defunion IrFieldCardinality
-  (IrSingleField [(unit Nil)])
-  (IrManyField [(unit Nil)])))
+  (IrSingleField [unit Nil])
+  (IrManyField [unit Nil])))
 (js/export
 (defunion IrFieldWriteMode
-  (IrIdentityWrite [(unit Nil)])
-  (IrCreateWrite [(unit Nil)])
-  (IrSetWrite [(unit Nil)])
-  (IrCommandFieldWrite [(unit Nil)])
-  (IrServerWrite [(unit Nil)])))
+  (IrIdentityWrite [unit Nil])
+  (IrCreateWrite [unit Nil])
+  (IrSetWrite [unit Nil])
+  (IrCommandFieldWrite [unit Nil])
+  (IrServerWrite [unit Nil])))
 (js/export
 (defunion IrFieldValueType
-  (IrStringField [(unit Nil)])
-  (IrIntField [(unit Nil)])
-  (IrBoolField [(unit Nil)])
-  (IrKeywordField [(unit Nil)])
-  (IrInstantField [(unit Nil)])
-  (IrDigestField [(unit Nil)])
-  (IrStateField [(state IrStateRef)])
-  (IrRefField [(target IrEntityReferenceTarget)])
-  (IrValueField [(value_type IrValueTypeRef)])))
+  (IrStringField [unit Nil])
+  (IrIntField [unit Nil])
+  (IrBoolField [unit Nil])
+  (IrKeywordField [unit Nil])
+  (IrInstantField [unit Nil])
+  (IrDigestField [unit Nil])
+  (IrStateField [state IrStateRef])
+  (IrRefField [target IrEntityReferenceTarget])
+  (IrValueField [value_type IrValueTypeRef])))
 (js/export
 (defrecord IrFieldSpec
-  [(ref IrFieldRef)
-   (owner IrEntityRef)
-   (value_type IrFieldValueType)
-   (cardinality IrFieldCardinality)
-   (write IrFieldWriteMode)
-   (storage_id String?)
-   (required Bool)]))
+  [ref IrFieldRef
+   owner IrEntityRef
+   value_type IrFieldValueType
+   cardinality IrFieldCardinality
+   write IrFieldWriteMode
+   storage_id String?
+   required Bool]))
 (js/export
 (defunion IrDerivedExpr
-  (IrFieldDerivedExpr [(field IrFieldRef)])
-  (IrStringDerivedExpr [(value String)])
-  (IrConcatDerivedExpr [(parts (Vec IrDerivedExpr))])))
+  (IrFieldDerivedExpr [field IrFieldRef])
+  (IrStringDerivedExpr [value String])
+  (IrConcatDerivedExpr [parts (Vec IrDerivedExpr)])))
 (js/export
 (defrecord IrDerivedFieldSpec
-  [(ref IrFieldRef)
-   (owner IrEntityRef)
-   (expression IrDerivedExpr)
-   (dependencies (Vec IrFieldRef))]))
+  [ref IrFieldRef
+   owner IrEntityRef
+   expression IrDerivedExpr
+   dependencies (Vec IrFieldRef)]))
 (js/export
 (defrecord IrEntityDeclarationSpec
-  [(ref IrEntityRef)
-   (record_name String)
-   (fields (Vec IrFieldSpec))
-   (derived_fields (Vec IrDerivedFieldSpec))
-   (storage_id String?)]))
+  [ref IrEntityRef
+   record_name String
+   fields (Vec IrFieldSpec)
+   derived_fields (Vec IrDerivedFieldSpec)
+   storage_id String?]))
 (js/export
 (defrecord IrStateValueSpec
-  [(ref IrStateValueRef) (state IrStateRef) (value String)]))
+  [ref IrStateValueRef
+   state IrStateRef
+   value String]))
 (js/export
 (defrecord IrStateTransitionSpec
-  [(from IrStateValueRef) (to (Vec IrStateValueRef))]))
+  [from IrStateValueRef
+   to (Vec IrStateValueRef)]))
 (js/export
 (defrecord IrStateDeclarationSpec
-  [(ref IrStateRef)
-   (values (Vec IrStateValueSpec))
-   (initial IrStateValueRef)
-   (transitions (Vec IrStateTransitionSpec))]))
+  [ref IrStateRef
+   values (Vec IrStateValueSpec)
+   initial IrStateValueRef
+   transitions (Vec IrStateTransitionSpec)]))
 
 (js/export
-(defrecord IrConfigProjection [(role IrValueRoleRef) (path (Vec String))]))
+(defrecord IrConfigProjection
+  [role IrValueRoleRef
+   path (Vec String)]))
 
 (js/export
 (defunion IrCommandExpr
-  (IrCommandInputExpr [(name String)])
-  (IrCommandInjectedExpr [(name String)])
-  (IrCommandStringExpr [(value String)])
-  (IrCommandIntExpr [(value Int)])
-  (IrCommandBoolExpr [(value Bool)])
-  (IrCommandKeywordExpr [(value String)])
-  (IrCommandNilExpr [(unit Nil)])
-  (IrCommandActorExpr [(field String)])
-  (IrCommandReceiptTimeExpr [(unit Nil)])
-  (IrCommandRecordExpr [(fields (Vec IrCommandRecordField))])
-  (IrCommandExtensionExpr [(port IrEntityFieldsPortRef) (input String)])
-  (IrCommandConfiguredExpr [(projection IrConfigProjection)])
-  (IrCommandStateValueExpr [(value IrStateValueRef)])))
+  (IrCommandInputExpr [name String])
+  (IrCommandInjectedExpr [name String])
+  (IrCommandStringExpr [value String])
+  (IrCommandIntExpr [value Int])
+  (IrCommandBoolExpr [value Bool])
+  (IrCommandKeywordExpr [value String])
+  (IrCommandNilExpr [unit Nil])
+  (IrCommandActorExpr [field String])
+  (IrCommandReceiptTimeExpr [unit Nil])
+  (IrCommandRecordExpr [fields (Vec IrCommandRecordField)])
+  (IrCommandExtensionExpr
+    [port IrEntityFieldsPortRef
+     input String])
+  (IrCommandConfiguredExpr [projection IrConfigProjection])
+  (IrCommandStateValueExpr [value IrStateValueRef])))
 (js/export
-(defrecord IrCommandRecordField [(name String) (value IrCommandExpr)]))
+(defrecord IrCommandRecordField
+  [name String
+   value IrCommandExpr]))
 (js/export
 (defunion IrCommandPredicate
-  (IrEqualPredicate [(left IrCommandExpr) (right IrCommandExpr)])
-  (IrNonNullPredicate [(value IrCommandExpr)])
-  (IrNotContainsPredicate [(collection IrCommandExpr) (value IrCommandExpr)])))
+  (IrEqualPredicate
+    [left IrCommandExpr
+     right IrCommandExpr])
+  (IrNonNullPredicate [value IrCommandExpr])
+  (IrNotContainsPredicate
+    [collection IrCommandExpr
+     value IrCommandExpr])))
 (js/export
 (defrecord IrCommandGuardSpec
-  [(entity IrEntityRef)
-   (id IrCommandExpr)
-   (field IrFieldRef)
-   (expected IrCommandExpr)
-   (when IrCommandPredicate?)]))
+  [entity IrEntityRef
+   id IrCommandExpr
+   field IrFieldRef
+   expected IrCommandExpr
+   when IrCommandPredicate?]))
 (js/export
 (defrecord IrCommandWrite
-  [(field IrFieldRef)
-   (value IrCommandExpr)
-   (allowed_current IrCommandExpr?)
-   (omit_if_null Bool)]))
+  [field IrFieldRef
+   value IrCommandExpr
+   allowed_current IrCommandExpr?
+   omit_if_null Bool]))
 (js/export
 (defunion IrCommandWriteSpec
-  (IrFieldCommandWrite [(write IrCommandWrite)])
-  (IrExtensionCommandWrite [(port IrEntityFieldsPortRef) (input String)])))
+  (IrFieldCommandWrite [write IrCommandWrite])
+  (IrExtensionCommandWrite
+    [port IrEntityFieldsPortRef
+     input String])))
 (js/export
 (defunion IrCommandStep
-  (IrAssertStep [(predicate IrCommandPredicate)])
+  (IrAssertStep [predicate IrCommandPredicate])
   (IrRequireStep
-    [(entity IrEntityRef) (id IrCommandExpr) (when IrCommandPredicate?)])
-  (IrRequireEachStep [(entity IrEntityRef) (ids IrCommandExpr)])
-  (IrGuardStep [(guard IrCommandGuardSpec)])
+    [entity IrEntityRef
+     id IrCommandExpr
+     when IrCommandPredicate?])
+  (IrRequireEachStep
+    [entity IrEntityRef
+     ids IrCommandExpr])
+  (IrGuardStep [guard IrCommandGuardSpec])
   (IrCreateStep
-    [(entity IrEntityRef) (id IrCommandExpr) (fields (Vec IrCommandWriteSpec))])
+    [entity IrEntityRef
+     id IrCommandExpr
+     fields (Vec IrCommandWriteSpec)])
   (IrUpdateStep
-    [(entity IrEntityRef)
-     (id IrCommandExpr)
-     (fields (Vec IrCommandWriteSpec))
-     (when IrCommandPredicate?)])))
+    [entity IrEntityRef
+     id IrCommandExpr
+     fields (Vec IrCommandWriteSpec)
+     when IrCommandPredicate?])))
 (js/export
-(defrecord IrCommandInputField [(name String) (value_type IrValueTypeSpec)]))
+(defrecord IrCommandInputField
+  [name String
+   value_type IrValueTypeSpec]))
 (js/export
 (defunion IrCommandInjection
-  (IrGeneratedIdInjection [(name String)])
+  (IrGeneratedIdInjection [name String])
   (IrProviderInjection
-    [(name String)
-     (port IrProviderPortRef)
-     (input IrCommandExpr)
-     (output IrValueTypeSpec)])
-  (IrValidateWithInjection [(port IrProviderPortRef) (input IrCommandExpr)])
-  (IrCanonicalDigestInjection [(name String) (input IrCommandExpr)])))
+    [name String
+     port IrProviderPortRef
+     input IrCommandExpr
+     output IrValueTypeSpec])
+  (IrValidateWithInjection
+    [port IrProviderPortRef
+     input IrCommandExpr])
+  (IrCanonicalDigestInjection
+    [name String
+     input IrCommandExpr])))
 (js/export
 (defrecord IrCommandResultField
-  [(name String) (value_type IrValueTypeSpec) (value IrCommandExpr)]))
+  [name String
+   value_type IrValueTypeSpec
+   value IrCommandExpr]))
 (js/export
-(defrecord IrReceiptResultField [(name String) (field IrReceiptFieldRef)]))
+(defrecord IrReceiptResultField
+  [name String
+   field IrReceiptFieldRef]))
 (js/export
-(defrecord IrReceiptEntitySpec [(ref IrReceiptEntityRef) (storage_id String)]))
+(defrecord IrReceiptEntitySpec
+  [ref IrReceiptEntityRef
+   storage_id String]))
 (js/export
 (defrecord IrReceiptFieldDeclarationSpec
-  [(ref IrReceiptFieldRef)
-   (owner IrReceiptEntityRef)
-   (value_type IrValueTypeSpec)
-   (target IrEntityRef?)
-   (storage_id String)]))
+  [ref IrReceiptFieldRef
+   owner IrReceiptEntityRef
+   value_type IrValueTypeSpec
+   target IrEntityRef?
+   storage_id String]))
 (js/export
 (defrecord IrReceiptSpec
-  [(results (Vec IrReceiptResultField))
-   (extensions (Vec IrEntityFieldsPortRef))]))
+  [results (Vec IrReceiptResultField)
+   extensions (Vec IrEntityFieldsPortRef)]))
 (js/export
 (defrecord IrCommandSpec
-  [(ref IrCommandRef)
-   (capabilities (Vec IrCapabilityRef))
-   (normalizer_version Int)
-   (input (Vec IrCommandInputField))
-   (injections (Vec IrCommandInjection))
-   (steps (Vec IrCommandStep))
-   (result (Vec IrCommandResultField))
-   (receipt IrReceiptSpec)]))
+  [ref IrCommandRef
+   capabilities (Vec IrCapabilityRef)
+   normalizer_version Int
+   input (Vec IrCommandInputField)
+   injections (Vec IrCommandInjection)
+   steps (Vec IrCommandStep)
+   result (Vec IrCommandResultField)
+   receipt IrReceiptSpec]))
 (js/export
 (defrecord IrCapabilitySpec
-  [(ref IrCapabilityRef) (guards (Vec IrCommandGuardSpec))]))
+  [ref IrCapabilityRef
+   guards (Vec IrCommandGuardSpec)]))
 
 (js/export
-(defrecord IrValueRecordEntry [(name String) (value IrValueExpr)]))
+(defrecord IrValueRecordEntry
+  [name String
+   value IrValueExpr]))
 (js/export
 (defunion IrValueExpr
-  (IrLiteralStringValue [(value String)])
-  (IrLiteralIntegerValue [(value Int)])
-  (IrLiteralBooleanValue [(value Bool)])
-  (IrLiteralKeywordValue [(value String)])
-  (IrLiteralNilValue [(unit Nil)])
-  (IrRecordValue [(fields (Vec IrValueRecordEntry))])
-  (IrListValue [(items (Vec IrValueExpr))])
-  (IrBoundFieldValue [(field IrFieldRef)])
-  (IrConfigValue [(role IrValueRoleRef)])
-  (IrConfigProjectionValue [(projection IrConfigProjection)])))
+  (IrLiteralStringValue [value String])
+  (IrLiteralIntegerValue [value Int])
+  (IrLiteralBooleanValue [value Bool])
+  (IrLiteralKeywordValue [value String])
+  (IrLiteralNilValue [unit Nil])
+  (IrRecordValue [fields (Vec IrValueRecordEntry)])
+  (IrListValue [items (Vec IrValueExpr)])
+  (IrBoundFieldValue [field IrFieldRef])
+  (IrConfigValue [role IrValueRoleRef])
+  (IrConfigProjectionValue [projection IrConfigProjection])))
 
 (js/export
 (defrecord IrValueRecordField
-  [(name String) (value_type IrValueTypeSpec) (required Bool)]))
+  [name String
+   value_type IrValueTypeSpec
+   required Bool]))
 (js/export
-(defrecord IrValueTaggedVariant [(tag String) (fields (Vec IrValueRecordField))]))
+(defrecord IrValueTaggedVariant
+  [tag String
+   fields (Vec IrValueRecordField)]))
 (js/export
 (defunion IrValueLiteral
-  (IrStringLiteral [(value String)])
-  (IrIntegerLiteral [(value Int)])
-  (IrBooleanLiteral [(value Bool)])
-  (IrKeywordLiteral [(value String)])
-  (IrNilLiteral [(unit Nil)])))
+  (IrStringLiteral [value String])
+  (IrIntegerLiteral [value Int])
+  (IrBooleanLiteral [value Bool])
+  (IrKeywordLiteral [value String])
+  (IrNilLiteral [unit Nil])))
 (js/export
 (defunion IrListNormalization
-  (IrSortUniqueList [(unit Nil)])))
+  (IrSortUniqueList [unit Nil])))
 (js/export
 (defunion IrValueTypeSpec
   (IrStringValueType
-    [(minimum_scalars IrBoundInt?)
-     (maximum_scalars IrBoundInt?)
-     (maximum_bytes IrBoundInt?)])
-  (IrIntegerValueType [(minimum IrBoundInt?) (maximum IrBoundInt?)])
-  (IrBooleanValueType [(unit Nil)])
-  (IrDigestValueType [(unit Nil)])
-  (IrInstantValueType [(unit Nil)])
-  (IrKeywordValueType [(allowed (Vec String))])
-  (IrEnumValueType [(allowed (Vec IrValueLiteral))])
-  (IrEntityReferenceValueType [(entity IrEntityRef)])
-  (IrStateValueType [(state IrStateRef)])
-  (IrRecordValueType [(fields (Vec IrValueRecordField))])
-  (IrTaggedValueType [(tag_field String) (variants (Vec IrValueTaggedVariant))])
+    [minimum_scalars IrBoundInt?
+     maximum_scalars IrBoundInt?
+     maximum_bytes IrBoundInt?])
+  (IrIntegerValueType
+    [minimum IrBoundInt?
+     maximum IrBoundInt?])
+  (IrBooleanValueType [unit Nil])
+  (IrDigestValueType [unit Nil])
+  (IrInstantValueType [unit Nil])
+  (IrKeywordValueType [allowed (Vec String)])
+  (IrEnumValueType [allowed (Vec IrValueLiteral)])
+  (IrEntityReferenceValueType [entity IrEntityRef])
+  (IrStateValueType [state IrStateRef])
+  (IrRecordValueType [fields (Vec IrValueRecordField)])
+  (IrTaggedValueType
+    [tag_field String
+     variants (Vec IrValueTaggedVariant)])
   (IrListValueType
-    [(item IrValueTypeSpec)
-     (minimum_items IrBoundInt?)
-     (maximum_items IrBoundInt?)
-     (normalization IrListNormalization?)])
-  (IrExtensionValueType [(port IrEntityFieldsPortRef)])
-  (IrNullableValueType [(value_type IrValueTypeSpec)])
-  (IrNamedValueType [(value_type IrValueTypeRef)])
-  (IrLiteralValueType [(literal IrValueLiteral)])))
+    [item IrValueTypeSpec
+     minimum_items IrBoundInt?
+     maximum_items IrBoundInt?
+     normalization IrListNormalization?])
+  (IrExtensionValueType [port IrEntityFieldsPortRef])
+  (IrNullableValueType [value_type IrValueTypeSpec])
+  (IrNamedValueType [value_type IrValueTypeRef])
+  (IrLiteralValueType [literal IrValueLiteral])))
 
 (js/export
-(defrecord IrValueTypeDefinition [(ref IrValueTypeRef) (spec IrValueTypeSpec)]))
+(defrecord IrValueTypeDefinition
+  [ref IrValueTypeRef
+   spec IrValueTypeSpec]))
 (js/export
 (defrecord IrValueEnvelopeSpec
-  [(maximum_bytes IrBoundInt)
-   (maximum_depth IrBoundInt)
-   (maximum_nodes IrBoundInt)]))
+  [maximum_bytes IrBoundInt
+   maximum_depth IrBoundInt
+   maximum_nodes IrBoundInt]))
 (js/export
 (defrecord IrValueTypeDeclarationSpec
-  [(root IrValueTypeRef)
-   (definitions (Vec IrValueTypeDefinition))
-   (envelope IrValueEnvelopeSpec?)]))
+  [root IrValueTypeRef
+   definitions (Vec IrValueTypeDefinition)
+   envelope IrValueEnvelopeSpec?]))
 
 (js/export
-(defrecord IrQueryParameterSpec [(name String) (value_type IrValueTypeSpec)]))
+(defrecord IrQueryParameterSpec
+  [name String
+   value_type IrValueTypeSpec]))
 (js/export
-(defrecord IrQueryBindingSpec [(name String) (entity IrEntityRef)]))
+(defrecord IrQueryBindingSpec
+  [name String
+   entity IrEntityRef]))
 (js/export
 (defunion IrQueryValueExpr
-  (IrQueryFieldValue [(binding String) (field IrFieldRef)])
-  (IrQueryParameterValue [(name String)])
-  (IrQueryBindingValue [(name String)])
-  (IrQueryStringValue [(value String)])
-  (IrQueryIntegerValue [(value Int)])
-  (IrQueryBooleanValue [(value Bool)])
-  (IrQueryKeywordValue [(value String)])
-  (IrQueryNilValue [(unit Nil)])
-  (IrQueryRecordValue [(fields (Vec IrQueryRecordField))])
-  (IrQueryListValue [(items (Vec IrQueryValueExpr))])
-  (IrQueryConfiguredValue [(projection IrConfigProjection)])
-  (IrQueryStateValue [(value IrStateValueRef)])))
+  (IrQueryFieldValue
+    [binding String
+     field IrFieldRef])
+  (IrQueryParameterValue [name String])
+  (IrQueryBindingValue [name String])
+  (IrQueryStringValue [value String])
+  (IrQueryIntegerValue [value Int])
+  (IrQueryBooleanValue [value Bool])
+  (IrQueryKeywordValue [value String])
+  (IrQueryNilValue [unit Nil])
+  (IrQueryRecordValue [fields (Vec IrQueryRecordField)])
+  (IrQueryListValue [items (Vec IrQueryValueExpr)])
+  (IrQueryConfiguredValue [projection IrConfigProjection])
+  (IrQueryStateValue [value IrStateValueRef])))
 (js/export
-(defrecord IrQueryRecordField [(name String) (value IrQueryValueExpr)]))
+(defrecord IrQueryRecordField
+  [name String
+   value IrQueryValueExpr]))
 (js/export
 (defunion IrQueryPredicateSpec
-  (IrQueryEqualPredicate [(left IrQueryValueExpr) (right IrQueryValueExpr)])
+  (IrQueryEqualPredicate
+    [left IrQueryValueExpr
+     right IrQueryValueExpr])
   (IrQueryContainsPredicate
-    [(collection IrQueryValueExpr) (value IrQueryValueExpr)])
-  (IrQueryNonNullPredicate [(value IrQueryValueExpr)])))
+    [collection IrQueryValueExpr
+     value IrQueryValueExpr])
+  (IrQueryNonNullPredicate [value IrQueryValueExpr])))
 (js/export
 (defunion IrQuerySelectionSpec
-  (IrQueryValueSelection [(name String) (value IrQueryValueExpr)])
+  (IrQueryValueSelection
+    [name String
+     value IrQueryValueExpr])
   (IrQueryProviderSelection
-    [(name String)
-     (provider IrProviderPortRef)
-     (input IrQueryValueExpr)
-     (output IrValueTypeSpec)])
-  (IrQueryExtensionSelection [(port IrEntityFieldsPortRef) (binding String)])))
+    [name String
+     provider IrProviderPortRef
+     input IrQueryValueExpr
+     output IrValueTypeSpec])
+  (IrQueryExtensionSelection
+    [port IrEntityFieldsPortRef
+     binding String])))
 (js/export
 (defunion IrQueryResultSpec
-  (IrQueryPageResult [(default_limit IrBoundInt) (max_limit IrBoundInt)])
-  (IrQueryOptionalResult [(unit Nil)])
-  (IrQueryOneResult [(unit Nil)])))
+  (IrQueryPageResult
+    [default_limit IrBoundInt
+     max_limit IrBoundInt])
+  (IrQueryOptionalResult [unit Nil])
+  (IrQueryOneResult [unit Nil])))
 (js/export
 (defrecord IrQueryDeclarationSpec
-  [(ref IrQueryRef)
-   (capabilities (Vec IrCapabilityRef))
-   (parameters (Vec IrQueryParameterSpec))
-   (bindings (Vec IrQueryBindingSpec))
-   (predicates (Vec IrQueryPredicateSpec))
-   (selection (Vec IrQuerySelectionSpec))
-   (result IrQueryResultSpec)]))
+  [ref IrQueryRef
+   capabilities (Vec IrCapabilityRef)
+   parameters (Vec IrQueryParameterSpec)
+   bindings (Vec IrQueryBindingSpec)
+   predicates (Vec IrQueryPredicateSpec)
+   selection (Vec IrQuerySelectionSpec)
+   result IrQueryResultSpec]))
 
 (js/export
 (defrecord IrProviderPortSpec
-  [(ref IrProviderPortRef)
-   (input_type IrValueTypeSpec)
-   (output_type IrValueTypeSpec)
-   (capability IrCapabilityRef?)]))
+  [ref IrProviderPortRef
+   input_type IrValueTypeSpec
+   output_type IrValueTypeSpec
+   capability IrCapabilityRef?]))
 (js/export
 (defrecord IrRendererSpec
-  [(ref IrRendererRef) (input_type IrValueTypeSpec) (component IrComponentRef)]))
+  [ref IrRendererRef
+   input_type IrValueTypeSpec
+   component IrComponentRef]))
 
 (js/export
 (defrecord IrFieldRequirement
-  [(name String)
-   (value_type IrFieldValueType)
-   (cardinality IrFieldCardinality)
-   (write IrFieldWriteMode)]))
+  [name String
+   value_type IrFieldValueType
+   cardinality IrFieldCardinality
+   write IrFieldWriteMode]))
 (js/export
 (defunion IrEntityFieldsPortPolicy
-  (IrClosedEntityFieldsPort [(unit Nil)])
-  (IrOpenManyEntityFields [(write IrFieldWriteMode) (require_storage_id Bool)])))
+  (IrClosedEntityFieldsPort [unit Nil])
+  (IrOpenManyEntityFields
+    [write IrFieldWriteMode
+     require_storage_id Bool])))
 (js/export
 (defrecord IrEntityFieldsPortSpec
-  [(ref IrEntityFieldsPortRef)
-   (target IrEntityFieldsTarget)
-   (requirements (Vec IrFieldRequirement))
-   (policy IrEntityFieldsPortPolicy)]))
+  [ref IrEntityFieldsPortRef
+   target IrEntityFieldsTarget
+   requirements (Vec IrFieldRequirement)
+   policy IrEntityFieldsPortPolicy]))
 (js/export
 (defrecord IrComponentSlotSpec
-  [(ref IrComponentSlotRef) (target IrComponentRef)]))
+  [ref IrComponentSlotRef
+   target IrComponentRef]))
 (js/export
-(defrecord IrRouteSlotSpec [(ref IrRouteSlotRef) (target IrRouteTemplateRef)]))
+(defrecord IrRouteSlotSpec
+  [ref IrRouteSlotRef
+   target IrRouteTemplateRef]))
 
 (js/export
 (defrecord IrPluginIdentity
-  [(package_id String)
-   (version String)
-   (compatible_wake String)
-   (plugin_abi_version Int)
-   (durable_schema_version Int)
-   (provenance_token String)]))
+  [package_id String
+   version String
+   compatible_wake String
+   plugin_abi_version Int
+   durable_schema_version Int
+   provenance_token String]))
 
 (js/export
-(defrecord IrIntRoleSpec [(ref IrIntRoleRef) (minimum Int?) (maximum Int?)]))
+(defrecord IrIntRoleSpec
+  [ref IrIntRoleRef
+   minimum Int?
+   maximum Int?]))
 (js/export
 (defrecord IrStringRoleSpec
-  [(ref IrStringRoleRef) (min_scalars Int?) (max_scalars Int?) (max_bytes Int?)]))
+  [ref IrStringRoleRef
+   min_scalars Int?
+   max_scalars Int?
+   max_bytes Int?]))
 (js/export
-(defrecord IrBoolRoleSpec [(ref IrBoolRoleRef)]))
+(defrecord IrBoolRoleSpec [ref IrBoolRoleRef]))
 (js/export
-(defrecord IrKeywordRoleSpec [(ref IrKeywordRoleRef) (allowed (Vec String))]))
+(defrecord IrKeywordRoleSpec
+  [ref IrKeywordRoleRef
+   allowed (Vec String)]))
 (js/export
-(defrecord IrEntityNameRoleSpec [(ref IrEntityNameRoleRef) (target IrEntityRef)]))
+(defrecord IrEntityNameRoleSpec
+  [ref IrEntityNameRoleRef
+   target IrEntityRef]))
 (js/export
 (defunion IrFieldNameRoleTarget
-  (IrEntityFieldNameRoleTarget [(field IrFieldRef)])
-  (IrReceiptFieldNameRoleTarget [(field IrReceiptFieldRef)])))
+  (IrEntityFieldNameRoleTarget [field IrFieldRef])
+  (IrReceiptFieldNameRoleTarget [field IrReceiptFieldRef])))
 (js/export
 (defrecord IrFieldNameRoleSpec
-  [(ref IrFieldNameRoleRef) (target IrFieldNameRoleTarget)]))
+  [ref IrFieldNameRoleRef
+   target IrFieldNameRoleTarget]))
 (js/export
-(defrecord IrStateNameRoleSpec [(ref IrStateNameRoleRef) (target IrStateRef)]))
+(defrecord IrStateNameRoleSpec
+  [ref IrStateNameRoleRef
+   target IrStateRef]))
 (js/export
 (defrecord IrStateValueNameRoleSpec
-  [(ref IrStateValueNameRoleRef) (target IrStateValueRef)]))
+  [ref IrStateValueNameRoleRef
+   target IrStateValueRef]))
 (js/export
-(defrecord IrExternalEntityRoleSpec [(ref IrExternalEntityRoleRef)]))
+(defrecord IrExternalEntityRoleSpec [ref IrExternalEntityRoleRef]))
 (js/export
-(defrecord IrValueRoleSpec [(ref IrValueRoleRef) (value_type IrValueTypeSpec)]))
+(defrecord IrValueRoleSpec
+  [ref IrValueRoleRef
+   value_type IrValueTypeSpec]))
 (js/export
-(defrecord IrEntityDeclarationName [(value String)]))
+(defrecord IrEntityDeclarationName [value String]))
 (js/export
-(defrecord IrFieldDeclarationName [(value String)]))
+(defrecord IrFieldDeclarationName [value String]))
 (js/export
-(defrecord IrReceiptFieldDeclarationName [(value String)]))
+(defrecord IrReceiptFieldDeclarationName [value String]))
 (js/export
-(defrecord IrStateDeclarationName [(value String)]))
+(defrecord IrStateDeclarationName [value String]))
 (js/export
-(defrecord IrStateValueDeclarationName [(value String)]))
+(defrecord IrStateValueDeclarationName [value String]))
 (js/export
 (defrecord IrPluginConfigurationSchema
-  [(ints (Vec IrIntRoleSpec))
-   (strings (Vec IrStringRoleSpec))
-   (bools (Vec IrBoolRoleSpec))
-   (keywords (Vec IrKeywordRoleSpec))
-   (entity_names (Vec IrEntityNameRoleSpec))
-   (field_names (Vec IrFieldNameRoleSpec))
-   (state_names (Vec IrStateNameRoleSpec))
-   (state_value_names (Vec IrStateValueNameRoleSpec))
-   (external_entities (Vec IrExternalEntityRoleSpec))
-   (values (Vec IrValueRoleSpec))]))
+  [ints (Vec IrIntRoleSpec)
+   strings (Vec IrStringRoleSpec)
+   bools (Vec IrBoolRoleSpec)
+   keywords (Vec IrKeywordRoleSpec)
+   entity_names (Vec IrEntityNameRoleSpec)
+   field_names (Vec IrFieldNameRoleSpec)
+   state_names (Vec IrStateNameRoleSpec)
+   state_value_names (Vec IrStateValueNameRoleSpec)
+   external_entities (Vec IrExternalEntityRoleSpec)
+   values (Vec IrValueRoleSpec)]))
 (js/export
 (defunion IrBoundInt
-  (IrLiteralBound [(value Int)])
-  (IrConfiguredBound [(role IrIntRoleRef)])
-  (IrConfiguredProjectionBound [(projection IrConfigProjection)])))
+  (IrLiteralBound [value Int])
+  (IrConfiguredBound [role IrIntRoleRef])
+  (IrConfiguredProjectionBound [projection IrConfigProjection])))
 (js/export
-(defrecord IrIntBinding [(role IrImportedIntRoleRef) (value Int)]))
+(defrecord IrIntBinding
+  [role IrImportedIntRoleRef
+   value Int]))
 (js/export
-(defrecord IrStringBinding [(role IrImportedStringRoleRef) (value String)]))
+(defrecord IrStringBinding
+  [role IrImportedStringRoleRef
+   value String]))
 (js/export
-(defrecord IrBoolBinding [(role IrImportedBoolRoleRef) (value Bool)]))
+(defrecord IrBoolBinding
+  [role IrImportedBoolRoleRef
+   value Bool]))
 (js/export
-(defrecord IrKeywordBinding [(role IrImportedKeywordRoleRef) (value String)]))
+(defrecord IrKeywordBinding
+  [role IrImportedKeywordRoleRef
+   value String]))
 (js/export
 (defrecord IrEntityNameBinding
-  [(role IrImportedEntityNameRoleRef) (value IrEntityDeclarationName)]))
+  [role IrImportedEntityNameRoleRef
+   value IrEntityDeclarationName]))
 (js/export
 (defunion IrFieldNameBindingValue
-  (IrEntityFieldDeclarationNameValue [(name IrFieldDeclarationName)])
-  (IrReceiptFieldDeclarationNameValue [(name IrReceiptFieldDeclarationName)])))
+  (IrEntityFieldDeclarationNameValue [name IrFieldDeclarationName])
+  (IrReceiptFieldDeclarationNameValue [name IrReceiptFieldDeclarationName])))
 (js/export
 (defrecord IrFieldNameBinding
-  [(role IrImportedFieldNameRoleRef) (value IrFieldNameBindingValue)]))
+  [role IrImportedFieldNameRoleRef
+   value IrFieldNameBindingValue]))
 (js/export
 (defrecord IrStateNameBinding
-  [(role IrImportedStateNameRoleRef) (value IrStateDeclarationName)]))
+  [role IrImportedStateNameRoleRef
+   value IrStateDeclarationName]))
 (js/export
 (defrecord IrStateValueNameBinding
-  [(role IrImportedStateValueNameRoleRef) (value IrStateValueDeclarationName)]))
+  [role IrImportedStateValueNameRoleRef
+   value IrStateValueDeclarationName]))
 (js/export
 (defrecord IrExternalEntityBinding
-  [(role IrImportedExternalEntityRoleRef) (value IrEntityRef)]))
+  [role IrImportedExternalEntityRoleRef
+   value IrEntityRef]))
 (js/export
-(defrecord IrValueBinding [(role IrImportedValueRoleRef) (value IrValueExpr)]))
+(defrecord IrValueBinding
+  [role IrImportedValueRoleRef
+   value IrValueExpr]))
 (js/export
 (defrecord IrPluginBindings
-  [(ints (Vec IrIntBinding))
-   (strings (Vec IrStringBinding))
-   (bools (Vec IrBoolBinding))
-   (keywords (Vec IrKeywordBinding))
-   (entity_names (Vec IrEntityNameBinding))
-   (field_names (Vec IrFieldNameBinding))
-   (state_names (Vec IrStateNameBinding))
-   (state_value_names (Vec IrStateValueNameBinding))
-   (external_entities (Vec IrExternalEntityBinding))
-   (values (Vec IrValueBinding))]))
+  [ints (Vec IrIntBinding)
+   strings (Vec IrStringBinding)
+   bools (Vec IrBoolBinding)
+   keywords (Vec IrKeywordBinding)
+   entity_names (Vec IrEntityNameBinding)
+   field_names (Vec IrFieldNameBinding)
+   state_names (Vec IrStateNameBinding)
+   state_value_names (Vec IrStateValueNameBinding)
+   external_entities (Vec IrExternalEntityBinding)
+   values (Vec IrValueBinding)]))
 
 (js/export
 (defunion IrContributionKind
-  (IrSchemaContribution [(unit Nil)])
-  (IrQueryContribution [(unit Nil)])
-  (IrCommandContribution [(unit Nil)])
-  (IrCapabilityContribution [(unit Nil)])
-  (IrUiContribution [(unit Nil)])
-  (IrRouteContribution [(unit Nil)])))
+  (IrSchemaContribution [unit Nil])
+  (IrQueryContribution [unit Nil])
+  (IrCommandContribution [unit Nil])
+  (IrCapabilityContribution [unit Nil])
+  (IrUiContribution [unit Nil])
+  (IrRouteContribution [unit Nil])))
 (js/export
 (defrecord IrMigrationSpec
-  [(from_version Int) (to_version Int) (ordinal Int) (command IrCommandRef)]))
+  [from_version Int
+   to_version Int
+   ordinal Int
+   command IrCommandRef]))
 
 (js/export
 (defrecord IrPluginExports
-  [(entities (Vec IrEntityRef))
-   (fields (Vec IrFieldRef))
-   (states (Vec IrStateRef))
-   (state_values (Vec IrStateValueRef))
-   (value_types (Vec IrValueTypeRef))
-   (provider_ports (Vec IrProviderPortRef))
-   (renderers (Vec IrRendererRef))
-   (capabilities (Vec IrCapabilityRef))
-   (queries (Vec IrQueryRef))
-   (commands (Vec IrCommandRef))
-   (components (Vec IrComponentRef))
-   (views (Vec IrViewRef))
-   (route_templates (Vec IrRouteTemplateRef))
-   (entity_fields_ports (Vec IrEntityFieldsPortRef))
-   (component_slots (Vec IrComponentSlotRef))
-   (route_slots (Vec IrRouteSlotRef))]))
+  [entities (Vec IrEntityRef)
+   fields (Vec IrFieldRef)
+   states (Vec IrStateRef)
+   state_values (Vec IrStateValueRef)
+   value_types (Vec IrValueTypeRef)
+   provider_ports (Vec IrProviderPortRef)
+   renderers (Vec IrRendererRef)
+   capabilities (Vec IrCapabilityRef)
+   queries (Vec IrQueryRef)
+   commands (Vec IrCommandRef)
+   components (Vec IrComponentRef)
+   views (Vec IrViewRef)
+   route_templates (Vec IrRouteTemplateRef)
+   entity_fields_ports (Vec IrEntityFieldsPortRef)
+   component_slots (Vec IrComponentSlotRef)
+   route_slots (Vec IrRouteSlotRef)]))
 
 (js/export
 (defrecord IrPluginSpec
-  [(identity IrPluginIdentity)
-   (contributions (Vec IrContributionKind))
-   (configuration IrPluginConfigurationSchema)
-   (exports IrPluginExports)
-   (required_providers (Vec IrProviderPortRef))
-   (migrations (Vec IrMigrationSpec))
-   (default_route IrRouteTemplateRef?)]))
+  [identity IrPluginIdentity
+   contributions (Vec IrContributionKind)
+   configuration IrPluginConfigurationSchema
+   exports IrPluginExports
+   required_providers (Vec IrProviderPortRef)
+   migrations (Vec IrMigrationSpec)
+   default_route IrRouteTemplateRef?]))
 
 (js/export
 (defrecord IrPluginUseSpec
-  [(ref IrPluginUseRef)
-   (package_id String)
-   (version String)
-   (allow (Vec IrContributionKind))
-   (bindings IrPluginBindings)]))
+  [ref IrPluginUseRef
+   package_id String
+   version String
+   allow (Vec IrContributionKind)
+   bindings IrPluginBindings]))
 (js/export
 (defrecord IrProviderBindingSpec
-  [(name String) (port IrImportedProviderPortRef)]))
+  [name String
+   port IrImportedProviderPortRef]))
 (js/export
 (defrecord IrExtensionFieldSpec
-  [(ref IrExtensionFieldRef)
-   (value_type IrFieldValueType)
-   (cardinality IrFieldCardinality)
-   (write IrFieldWriteMode)
-   (storage_id String)
-   (required Bool)]))
+  [ref IrExtensionFieldRef
+   value_type IrFieldValueType
+   cardinality IrFieldCardinality
+   write IrFieldWriteMode
+   storage_id String
+   required Bool]))
 (js/export
 (defrecord IrExtendSpec
-  [(port IrImportedEntityFieldsPortRef) (fields (Vec IrExtensionFieldSpec))]))
+  [port IrImportedEntityFieldsPortRef
+   fields (Vec IrExtensionFieldSpec)]))
 (js/export
 (defrecord IrFillSpec
-  [(slot IrImportedComponentSlotRef) (component IrComponentRef)]))
+  [slot IrImportedComponentSlotRef
+   component IrComponentRef]))
 (js/export
-(defrecord IrMountSpec [(slot IrImportedRouteSlotRef) (path String)]))
+(defrecord IrMountSpec
+  [slot IrImportedRouteSlotRef
+   path String]))
 
 (js/export
 (defrecord IrPluginComposition
-  [(use IrPluginUseSpec)
-   (providers (Vec IrProviderBindingSpec))
-   (extensions (Vec IrExtendSpec))
-   (fills (Vec IrFillSpec))
-   (mounts (Vec IrMountSpec))]))
+  [use IrPluginUseSpec
+   providers (Vec IrProviderBindingSpec)
+   extensions (Vec IrExtendSpec)
+   fills (Vec IrFillSpec)
+   mounts (Vec IrMountSpec)]))
 (js/export
 (defunion IrDefaultRouteTarget
-  (IrLocalDefaultRoute [(route IrRouteTemplateRef)])
-  (IrMountedDefaultRoute [(slot IrImportedRouteSlotRef)])))
+  (IrLocalDefaultRoute [route IrRouteTemplateRef])
+  (IrMountedDefaultRoute [slot IrImportedRouteSlotRef])))
 (js/export
-(defrecord IrThemeSpec [(colors (Map String String))]))
+(defrecord IrThemeSpec [colors (Map String String)]))
 (js/export
 (defrecord IrApplicationRootSpec
-  [(id String)
-   (authority IrAuthoritySpec)
-   (storage (Vec IrStorageSpec))
-   (identities (Vec IrIdentitySpec))
-   (plugins (Vec IrPluginComposition))
-   (default_route IrDefaultRouteTarget?)
-   (theme IrThemeSpec?)
-   (publications (Vec IrPublicationRef))
-   (forms (Vec IrFormRef))
-   (list_details (Vec IrListDetailRef))]))
+  [id String
+   authority IrAuthoritySpec
+   storage (Vec IrStorageSpec)
+   identities (Vec IrIdentitySpec)
+   plugins (Vec IrPluginComposition)
+   default_route IrDefaultRouteTarget?
+   theme IrThemeSpec?
+   publications (Vec IrPublicationRef)
+   forms (Vec IrFormRef)
+   list_details (Vec IrListDetailRef)]))
 
 (js/export
 (defrecord IrPublicationDeclarationSpec
-  [(ref IrPublicationRef)
-   (owner IrEntityRef)
-   (pointer IrFieldRef)
-   (revision IrEntityRef)
-   (owner_field IrFieldRef)
-   (state_field IrFieldRef)
-   (draft IrStateValueRef)
-   (published IrStateValueRef)
-   (retired IrStateValueRef)]))
+  [ref IrPublicationRef
+   owner IrEntityRef
+   pointer IrFieldRef
+   revision IrEntityRef
+   owner_field IrFieldRef
+   state_field IrFieldRef
+   draft IrStateValueRef
+   published IrStateValueRef
+   retired IrStateValueRef]))
 
 (js/export
 (defunion IrFormSuccessAction
-  (IrClearFormSuccess [(unit Nil)])))
+  (IrClearFormSuccess [unit Nil])))
 (js/export
 (defrecord IrFormDeclarationSpec
-  [(ref IrFormRef)
-   (entity IrEntityRef)
-   (fields (Vec IrFieldRef))
-   (required (Vec IrFieldRef))
-   (submit_label String)
-   (on_success IrFormSuccessAction)]))
+  [ref IrFormRef
+   entity IrEntityRef
+   fields (Vec IrFieldRef)
+   required (Vec IrFieldRef)
+   submit_label String
+   on_success IrFormSuccessAction]))
 
 (js/export
 (defunion IrListDetailTabSpec
-  (IrFieldsDetailTab [(label String) (fields (Vec IrFieldRef))])
+  (IrFieldsDetailTab
+    [label String
+     fields (Vec IrFieldRef)])
   (IrRelatedDetailTab
-    [(label String)
-     (entity IrEntityRef)
-     (relation IrFieldRef)
-     (display (Vec IrFieldRef))])))
+    [label String
+     entity IrEntityRef
+     relation IrFieldRef
+     display (Vec IrFieldRef)])))
 (js/export
 (defrecord IrListDetailDeclarationSpec
-  [(ref IrListDetailRef)
-   (entity IrEntityRef)
-   (title String)
-   (columns (Vec IrFieldRef))
-   (search (Vec IrFieldRef))
-   (detail_tabs (Vec IrListDetailTabSpec))]))
+  [ref IrListDetailRef
+   entity IrEntityRef
+   title String
+   columns (Vec IrFieldRef)
+   search (Vec IrFieldRef)
+   detail_tabs (Vec IrListDetailTabSpec)]))
 
 (js/export
 (defunion IrUiAction
-  (IrSetFieldAction [(field IrFieldRef) (value IrValueExpr)])))
+  (IrSetFieldAction
+    [field IrFieldRef
+     value IrValueExpr])))
 
 (js/export
 (defunion IrUiAttrSpec
-  (IrStaticUiAttr [(value String)])
-  (IrBoundUiAttr [(prop String)])
-  (IrActionAttr [(action IrUiAction)])))
+  (IrStaticUiAttr [value String])
+  (IrBoundUiAttr [prop String])
+  (IrActionAttr [action IrUiAction])))
 (js/export
 (defunion IrUiConditionSpec
-  (IrUiPropertyPresent [(prop String)])
-  (IrUiQueryPredicate [(predicate IrQueryPredicateSpec)])))
+  (IrUiPropertyPresent [prop String])
+  (IrUiQueryPredicate [predicate IrQueryPredicateSpec])))
 (js/export
 (defunion IrDeclarationUiNode
   (IrDeclarationElement
-    [(tag String)
-     (attrs (Map String IrUiAttrSpec))
-     (children (Vec IrDeclarationUiNode))])
+    [tag String
+     attrs (Map String IrUiAttrSpec)
+     children (Vec IrDeclarationUiNode)])
   (IrDeclarationWhen
-    [(condition IrUiConditionSpec) (children (Vec IrDeclarationUiNode))])))
+    [condition IrUiConditionSpec
+     children (Vec IrDeclarationUiNode)])))
 (js/export
-(defrecord IrComponentPropertySpec [(name String) (value_type IrValueTypeSpec)]))
+(defrecord IrComponentPropertySpec
+  [name String
+   value_type IrValueTypeSpec]))
 (js/export
 (defrecord IrComponentDeclarationSpec
-  [(ref IrComponentRef)
-   (properties (Vec IrComponentPropertySpec))
-   (body (Vec IrDeclarationUiNode))]))
+  [ref IrComponentRef
+   properties (Vec IrComponentPropertySpec)
+   body (Vec IrDeclarationUiNode)]))
 (js/export
 (defrecord IrViewDeclarationSpec
-  [(ref IrViewRef)
-   (entity IrEntityRef)
-   (component IrComponentRef)
-   (title String)
-   (create_form IrFormRef?)
-   (select_component IrComponentRef?)]))
+  [ref IrViewRef
+   entity IrEntityRef
+   component IrComponentRef
+   title String
+   create_form IrFormRef?
+   select_component IrComponentRef?]))
 (js/export
-(defrecord IrRouteQuerySpec [(query IrQueryRef) (alias String?)]))
+(defrecord IrRouteQuerySpec
+  [query IrQueryRef
+   alias String?]))
 (js/export
-(defrecord IrRouteParameterSpec [(name String) (value_type IrValueTypeSpec)]))
+(defrecord IrRouteParameterSpec
+  [name String
+   value_type IrValueTypeSpec]))
 (js/export
 (defrecord IrRouteTemplateSpec
-  [(ref IrRouteTemplateRef)
-   (view IrViewRef)
-   (queries (Vec IrRouteQuerySpec))
-   (parameters (Vec IrRouteParameterSpec))]))
+  [ref IrRouteTemplateRef
+   view IrViewRef
+   queries (Vec IrRouteQuerySpec)
+   parameters (Vec IrRouteParameterSpec)]))
 
 (js/export
 (defunion IrDeclarationRoot
-  (IrPluginDeclarationRoot [(plugin IrPluginSpec)])
-  (IrApplicationDeclarationRoot [(application IrApplicationRootSpec)])))
+  (IrPluginDeclarationRoot [plugin IrPluginSpec])
+  (IrApplicationDeclarationRoot [application IrApplicationRootSpec])))
 
 (js/export
 (defrecord IrDeclarationProgram
-  [(source_unit IrSourceUnit)
-   (ns String)
-   (root IrDeclarationRoot)
-   (entities (Vec IrEntityDeclarationSpec))
-   (states (Vec IrStateDeclarationSpec))
-   (publications (Vec IrPublicationDeclarationSpec))
-   (forms (Vec IrFormDeclarationSpec))
-   (list_details (Vec IrListDetailDeclarationSpec))
-   (value_types (Vec IrValueTypeDeclarationSpec))
-   (provider_ports (Vec IrProviderPortSpec))
-   (renderers (Vec IrRendererSpec))
-   (capabilities (Vec IrCapabilitySpec))
-   (queries (Vec IrQueryDeclarationSpec))
-   (commands (Vec IrCommandSpec))
-   (components (Vec IrComponentDeclarationSpec))
-   (views (Vec IrViewDeclarationSpec))
-   (route_templates (Vec IrRouteTemplateSpec))
-   (entity_fields_ports (Vec IrEntityFieldsPortSpec))
-   (component_slots (Vec IrComponentSlotSpec))
-   (route_slots (Vec IrRouteSlotSpec))
-   (receipt_entity IrReceiptEntitySpec?)
-   (receipt_fields (Vec IrReceiptFieldDeclarationSpec))]))
+  [source_unit IrSourceUnit
+   ns String
+   root IrDeclarationRoot
+   entities (Vec IrEntityDeclarationSpec)
+   states (Vec IrStateDeclarationSpec)
+   publications (Vec IrPublicationDeclarationSpec)
+   forms (Vec IrFormDeclarationSpec)
+   list_details (Vec IrListDetailDeclarationSpec)
+   value_types (Vec IrValueTypeDeclarationSpec)
+   provider_ports (Vec IrProviderPortSpec)
+   renderers (Vec IrRendererSpec)
+   capabilities (Vec IrCapabilitySpec)
+   queries (Vec IrQueryDeclarationSpec)
+   commands (Vec IrCommandSpec)
+   components (Vec IrComponentDeclarationSpec)
+   views (Vec IrViewDeclarationSpec)
+   route_templates (Vec IrRouteTemplateSpec)
+   entity_fields_ports (Vec IrEntityFieldsPortSpec)
+   component_slots (Vec IrComponentSlotSpec)
+   route_slots (Vec IrRouteSlotSpec)
+   receipt_entity IrReceiptEntitySpec?
+   receipt_fields (Vec IrReceiptFieldDeclarationSpec)]))
 
 ;; The semantic declaration graph stays independent of its checked-source
 ;; evidence.  The compiler carries that evidence beside the graph at the
 ;; trust boundary instead of smuggling it into application semantics.
 (js/export
 (defrecord IrCheckedDeclarationProgram
-  [(program IrDeclarationProgram)
-   (declaration_provenance (Vec IrDeclarationProvenance))]))
+  [program IrDeclarationProgram
+   declaration_provenance (Vec IrDeclarationProvenance)]))
 
 ;; Linking never erases checked declaration identity into a flattened program.
 ;; The exact checked programs and package evidence travel together until the
 ;; graph has resolved every nominal edge.
 (js/export
 (defrecord IrPluginArtifactEvidence
-  [(package_id String)
-   (version String)
-   (artifact_digest String)
-   (source_kind String)
-   (source_revision String)
-   (artifact_path String)
-   (entry_path String)
-   (configuration_digest String)
-   (durable_schema_version Int)
-   (migration_ordinal Int)]))
+  [package_id String
+   version String
+   artifact_digest String
+   source_kind String
+   source_revision String
+   artifact_path String
+   entry_path String
+   configuration_digest String
+   durable_schema_version Int
+   migration_ordinal Int]))
 (js/export
 (defrecord IrLinkedPluginInstance
-  [(alias String)
-   (use IrPluginUseSpec)
-   (composition IrPluginComposition)
-   (checked IrCheckedDeclarationProgram)
-   (evidence IrPluginArtifactEvidence)]))
+  [alias String
+   use IrPluginUseSpec
+   composition IrPluginComposition
+   checked IrCheckedDeclarationProgram
+   evidence IrPluginArtifactEvidence]))
 (js/export
 (defrecord IrLinkedDeclarationProgram
-  [(application IrCheckedDeclarationProgram)
-   (plugins (Vec IrLinkedPluginInstance))]))
+  [application IrCheckedDeclarationProgram
+   plugins (Vec IrLinkedPluginInstance)]))
 
 (js/export
-(defrecord IrApplication [(id String) (span SourceSpan)]))
+(defrecord IrApplication
+  [id String
+   span SourceSpan]))
 (js/export
-(defrecord IrUseConfig [(key String) (value Any)]))
+(defrecord IrUseConfig
+  [key String
+   value Any]))
 (js/export
 (defrecord IrUse
-  [(package_id String)
-   (alias String)
-   (version String)
-   (allow (Vec String))
-   (config (Vec IrUseConfig))
-   (span SourceSpan)]))
+  [package_id String
+   alias String
+   version String
+   allow (Vec String)
+   config (Vec IrUseConfig)
+   span SourceSpan]))
 (js/export
 (defrecord IrProvider
-  [(name String)
-   (port String)
-   (package_id String)
-   (port_name String)
-   (span SourceSpan)]))
+  [name String
+   port String
+   package_id String
+   port_name String
+   span SourceSpan]))
 (js/export
-(defrecord IrFill [(port String) (component String) (span SourceSpan)]))
+(defrecord IrFill
+  [port String
+   component String
+   span SourceSpan]))
 (js/export
 (defrecord IrMount
-  [(port String) (path String) (parameters (Vec String)) (span SourceSpan)]))
+  [port String
+   path String
+   parameters (Vec String)
+   span SourceSpan]))
 (js/export
-(defrecord IrAttr [(name String) (storage_id String?) (type String) (opts Any)]))
+(defrecord IrAttr
+  [name String
+   storage_id String?
+   type String
+   opts Any]))
 (js/export
-(defrecord IrExtend [(port String) (fields (Vec IrAttr)) (span SourceSpan)]))
+(defrecord IrExtend
+  [port String
+   fields (Vec IrAttr)
+   span SourceSpan]))
 (js/export
-(defrecord IrEntity [(name String) (storage_id String?) (attrs (Vec IrAttr))]))
+(defrecord IrEntity
+  [name String
+   storage_id String?
+   attrs (Vec IrAttr)]))
 (js/export
-(defrecord IrBackend [(kind String)]))
+(defrecord IrBackend [kind String]))
 (js/export
-(defrecord IrPersist [(storage String) (key String)]))
+(defrecord IrPersist
+  [storage String
+   key String]))
 (js/export
 (defrecord IrDefstate
-  [(name String) (transitions (Map String (Vec String))) (initial String)]))
+  [name String
+   transitions (Map String (Vec String))
+   initial String]))
 (js/export
 (defrecord IrPublication
-  [(name String)
-   (owner_entity String)
-   (pointer_field String)
-   (revision_entity String)
-   (owner_field String)
-   (state_field String)
-   (draft_state String)
-   (published_state String)
-   (retired_state String)]))
+  [name String
+   owner_entity String
+   pointer_field String
+   revision_entity String
+   owner_field String
+   state_field String
+   draft_state String
+   published_state String
+   retired_state String]))
 (js/export
-(defrecord IrQueryParam [(name String) (type String)]))
+(defrecord IrQueryParam
+  [name String
+   type String]))
 (js/export
-(defrecord IrQueryBinding [(name String) (entity_name String)]))
+(defrecord IrQueryBinding
+  [name String
+   entity_name String]))
 (js/export
 (defrecord IrQueryOperand
-  [(kind String) (name String?) (binding String?) (field String?) (value Any)]))
+  [kind String
+   name String?
+   binding String?
+   field String?
+   value Any]))
 (js/export
 (defrecord IrQueryPredicate
-  [(op String) (left IrQueryOperand) (right IrQueryOperand)]))
+  [op String
+   left IrQueryOperand
+   right IrQueryOperand]))
 (js/export
-(defrecord IrQuerySelect [(name String) (binding String) (field String)]))
+(defrecord IrQuerySelect
+  [name String
+   binding String
+   field String]))
 (js/export
-(defrecord IrQueryFieldSplice [(port String) (binding String)]))
+(defrecord IrQueryFieldSplice
+  [port String
+   binding String]))
 (js/export
-(defrecord IrQueryProvided [(name String) (provider String) (input Any)]))
+(defrecord IrQueryProvided
+  [name String
+   provider String
+   input Any]))
 (js/export
-(defrecord IrQueryPage [(default_limit Int) (max_limit Int)]))
+(defrecord IrQueryPage
+  [default_limit Int
+   max_limit Int]))
 (js/export
 (defrecord IrQuery
-  [(name String)
-   (capabilities (Vec String))
-   (params (Vec IrQueryParam))
-   (bindings (Vec IrQueryBinding))
-   (predicates (Vec IrQueryPredicate))
-   (selection (Vec Any))
-   (result_kind String)
-   (page IrQueryPage?)]))
+  [name String
+   capabilities (Vec String)
+   params (Vec IrQueryParam)
+   bindings (Vec IrQueryBinding)
+   predicates (Vec IrQueryPredicate)
+   selection (Vec Any)
+   result_kind String
+   page IrQueryPage?]))
 (js/export
 (defrecord IrDetailTab
-  [(label String)
-   (content_type String)
-   (fields (Vec String))
-   (entity_name String?)
-   (relation_field String?)
-   (infer_relation Bool)
-   (display_fields (Vec String))]))
+  [label String
+   content_type String
+   fields (Vec String)
+   entity_name String?
+   relation_field String?
+   infer_relation Bool
+   display_fields (Vec String)]))
 (js/export
 (defrecord IrListDetail
-  [(entity_name String)
-   (title String)
-   (columns (Vec String))
-   (search_cols (Vec String))
-   (detail_tabs (Vec IrDetailTab))]))
+  [entity_name String
+   title String
+   columns (Vec String)
+   search_cols (Vec String)
+   detail_tabs (Vec IrDetailTab)]))
 (js/export
 (defrecord IrSmartForm
-  [(name String)
-   (entity_name String)
-   (fields (Vec String))
-   (required (Vec String))
-   (submit_label String)
-   (on_success String)]))
+  [name String
+   entity_name String
+   fields (Vec String)
+   required (Vec String)
+   submit_label String
+   on_success String]))
 (js/export
-(defrecord IrTheme [(colors (Map String String))]))
+(defrecord IrTheme [colors (Map String String)]))
 ;; An event handler effect: checked verb plus arguments.
 ;; Rides inside an element's attrs map under an "on-<event>" key.
 (js/export
-(defrecord IrAction [(verb String) (args Any)]))
+(defrecord IrAction
+  [verb String
+   args Any]))
 ;; Fields repeated inline (not just member names): the cross-module defunion
 ;; interface only carries constructor arity when fields ride on the member
 ;; form itself, not via a separate same-name defrecord.
 (js/export
 (defunion IrNode
-  (IrElement [(tag String) (attrs Any) (children Any)])
-  (IrWhen [(prop String) (children Any)])))
+  (IrElement
+    [tag String
+     attrs Any
+     children Any])
+  (IrWhen
+    [prop String
+     children Any])))
 (js/export
 (defrecord IrComponent
-  [(name String) (props (Vec String)) (body (Vec IrElement))]))
+  [name String
+   props (Vec String)
+   body (Vec IrElement)]))
 (js/export
 (defrecord IrRelatedTab
-  [(label String)
-   (entity_name String)
-   (ref_field String)
-   (filter String?)
-   (display_fields (Vec String))]))
+  [label String
+   entity_name String
+   ref_field String
+   filter String?
+   display_fields (Vec String)]))
 (js/export
 (defrecord IrView
-  [(name String)
-   (entity_name String)
-   (component String)
-   (add_fields (Vec String))
-   (title String)
-   (select_component String?)
-   (tabs (Vec IrRelatedTab))
-   (filters (Vec String))
-   (date_filters (Vec String))]))
+  [name String
+   entity_name String
+   component String
+   add_fields (Vec String)
+   title String
+   select_component String?
+   tabs (Vec IrRelatedTab)
+   filters (Vec String)
+   date_filters (Vec String)]))
 (js/export
-(defrecord IrRouteQuery [(name String) (prefix String?)]))
+(defrecord IrRouteQuery
+  [name String
+   prefix String?]))
 (js/export
 (defrecord IrRoute
-  [(path String)
-   (view_name String)
-   (queries (Vec IrRouteQuery))
-   (parameters (Vec String))
-   (input_parameters (Vec String))
-   (required_props (Vec String))]))
+  [path String
+   view_name String
+   queries (Vec IrRouteQuery)
+   parameters (Vec String)
+   input_parameters (Vec String)
+   required_props (Vec String)]))
 (js/export
-(defrecord IrRouter [(default_route String) (routes (Vec IrRoute))]))
+(defrecord IrRouter
+  [default_route String
+   routes (Vec IrRoute)]))
 (js/export
-(defrecord IrNavGroup [(label String) (items (Vec String))]))
+(defrecord IrNavGroup
+  [label String
+   items (Vec String)]))
 (js/export
-(defrecord IrLayout [(style String) (title String?) (groups (Vec IrNavGroup))]))
+(defrecord IrLayout
+  [style String
+   title String?
+   groups (Vec IrNavGroup)]))
 (js/export
 (defrecord IrProgram
-  [(source_unit IrSourceUnit)
-   (application IrApplication?)
-   (uses (Vec IrUse))
-   (providers (Vec IrProvider))
-   (value_types (Vec Any))
-   (provider_ports (Vec Any))
-   (extends (Vec IrExtend))
-   (fills (Vec IrFill))
-   (mounts (Vec IrMount))
-   (declaration_provenance (Vec IrDeclarationProvenance))
-   (ns String)
-   (backend IrBackend?)
-   (entities (Vec IrEntity))
-   (persist IrPersist?)
-   (defstates (Vec IrDefstate))
-   (publications (Vec IrPublication))
-   (queries (Vec IrQuery))
-   (commands (Vec Any))
-   (list_details (Vec IrListDetail))
-   (forms (Vec IrSmartForm))
-   (theme IrTheme?)
-   (components (Vec IrComponent))
-   (views (Vec IrView))
-   (router IrRouter?)
-   (layout IrLayout?)]))
+  [source_unit IrSourceUnit
+   application IrApplication?
+   uses (Vec IrUse)
+   providers (Vec IrProvider)
+   value_types (Vec Any)
+   provider_ports (Vec Any)
+   extends (Vec IrExtend)
+   fills (Vec IrFill)
+   mounts (Vec IrMount)
+   declaration_provenance (Vec IrDeclarationProvenance)
+   ns String
+   backend IrBackend?
+   entities (Vec IrEntity)
+   persist IrPersist?
+   defstates (Vec IrDefstate)
+   publications (Vec IrPublication)
+   queries (Vec IrQuery)
+   commands (Vec Any)
+   list_details (Vec IrListDetail)
+   forms (Vec IrSmartForm)
+   theme IrTheme?
+   components (Vec IrComponent)
+   views (Vec IrView)
+   router IrRouter?
+   layout IrLayout?]))

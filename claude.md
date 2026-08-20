@@ -3,7 +3,7 @@
 Wake is a projection compiler:
 
 ```text
-.bjs Beagle → typed Wake declarations → checked application graph → direct-DOM JS | FRAM plan
+.bjs Beagle → typed Wake declarations → checked application graph → direct-DOM JS | Store plan
 ```
 
 The checked graph is the authority. Do not let an emitter or runtime infer a
@@ -35,7 +35,7 @@ Run these Wake commands from `wake:web/`:
 bun install --frozen-lockfile
 ./bin/wake-compile
 ./bin/wake-compile demo/tracker.bjs out/app.js
-./bin/wake-compile --fram demo/wiki.bjs out/app.fram.json
+./bin/wake-compile --store demo/wiki.bjs out/app.store.json
 ./bin/wake-compile --all demo/wiki.bjs out/wiki
 bun run test
 bun run test:browser
@@ -61,10 +61,10 @@ not invoke bare Racket or patch generated JavaScript.
 | `wake:web/compiler/graph.bjs` | semantic validation and checked graph |
 | `wake:web/compiler/ui.bjs` | UI expansion |
 | `wake:web/compiler/codegen.bjs` | direct-DOM and browser connector output |
-| `wake:web/compiler/emit-fram.bjs` | deterministic `app.fram.json` plan |
-| `wake:web/runtime/fram-gateway.mjs` | checked-plan operations over the FRAM client |
-| `wake:web/runtime/fram-http.mjs` | closed POST/JSON transport and authorization seam |
-| `wake:web/demo/wiki.bjs` | canonical FRAM-backed application fixture |
+| `wake:web/compiler/emit-store.bjs` | deterministic `app.store.json` plan |
+| `wake:web/runtime/store-gateway.mjs` | checked-plan operations over the Store client |
+| `wake:web/runtime/store-http.mjs` | closed POST/JSON transport and authorization seam |
+| `wake:web/demo/wiki.bjs` | canonical Store-backed application fixture |
 | `wake:web/bin/wake-browser-test` | hermetic local-app browser fixture runner |
 
 Generated output in `wake:web/out/` is never an edit target. The tracked files
@@ -75,12 +75,12 @@ in `wake:web/public-js/` are test-shell assets, not generated applications.
 Wake supports two deliberately separate application authorities:
 
 - `(wake/->LocalStorageAuthority "key")` means browser-local data authority.
-- `(wake/->FramAuthority "fram")` means FRAM data authority through the Wake gateway.
+- `(wake/->StoreAuthority "store")` means Store data authority through the Wake gateway.
 
 They cannot be combined. Retired alternative persistence and deployment
 projections are not compatibility surfaces and must not return.
 
-A FRAM-backed entity has exactly one stored `:identity` field. A `Ref` must
+A Store-backed entity has exactly one stored `:identity` field. A `Ref` must
 declare `:to ENTITY`; `:many` means multi-cardinality. The graph checker owns
 these application-level invariants before any emitter runs.
 
@@ -90,21 +90,21 @@ Wake owns:
 
 - entity, field, reference, component, view, form, and route declarations;
 - application-schema validation and compilation to the checked graph;
-- deterministic subject and predicate templates in the FRAM plan;
+- deterministic subject and predicate templates in the Store plan;
 - the named application query/command surface;
 - browser cache synchronization and the host-provided authorization seam.
 
-The schema-neutral FRAM kernel owns:
+The schema-neutral Store kernel owns:
 
 - recursive Term and Triple encoding;
 - occurrence batches, versions, retractions, and history;
 - Datalog evaluation and storage durability.
 
-FRAM's official Bun client owns occurrence-correct atomic identity uniqueness,
+Store's official Bun client owns occurrence-correct atomic identity uniqueness,
 create/upsert, and guarded field replacement.
 
-If Wake needs to emulate a missing FRAM storage guarantee, stop and repair or
-extend FRAM instead. The gateway translates application intent; it is not a
+If Wake needs to emulate a missing Store storage guarantee, stop and repair or
+extend Store instead. The gateway translates application intent; it is not a
 second database engine.
 
 ## Gateway contract
@@ -116,7 +116,7 @@ The browser-facing adapter accepts POST JSON only:
 - `/api/wake/changes`: changes after an occurrence-version cursor.
 
 Requests have exact key sets and a bounded body. The adapter denies by default;
-its host must provide an authorization callback. It exposes no raw FRAM query,
+its host must provide an authorization callback. It exposes no raw Store query,
 Term, schema, or transaction endpoint. Big integer versions cross JSON as
 unsigned decimal strings.
 
@@ -129,7 +129,7 @@ push subscriptions are not implemented yet.
 
 - Preserve the single checked-graph chokepoint. Add a graph field once, then
   update every in-tree consumer in the same change.
-- Keep FRAM vocabulary out of ordinary UI declarations. Backend-specific
+- Keep Store vocabulary out of ordinary UI declarations. Backend-specific
   lowering belongs in the plan emitter and gateway.
 - Use Beagle heredocs for substantial static emitted text; keep dynamic pieces
   in explicit expressions.

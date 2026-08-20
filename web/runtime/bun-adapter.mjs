@@ -8,8 +8,8 @@ import {
   createWakeCursorProvider,
   createWakeCursorTransport,
 } from "./cursor-provider.mjs";
-import { createFramGateway } from "./fram-gateway.mjs";
-import { createWakeHttpHandler } from "./fram-http.mjs";
+import { createStoreGateway } from "./store-gateway.mjs";
+import { createWakeHttpHandler } from "./store-http.mjs";
 
 const SHA256 = /^sha256:[0-9a-f]{64}$/;
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -238,12 +238,12 @@ function applicationManifest(input) {
   if (!plainObject(value.artifacts)
       || !plainObject(value.artifacts.browserClient)
       || !plainObject(value.artifacts.browserJavaScript)
-      || !plainObject(value.artifacts.framPlan)) {
+      || !plainObject(value.artifacts.storePlan)) {
     fail("adapter/invalid-manifest", "manifest.artifacts is invalid");
   }
   digest(value.artifacts.browserClient.sha256, "manifest browser client artifact digest");
   digest(value.artifacts.browserJavaScript.sha256, "manifest browser artifact digest");
-  digest(value.artifacts.framPlan.sha256, "manifest FRAM plan digest");
+  digest(value.artifacts.storePlan.sha256, "manifest Store plan digest");
   if (!plainObject(value.digests)) {
     fail("adapter/invalid-manifest", "manifest.digests is invalid");
   }
@@ -264,13 +264,13 @@ function applicationManifest(input) {
   return Object.freeze({ ...artifact, plugins, value: structuredClone(value) });
 }
 
-function framPlan(input) {
+function storePlan(input) {
   const artifact = documentArtifact(input, "plan");
   const value = artifact.value;
-  if (!plainObject(value) || value.schemaVersion !== EXPECTED_PROTOCOLS.framPlanSchemaVersion
-      || value.backend !== "fram" || !Array.isArray(value.pluginClosure)
+  if (!plainObject(value) || value.schemaVersion !== EXPECTED_PROTOCOLS.storePlanSchemaVersion
+      || value.backend !== "store" || !Array.isArray(value.pluginClosure)
       || !Array.isArray(value.queries) || !Array.isArray(value.commands)) {
-    fail("adapter/invalid-plan", "expected the current Wake FRAM application plan");
+    fail("adapter/invalid-plan", "expected the current Wake Store application plan");
   }
   nonempty(value.applicationId, "plan.applicationId");
   digest(value.semanticFingerprint, "plan.semanticFingerprint");
@@ -289,7 +289,7 @@ function deploymentReceipt(input) {
     "applicationManifestDigest",
     "browserClientDigest",
     "browserJavaScriptDigest",
-    "framPlanDigest",
+    "storePlanDigest",
     "schemaVersion",
   ], "deploymentReceipt");
   if (value.schemaVersion !== 1) {
@@ -299,7 +299,7 @@ function deploymentReceipt(input) {
   digest(value.applicationManifestDigest, "deploymentReceipt.applicationManifestDigest");
   digest(value.browserClientDigest, "deploymentReceipt.browserClientDigest");
   digest(value.browserJavaScriptDigest, "deploymentReceipt.browserJavaScriptDigest");
-  digest(value.framPlanDigest, "deploymentReceipt.framPlanDigest");
+  digest(value.storePlanDigest, "deploymentReceipt.storePlanDigest");
   return Object.freeze({ ...artifact, value: structuredClone(value) });
 }
 
@@ -361,7 +361,7 @@ function assertArtifactBinding({ manifestArtifact, planArtifact, receiptArtifact
   );
   assertSame(
     planDigest,
-    manifest.artifacts.framPlan.sha256,
+    manifest.artifacts.storePlan.sha256,
     "adapter/plan-mismatch",
     "plan artifact digest",
   );
@@ -392,10 +392,10 @@ function assertArtifactBinding({ manifestArtifact, planArtifact, receiptArtifact
     "receipt browser digest",
   );
   assertSame(
-    receipt.framPlanDigest,
+    receipt.storePlanDigest,
     planDigest,
     "adapter/receipt-mismatch",
-    "receipt FRAM plan digest",
+    "receipt Store plan digest",
   );
 
   assertSame(installed.applicationId, manifest.applicationId, "adapter/receipt-mismatch", "installed applicationId");
@@ -576,7 +576,7 @@ function httpAuthorizationSnapshot(operation, actor, traceId) {
 }
 
 /**
- * Composes Wake's checked artifacts and public FRAM clients into a
+ * Composes Wake's checked artifacts and public Store clients into a
  * runtime-neutral application adapter. Authentication stays in the host; this
  * boundary accepts only the derived actor context and never reads credentials
  * from request headers.
@@ -586,25 +586,25 @@ export function createWakeApplicationAdapter({
   authorize,
   browserClient,
   browserJavaScript,
-  createGateway = createFramGateway,
+  createGateway = createStoreGateway,
   createHttpHandler = createWakeHttpHandler,
   cursor,
   deploymentReceipt: artifactReceipt,
-  fram,
+  store,
   manifest: manifestInput,
   plan: planInput,
   providers,
   schema,
   serverValues,
 } = {}) {
-  if (!fram || typeof fram.status !== "function" || typeof fram.query !== "function") {
-    fail("adapter/invalid-client", "the official FRAM client must provide status and query");
+  if (!store || typeof store.status !== "function" || typeof store.query !== "function") {
+    fail("adapter/invalid-client", "the official Store client must provide status and query");
   }
   if (!schema || typeof schema.createUnique !== "function"
       || typeof schema.transactUnique !== "function"
       || typeof schema.updateUnique !== "function"
       || typeof schema.updateUniqueMany !== "function") {
-    fail("adapter/invalid-client", "the official FRAM schema client is incomplete");
+    fail("adapter/invalid-client", "the official Store schema client is incomplete");
   }
   if (typeof authorize !== "function") {
     fail("adapter/invalid-config", "authorize must be a function");
@@ -614,7 +614,7 @@ export function createWakeApplicationAdapter({
   }
 
   const manifestArtifact = applicationManifest(manifestInput);
-  const planArtifact = framPlan(planInput);
+  const planArtifact = storePlan(planInput);
   const receiptArtifact = deploymentReceipt(artifactReceipt);
   const manifest = manifestArtifact.value;
   const plan = planArtifact.value;
@@ -656,7 +656,7 @@ export function createWakeApplicationAdapter({
     fingerprint: manifest.checkedApplication.fingerprint,
   });
   const gateway = createGateway(plan, {
-    fram,
+    store,
     providers: providerRegistry,
     schema,
     serverValues,
@@ -685,7 +685,7 @@ export function createWakeApplicationAdapter({
 
   async function checkReadiness() {
     try {
-      const response = await fram.status();
+      const response = await store.status();
       return plainObject(response)
         && plainObject(response.result)
         && response.result.state === "ready";

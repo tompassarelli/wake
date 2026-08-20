@@ -10,252 +10,271 @@
 ;; --- Graph records ---
 
 (defrecord GField
-  [(name String)
-   (storage_id String)
-   (type String)
-   (identity Bool)
-   (cardinality String)
-   (value_kind String)
-   (target_entity String?)
-   (write_policy String)
-   (derived Bool)
-   (deps (Vec String))
-   (expr IrDerivedExpr?)])
+  [name String
+   storage_id String
+   type String
+   identity Bool
+   cardinality String
+   value_kind String
+   target_entity String?
+   write_policy String
+   derived Bool
+   deps (Vec String)
+   expr IrDerivedExpr?])
 
 (defrecord GEntity
-  [(name String)
-   (storage_id String)
-   (fields (Vec GField))
-   (stored_fields (Vec GField))
-   (derived_fields (Vec GField))
-   (ref_fields (Vec GField))
-   (identity_field GField?)
-   (store_name String)])
+  [name String
+   storage_id String
+   fields (Vec GField)
+   stored_fields (Vec GField)
+   derived_fields (Vec GField)
+   ref_fields (Vec GField)
+   identity_field GField?
+   store_name String])
 
-(defrecord FkEdge [(from_entity String) (from_field String) (to_entity String)])
+(defrecord FkEdge
+  [from_entity String
+   from_field String
+   to_entity String])
 
 (defrecord StateMachine
-  [(entity String)
-   (field String)
-   (state_type String)
-   (transitions (Map String (Vec String)))
-   (initial String)])
+  [entity String
+   field String
+   state_type String
+   transitions (Map String (Vec String))
+   initial String])
 
 (defrecord PublicationPolicy
-  [(name String)
-   (owner_entity String)
-   (pointer_field String)
-   (revision_entity String)
-   (owner_field String)
-   (state_field String)
-   (draft_state String)
-   (published_state String)
-   (retired_state String)])
+  [name String
+   owner_entity String
+   pointer_field String
+   revision_entity String
+   owner_field String
+   state_field String
+   draft_state String
+   published_state String
+   retired_state String])
 
-(defrecord GQueryParam [(name String) (type String)])
-(defrecord GQueryBinding [(name String) (entity String)])
+(defrecord GQueryParam
+  [name String
+   type String])
+(defrecord GQueryBinding
+  [name String
+   entity String])
 (defrecord GQueryOperand
-  [(kind String)
-   (type String)
-   (target_entity String?)
-   (binding String?)
-   (entity String?)
-   (field String?)
-   (parameter String?)
-   (value Any)])
+  [kind String
+   type String
+   target_entity String?
+   binding String?
+   entity String?
+   field String?
+   parameter String?
+   value Any])
 (defrecord GQueryPredicate
-  [(op String) (left GQueryOperand) (right GQueryOperand)])
+  [op String
+   left GQueryOperand
+   right GQueryOperand])
 (defrecord GQueryColumn
-  [(name String)
-   (binding String)
-   (entity String)
-   (field String)
-   (type String)
-   (cardinality String)
-   (value_kind String)
-   (target_entity String?)
-   (internal Bool)])
+  [name String
+   binding String
+   entity String
+   field String
+   type String
+   cardinality String
+   value_kind String
+   target_entity String?
+   internal Bool])
 (defrecord GQueryResultProvider
-  [(name String)
-   (provider String)
-   (input Any)
-   (input_type Any)
-   (output_type Any)])
-(defrecord GQueryDependency [(entity String) (field String)])
+  [name String
+   provider String
+   input Any
+   input_type Any
+   output_type Any])
+(defrecord GQueryDependency
+  [entity String
+   field String])
 (defrecord GQuery
-  [(name String)
-   (capabilities (Vec String))
-   (params (Vec GQueryParam))
-   (bindings (Vec GQueryBinding))
-   (predicates (Vec GQueryPredicate))
-   (columns (Vec GQueryColumn))
-   (result_providers (Vec GQueryResultProvider))
-   (result_kind String)
-   (default_limit Int?)
-   (max_limit Int?)
-   (dependencies (Vec GQueryDependency))])
+  [name String
+   capabilities (Vec String)
+   params (Vec GQueryParam)
+   bindings (Vec GQueryBinding)
+   predicates (Vec GQueryPredicate)
+   columns (Vec GQueryColumn)
+   result_providers (Vec GQueryResultProvider)
+   result_kind String
+   default_limit Int?
+   max_limit Int?
+   dependencies (Vec GQueryDependency)])
 
-(defrecord GProviderPort [(name String) (input Any) (output Any)])
+(defrecord GProviderPort
+  [name String
+   input Any
+   output Any])
 
 (defrecord GProvider
-  [(name String)
-   (port String)
-   (package_id String)
-   (port_name String)
-   (input_type Any)
-   (output_type Any)
-   (span SourceSpan)])
+  [name String
+   port String
+   package_id String
+   port_name String
+   input_type Any
+   output_type Any
+   span SourceSpan])
 
 (defrecord GExtension
-  [(kind String)
-   (package_id String)
-   (port String)
-   (target String)
-   (fields (Vec IrAttr))])
+  [kind String
+   package_id String
+   port String
+   target String
+   fields (Vec IrAttr)])
 
 (defrecord GFill
-  [(port String)
-   (component String)
-   (package_id String)
-   (target_component String)])
+  [port String
+   component String
+   package_id String
+   target_component String])
 
 (defrecord GMount
-  [(input_parameters (Vec String))
-   (package_id String)
-   (parameters (Vec String))
-   (path String)
-   (pattern String)
-   (port String)
-   (queries (Vec IrRouteQuery))
-   (required_props (Vec String))
-   (target_route String)
-   (view_name String)])
+  [input_parameters (Vec String)
+   package_id String
+   parameters (Vec String)
+   path String
+   pattern String
+   port String
+   queries (Vec IrRouteQuery)
+   required_props (Vec String)
+   target_route String
+   view_name String])
 
 (defrecord ResolvedPluginExtension
-  [(instance IrLinkedPluginInstance)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (source IrExtendSpec)
-   (port IrEntityFieldsPortSpec)
-   (target String)
-   (extension IrExtend)])
+  [instance IrLinkedPluginInstance
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   source IrExtendSpec
+   port IrEntityFieldsPortSpec
+   target String
+   extension IrExtend])
 
 (defrecord LoweredPlugin
-  [(instance IrLinkedPluginInstance)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (source_unit IrSourceUnit)
-   (provenance (Vec IrDeclarationProvenance))
-   (evidence Any)
-   (entities (Vec GEntity))
-   (states (Vec IrDefstate))
-   (publications (Vec IrPublication))
-   (queries (Vec IrQuery))
-   (commands (Vec Any))
-   (forms (Vec IrSmartForm))
-   (list_details (Vec IrListDetail))
-   (value_types (Vec Any))
-   (provider_ports (Vec GProviderPort))
-   (providers (Vec GProvider))
-   (extensions (Vec ResolvedPluginExtension))
-   (fills (Vec GFill))
-   (mounts (Vec GMount))
-   (components (Vec IrComponent))
-   (views (Vec IrView))
-   (route_templates (Vec IrRoute))
-   (mounted_routes (Vec IrRoute))])
+  [instance IrLinkedPluginInstance
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   source_unit IrSourceUnit
+   provenance (Vec IrDeclarationProvenance)
+   evidence Any
+   entities (Vec GEntity)
+   states (Vec IrDefstate)
+   publications (Vec IrPublication)
+   queries (Vec IrQuery)
+   commands (Vec Any)
+   forms (Vec IrSmartForm)
+   list_details (Vec IrListDetail)
+   value_types (Vec Any)
+   provider_ports (Vec GProviderPort)
+   providers (Vec GProvider)
+   extensions (Vec ResolvedPluginExtension)
+   fills (Vec GFill)
+   mounts (Vec GMount)
+   components (Vec IrComponent)
+   views (Vec IrView)
+   route_templates (Vec IrRoute)
+   mounted_routes (Vec IrRoute)])
 
 (defrecord GDetailTab
-  [(label String)
-   (content_type String)
-   (fields (Vec String))
-   (entity_name String?)
-   (relation_field String?)
-   (display_fields (Vec String))])
+  [label String
+   content_type String
+   fields (Vec String)
+   entity_name String?
+   relation_field String?
+   display_fields (Vec String)])
 
 (defrecord GListDetail
-  [(entity_name String)
-   (title String)
-   (columns (Vec String))
-   (search_cols (Vec String))
-   (detail_tabs (Vec GDetailTab))])
+  [entity_name String
+   title String
+   columns (Vec String)
+   search_cols (Vec String)
+   detail_tabs (Vec GDetailTab)])
 
 (defrecord CheckedApplication
-  [(schema_version Int)
-   (application_id String)
-   (source_units (Vec IrSourceUnit))
-   (plugin_closure (Vec Any))
-   (linked_declarations IrLinkedDeclarationProgram)
-   (semantic_fingerprint String?)
-   (providers (Vec GProvider))
-   (value_types (Vec Any))
-   (provider_ports (Vec Any))
-   (extensions (Vec GExtension))
-   (fills (Vec GFill))
-   (mounts (Vec GMount))
-   (route_templates (Vec IrRoute))
-   (ns String)
-   (backend IrBackend?)
-   (entities (Vec GEntity))
-   (fk_edges (Vec FkEdge))
-   (state_machines (Vec StateMachine))
-   (publications (Vec PublicationPolicy))
-   (queries (Vec GQuery))
-   (commands (Vec Any))
-   (persist IrPersist?)
-   (defstates (Vec IrDefstate))
-   (list_details (Vec GListDetail))
-   (forms (Vec IrSmartForm))
-   (theme IrTheme?)
-   (components (Vec IrComponent))
-   (views (Vec IrView))
-   (router IrRouter?)
-   (layout IrLayout?)])
+  [schema_version Int
+   application_id String
+   source_units (Vec IrSourceUnit)
+   plugin_closure (Vec Any)
+   linked_declarations IrLinkedDeclarationProgram
+   semantic_fingerprint String?
+   providers (Vec GProvider)
+   value_types (Vec Any)
+   provider_ports (Vec Any)
+   extensions (Vec GExtension)
+   fills (Vec GFill)
+   mounts (Vec GMount)
+   route_templates (Vec IrRoute)
+   ns String
+   backend IrBackend?
+   entities (Vec GEntity)
+   fk_edges (Vec FkEdge)
+   state_machines (Vec StateMachine)
+   publications (Vec PublicationPolicy)
+   queries (Vec GQuery)
+   commands (Vec Any)
+   persist IrPersist?
+   defstates (Vec IrDefstate)
+   list_details (Vec GListDetail)
+   forms (Vec IrSmartForm)
+   theme IrTheme?
+   components (Vec IrComponent)
+   views (Vec IrView)
+   router IrRouter?
+   layout IrLayout?])
 
 ;; Exact nominal resolution happens before the existing graph analyses.  This
 ;; is a graph input, not a public/source IR: its linked declaration sidecar is
 ;; retained and every string name below has already been resolved from a
 ;; concrete nominal reference.
 (defrecord ResolvedDeclarationProgram
-  [(linked_declarations IrLinkedDeclarationProgram)
-   (application_id String)
-   (source_unit IrSourceUnit)
-   (source_units (Vec IrSourceUnit))
-   (plugin_closure (Vec Any))
-   (declaration_provenance (Vec IrDeclarationProvenance))
-   (ns String)
-   (backend IrBackend?)
-   (entities (Vec GEntity))
-   (persist IrPersist?)
-   (defstates (Vec IrDefstate))
-   (publications (Vec IrPublication))
-   (queries (Vec IrQuery))
-   (commands (Vec Any))
-   (list_details (Vec IrListDetail))
-   (forms (Vec IrSmartForm))
-   (theme IrTheme?)
-   (components (Vec IrComponent))
-   (views (Vec IrView))
-   (router IrRouter?)
-   (providers (Vec GProvider))
-   (value_types (Vec Any))
-   (provider_ports (Vec Any))
-   (extends (Vec GExtension))
-   (fills (Vec GFill))
-   (mounts (Vec GMount))
-   (route_templates (Vec IrRoute))
-   (layout IrLayout?)])
+  [linked_declarations IrLinkedDeclarationProgram
+   application_id String
+   source_unit IrSourceUnit
+   source_units (Vec IrSourceUnit)
+   plugin_closure (Vec Any)
+   declaration_provenance (Vec IrDeclarationProvenance)
+   ns String
+   backend IrBackend?
+   entities (Vec GEntity)
+   persist IrPersist?
+   defstates (Vec IrDefstate)
+   publications (Vec IrPublication)
+   queries (Vec IrQuery)
+   commands (Vec Any)
+   list_details (Vec IrListDetail)
+   forms (Vec IrSmartForm)
+   theme IrTheme?
+   components (Vec IrComponent)
+   views (Vec IrView)
+   router IrRouter?
+   providers (Vec GProvider)
+   value_types (Vec Any)
+   provider_ports (Vec Any)
+   extends (Vec GExtension)
+   fills (Vec GFill)
+   mounts (Vec GMount)
+   route_templates (Vec IrRoute)
+   layout IrLayout?])
 
 ;; --- Checked declaration lowering ---
 
-(defn require-ir-tag [(value Any) (tag String) (label String)] Any
+(defn require-ir-tag
+  [value Any
+   tag String
+   label String] Any
   (if (or (nil? value) (not (= (js/get value ._tag) tag)))
     (graph-error
       (str label " must be " tag ", got "
            (if (nil? value) "nil" (or (js/get value ._tag) "untagged"))))
     value))
 
-(defn same-nominal? [(left Any) (right Any)] Bool
+(defn same-nominal?
+  [left Any
+   right Any] Bool
   (and
     (some? left)
     (some? right)
@@ -263,27 +282,28 @@
     (= (js/get left .declaration_id) (js/get right .declaration_id))))
 
 (defrecord DeclarationResolver
-  [(prefix String)
-   (package_id String)
-   (bindings IrPluginBindings?)
-   (entity_names Any)
-   (field_names Any)
-   (state_names Any)
-   (state_values Any)
-   (receipt_field_names Any)
-   (value_bindings Any)
-   (provider_bindings Any)])
+  [prefix String
+   package_id String
+   bindings IrPluginBindings?
+   entity_names Any
+   field_names Any
+   state_names Any
+   state_values Any
+   receipt_field_names Any
+   value_bindings Any
+   provider_bindings Any])
 
 (defn empty-resolver [] DeclarationResolver
   (->DeclarationResolver "" "application" nil {} {} {} {} {} {} {}))
 
-(defn ref-key [(ref Any)] String
+(defn ref-key [ref Any] String
   (or (js/get ref .declaration_id) ""))
 
 (defn resolved-local-name
-  [(resolver DeclarationResolver) (kind String) (ref Any)] String
-  (let [renames
-        (cond
+  [resolver DeclarationResolver
+   kind String
+   ref Any] String
+  (let [renames (cond
           (= kind "entity") (js/get resolver .entity_names)
           (= kind "field") (js/get resolver .field_names)
           (= kind "state") (js/get resolver .state_names)
@@ -293,7 +313,9 @@
     (or (get renames (ref-key ref)) (js/get ref .name))))
 
 (defn resolved-name
-  [(resolver DeclarationResolver) (kind String) (ref Any)] String
+  [resolver DeclarationResolver
+   kind String
+   ref Any] String
   (let [name (resolved-local-name resolver kind ref)]
     (if (or (= (js/get resolver .prefix) "")
             (= kind "field")
@@ -303,15 +325,18 @@
       (str (js/get resolver .prefix) "." name))))
 
 (defn resolved-capability-name
-  [(resolver DeclarationResolver) (ref IrCapabilityRef)] String
+  [resolver DeclarationResolver
+   ref IrCapabilityRef] String
   (if (= (js/get resolver .prefix) "")
     (js/get ref .name)
     (str (js/get resolver .package_id) "/cap/" (js/get ref .name))))
 
-(defn binding-for-role [(items Any) (role Any) (label String)] Any
-  (let [matches
-        (filterv
-          (fn [(binding Any)] Bool
+(defn binding-for-role
+  [items Any
+   role Any
+   label String] Any
+  (let [matches (filterv
+          (fn [binding Any] Bool
             (= (ref-key (js/get binding .role)) (ref-key role)))
           (or items []))]
     (if (not (= (count matches) 1))
@@ -320,7 +345,11 @@
       (first matches))))
 
 (defn role-renames
-  [(specs Any) (bindings Any) (target-fn Any) (value-fn Any) (label String)] Any
+  [specs Any
+   bindings Any
+   target-fn Any
+   value-fn Any
+   label String] Any
   (reduce
     (fn [result spec] Any
       (let [binding (binding-for-role bindings (js/get spec .ref) label)
@@ -332,62 +361,74 @@
     {}
     (or specs [])))
 
+(defn plugin-spec
+  [program IrDeclarationProgram
+   context String] IrPluginSpec
+  (match (js/get program .root)
+    [(IrPluginDeclarationRoot plugin) plugin]
+    [(IrApplicationDeclarationRoot application)
+     (graph-error (str context " requires a plugin declaration root"))]))
+
+(defn entity-field-name-target [target IrFieldNameRoleTarget] IrFieldRef?
+  (match target
+    [(IrEntityFieldNameRoleTarget _) (js/get target .field)]
+    [(IrReceiptFieldNameRoleTarget _) nil]))
+
+(defn receipt-field-name-target [target IrFieldNameRoleTarget] IrReceiptFieldRef?
+  (match target
+    [(IrEntityFieldNameRoleTarget _) nil]
+    [(IrReceiptFieldNameRoleTarget _) (js/get target .field)]))
+
 (defn plugin-resolver
-  [(instance IrLinkedPluginInstance)
-   (program IrDeclarationProgram)]
-  DeclarationResolver
-  (let [plugin (js/get (js/get program .root) .plugin)
+  [instance IrLinkedPluginInstance
+   program IrDeclarationProgram] DeclarationResolver
+  (let [plugin (plugin-spec program "plugin resolver")
         schema (js/get plugin .configuration)
         bindings (js/get (js/get instance .use) .bindings)
-        entity-names
-        (role-renames
+        entity-names (role-renames
           (js/get schema .entity_names) (js/get bindings .entity_names)
-          (fn [(spec IrEntityNameRoleSpec)] Any (js/get spec .target))
-          (fn [(binding IrEntityNameBinding)] String (js/get (js/get binding .value) .value))
+          (fn [spec IrEntityNameRoleSpec] Any (js/get spec .target))
+          (fn [binding IrEntityNameBinding] String (js/get (js/get binding .value) .value))
           "plugin entity-name configuration")
-        field-names
-        (role-renames
+        field-names (role-renames
           (filterv
-            (fn [(spec IrFieldNameRoleSpec)] Bool
-              (= (js/get (js/get spec .target) ._tag) "IrEntityFieldNameRoleTarget"))
+            (fn [spec IrFieldNameRoleSpec] Bool
+              (some? (entity-field-name-target (js/get spec .target))))
             (js/get schema .field_names))
           (js/get bindings .field_names)
-          (fn [(spec IrFieldNameRoleSpec)] Any (js/get (js/get spec .target) .field))
-          (fn [(binding IrFieldNameBinding)] String
+          (fn [spec IrFieldNameRoleSpec] Any
+            (entity-field-name-target (js/get spec .target)))
+          (fn [binding IrFieldNameBinding] String
             (js/get (js/get (js/get binding .value) .name) .value))
           "plugin field-name configuration")
-        receipt-field-names
-        (role-renames
+        receipt-field-names (role-renames
           (filterv
-            (fn [(spec IrFieldNameRoleSpec)] Bool
-              (= (js/get (js/get spec .target) ._tag) "IrReceiptFieldNameRoleTarget"))
+            (fn [spec IrFieldNameRoleSpec] Bool
+              (some? (receipt-field-name-target (js/get spec .target))))
             (js/get schema .field_names))
           (js/get bindings .field_names)
-          (fn [(spec IrFieldNameRoleSpec)] Any (js/get (js/get spec .target) .field))
-          (fn [(binding IrFieldNameBinding)] String
+          (fn [spec IrFieldNameRoleSpec] Any
+            (receipt-field-name-target (js/get spec .target)))
+          (fn [binding IrFieldNameBinding] String
             (js/get (js/get (js/get binding .value) .name) .value))
           "plugin receipt-field-name configuration")
-        state-names
-        (role-renames
+        state-names (role-renames
           (js/get schema .state_names) (js/get bindings .state_names)
-          (fn [(spec IrStateNameRoleSpec)] Any (js/get spec .target))
-          (fn [(binding IrStateNameBinding)] String (js/get (js/get binding .value) .value))
+          (fn [spec IrStateNameRoleSpec] Any (js/get spec .target))
+          (fn [binding IrStateNameBinding] String (js/get (js/get binding .value) .value))
           "plugin state-name configuration")
-        state-values
-        (role-renames
+        state-values (role-renames
           (js/get schema .state_value_names) (js/get bindings .state_value_names)
-          (fn [(spec IrStateValueNameRoleSpec)] Any (js/get spec .target))
-          (fn [(binding IrStateValueNameBinding)] String
+          (fn [spec IrStateValueNameRoleSpec] Any (js/get spec .target))
+          (fn [binding IrStateValueNameBinding] String
             (strip-colon (js/get (js/get binding .value) .value)))
           "plugin state-value-name configuration")
-        values
-        (reduce
+        values (reduce
           (fn [result binding] Any
             (assoc result (ref-key (js/get binding .role)) (js/get binding .value)))
           {}
           (js/get bindings .values))
-        providers
-        (reduce
+        providers (reduce
           (fn [result binding] Any
             (assoc result (ref-key (js/get binding .port)) (js/get binding .name)))
           {}
@@ -400,7 +441,9 @@
       values providers)))
 
 (defn value-expression-literal
-  [(expr IrValueExpr) (resolver DeclarationResolver) (label String)] Any
+  [expr IrValueExpr
+   resolver DeclarationResolver
+   label String] Any
   (let [tag (js/get expr ._tag)]
     (cond
       (= tag "IrLiteralStringValue") (js/get expr .value)
@@ -417,7 +460,7 @@
           (js/get expr .fields))
       (= tag "IrListValue")
         (mapv
-          (fn [(item IrValueExpr)] Any
+          (fn [item IrValueExpr] Any
             (value-expression-literal item resolver label))
           (js/get expr .items))
       (= tag "IrConfigValue")
@@ -434,14 +477,11 @@
         (graph-error (str label " uses unsupported value expression '" tag "'")))))
 
 (defn configured-projection-literal
-  [(projection IrConfigProjection)
-   (resolver DeclarationResolver)
-   (label String)]
-  Any
-  (let [bound
-        (get (js/get resolver .value_bindings) (ref-key (js/get projection .role)))
-        root
-        (if (nil? bound)
+  [projection IrConfigProjection
+   resolver DeclarationResolver
+   label String] Any
+  (let [bound (get (js/get resolver .value_bindings) (ref-key (js/get projection .role)))
+        root (if (nil? bound)
           (graph-error (str label " names an unbound configured projection"))
           (value-expression-literal bound resolver label))]
     (reduce
@@ -455,14 +495,14 @@
       (js/get projection .path))))
 
 (defn resolved-bound-int
-  [(bound IrBoundInt) (resolver DeclarationResolver) (label String)] Int
+  [bound IrBoundInt
+   resolver DeclarationResolver
+   label String] Int
   (let [tag (js/get bound ._tag)
-        value
-        (cond
+        value (cond
           (= tag "IrLiteralBound") (js/get bound .value)
           (= tag "IrConfiguredBound")
-            (let [binding
-                  (binding-for-role
+            (let [binding (binding-for-role
                     (js/get (js/get resolver .bindings) .ints) (js/get bound .role) label)]
               (js/get binding .value))
           (= tag "IrConfiguredProjectionBound")
@@ -473,7 +513,9 @@
       (graph-error (str label " must resolve to a safe integer"))
       value)))
 
-(defn value-type-literal [(literal IrValueLiteral) (label String)] Any
+(defn value-type-literal
+  [literal IrValueLiteral
+   label String] Any
   (let [tag (js/get literal ._tag)]
     (cond
       (= tag "IrStringLiteral") (js/get literal .value)
@@ -485,16 +527,14 @@
         (graph-error (str label " uses unsupported literal '" tag "'")))))
 
 (defn value-type-definition
-  [(program IrDeclarationProgram)
-   (ref IrValueTypeRef)
-   (label String)]
-  IrValueTypeDefinition
-  (let [matches
-        (reduce
+  [program IrDeclarationProgram
+   ref IrValueTypeRef
+   label String] IrValueTypeDefinition
+  (let [matches (reduce
           (fn [result declaration] (Vec IrValueTypeDefinition)
             (into result
               (filterv
-                (fn [(definition IrValueTypeDefinition)] Bool
+                (fn [definition IrValueTypeDefinition] Bool
                   (same-nominal? (js/get definition .ref) ref))
                 (js/get declaration .definitions))))
           []
@@ -504,17 +544,15 @@
       (first matches))))
 
 (defn value-type-declaration
-  [(program IrDeclarationProgram)
-   (ref IrValueTypeRef)
-   (label String)]
-  IrValueTypeDeclarationSpec
-  (let [matches
-        (filterv
-          (fn [(declaration IrValueTypeDeclarationSpec)] Bool
+  [program IrDeclarationProgram
+   ref IrValueTypeRef
+   label String] IrValueTypeDeclarationSpec
+  (let [matches (filterv
+          (fn [declaration IrValueTypeDeclarationSpec] Bool
             (some?
               (first
                 (filterv
-                  (fn [(definition IrValueTypeDefinition)] Bool
+                  (fn [definition IrValueTypeDefinition] Bool
                     (same-nominal? (js/get definition .ref) ref))
                   (js/get declaration .definitions)))))
           (js/get program .value_types))]
@@ -523,23 +561,18 @@
       (first matches))))
 
 (defn lower-value-descriptor
-  [(source IrValueTypeSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (label String)]
-  Any
-  (let [tag (js/get source ._tag)]
-    (cond
-      (= tag "IrStringValueType")
-        (let [minimum
-              (if (nil? (js/get source .minimum_scalars)) nil
-                  (resolved-bound-int (js/get source .minimum_scalars) resolver label))
-              maximum
-              (if (nil? (js/get source .maximum_scalars)) nil
-                  (resolved-bound-int (js/get source .maximum_scalars) resolver label))
-              bytes
-              (if (nil? (js/get source .maximum_bytes)) nil
-                  (resolved-bound-int (js/get source .maximum_bytes) resolver label))]
+  [source IrValueTypeSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   label String] Any
+  (match source
+      [(IrStringValueType minimum-bound maximum-bound bytes-bound)
+        (let [minimum Int? (if (nil? minimum-bound) nil
+                  (resolved-bound-int minimum-bound resolver label))
+              maximum Int? (if (nil? maximum-bound) nil
+                  (resolved-bound-int maximum-bound resolver label))
+              bytes Int? (if (nil? bytes-bound) nil
+                  (resolved-bound-int bytes-bound resolver label))]
           (cond
             (and (some? minimum) (some? maximum) (some? bytes))
               {"kind" "string" "minLength" minimum
@@ -553,56 +586,53 @@
             (some? minimum) {"kind" "string" "minLength" minimum}
             (some? maximum) {"kind" "string" "maxLength" maximum}
             (some? bytes) {"kind" "string" "maxBytes" bytes}
-            :else {"kind" "string"}))
-      (= tag "IrIntegerValueType")
-        (let [minimum
-              (if (nil? (js/get source .minimum)) nil
-                  (resolved-bound-int (js/get source .minimum) resolver label))
-              maximum
-              (if (nil? (js/get source .maximum)) nil
-                  (resolved-bound-int (js/get source .maximum) resolver label))]
+            :else {"kind" "string"}))]
+      [(IrIntegerValueType minimum-bound maximum-bound)
+        (let [minimum Int? (if (nil? minimum-bound) nil
+                  (resolved-bound-int minimum-bound resolver label))
+              maximum Int? (if (nil? maximum-bound) nil
+                  (resolved-bound-int maximum-bound resolver label))]
           (cond
             (and (some? minimum) (some? maximum))
               {"kind" "integer" "minimum" minimum "maximum" maximum}
             (some? minimum) {"kind" "integer" "minimum" minimum}
             (some? maximum) {"kind" "integer" "maximum" maximum}
-            :else {"kind" "integer"}))
-      (= tag "IrBooleanValueType") {"kind" "boolean"}
-      (= tag "IrDigestValueType") {"kind" "digest"}
-      (= tag "IrInstantValueType") {"kind" "instant"}
-      (= tag "IrKeywordValueType") {"kind" "keyword"}
-      (= tag "IrEnumValueType")
+            :else {"kind" "integer"}))]
+      [(IrBooleanValueType _) {"kind" "boolean"}]
+      [(IrDigestValueType _) {"kind" "digest"}]
+      [(IrInstantValueType _) {"kind" "instant"}]
+      [(IrKeywordValueType _) {"kind" "keyword"}]
+      [(IrEnumValueType allowed)
         {"kind" "enum"
          "values"
          (mapv
-           (fn [(literal IrValueLiteral)] Any
+           (fn [literal IrValueLiteral] Any
              (value-type-literal literal label))
-           (js/get source .allowed))}
-      (= tag "IrEntityReferenceValueType")
-        {"kind" "string"}
-      (= tag "IrStateValueType") {"kind" "keyword"}
-      (= tag "IrRecordValueType")
+           allowed)}]
+      [(IrEntityReferenceValueType _) {"kind" "string"}]
+      [(IrStateValueType _) {"kind" "keyword"}]
+      [(IrRecordValueType fields)
         {"kind" "record"
          "fields"
          (mapv
-           (fn [(field IrValueRecordField)] Any
+           (fn [field IrValueRecordField] Any
              {"name" (js/get field .name)
               "required" (js/get field .required)
               "value"
               (lower-value-descriptor
                 (js/get field .value_type) program resolver
                 (str label "." (js/get field .name)))})
-           (js/get source .fields))}
-      (= tag "IrTaggedValueType")
+           fields)}]
+      [(IrTaggedValueType tag-field variants)
         {"kind" "tagged"
-         "tag" (js/get source .tag_field)
+         "tag" tag-field
          "variants"
          (mapv
-           (fn [(variant IrValueTaggedVariant)] Any
+           (fn [variant IrValueTaggedVariant] Any
              {"tag" (js/get variant .tag)
               "fields"
               (mapv
-                (fn [(field IrValueRecordField)] Any
+                (fn [field IrValueRecordField] Any
                   {"name" (js/get field .name)
                    "required" (js/get field .required)
                    "value"
@@ -610,49 +640,45 @@
                      (js/get field .value_type) program resolver
                      (str label "." (js/get field .name)))})
                 (js/get variant .fields))})
-           (js/get source .variants))}
-      (= tag "IrListValueType")
-        (let [maximum
-              (if (nil? (js/get source .maximum_items))
+           variants)}]
+      [(IrListValueType item minimum-items maximum-items normalization)
+        (let [maximum Int (if (nil? maximum-items)
                 (graph-error (str label " list requires a maximum bound"))
-                (resolved-bound-int (js/get source .maximum_items) resolver label))]
-          (if (some? (js/get source .minimum_items))
+                (resolved-bound-int maximum-items resolver label))]
+          (if (some? minimum-items)
             (graph-error (str label " list minimum is not representable"))
             nil)
-          (if (nil? (js/get source .normalization))
+          (if (nil? normalization)
             {"kind" "list"
              "items"
              (lower-value-descriptor
-               (js/get source .item) program resolver (str label " item"))
+               item program resolver (str label " item"))
              "maxItems" maximum}
-            (if (= (js/get (js/get source .normalization) ._tag) "IrSortUniqueList")
+            (if (= (js/get normalization ._tag) "IrSortUniqueList")
               {"kind" "list"
                "items"
                (lower-value-descriptor
-                 (js/get source .item) program resolver (str label " item"))
+                 item program resolver (str label " item"))
                "maxItems" maximum
                "normalizer" "sort-unique"}
-              (graph-error (str label " uses unsupported list normalization")))))
-      (= tag "IrNullableValueType")
+              (graph-error (str label " uses unsupported list normalization")))))]
+      [(IrNullableValueType value-type)
         {"kind" "nullable"
          "value"
          (lower-value-descriptor
-           (js/get source .value_type) program resolver (str label " nullable value"))}
-      (= tag "IrNamedValueType")
-        {"kind" "ref" "name" (js/get (js/get source .value_type) .name)}
-      (= tag "IrLiteralValueType")
-        {"kind" "literal" "value" (value-type-literal (js/get source .literal) label)}
-      (= tag "IrExtensionValueType")
+           value-type program resolver (str label " nullable value"))}]
+      [(IrNamedValueType value-type)
+        {"kind" "ref" "name" (js/get value-type .name)}]
+      [(IrLiteralValueType literal)
+        {"kind" "literal" "value" (value-type-literal literal label)}]
+      [(IrExtensionValueType port)
         {"kind" "extension"
-         "port" (imported-port-name (js/get resolver .prefix) (js/get source .port))}
-      :else
-        (graph-error (str label " uses unsupported value type '" tag "'")))))
+         "port" (imported-port-name (js/get resolver .prefix) port)}]))
 
 (defn lower-value-type-declaration
-  [(source IrValueTypeDeclarationSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  Any
+  [source IrValueTypeDeclarationSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver] Any
   (let [name (resolved-name resolver "value-type" (js/get source .root))
         envelope (js/get source .envelope)]
     (if (nil? envelope)
@@ -663,7 +689,7 @@
      {"kind" "bounded"
       "definitions"
       (mapv
-        (fn [(definition IrValueTypeDefinition)] Any
+        (fn [definition IrValueTypeDefinition] Any
           {"name" (js/get (js/get definition .ref) .name)
            "value"
            (lower-value-descriptor
@@ -679,11 +705,10 @@
       "value" {"kind" "ref" "name" (js/get (js/get source .root) .name)}}}))
 
 (defn resolved-value-type-descriptor
-  [(source IrValueTypeSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (label String)]
-  Any
+  [source IrValueTypeSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   label String] Any
   (if (= (js/get source ._tag) "IrNamedValueType")
     (js/get
       (lower-value-type-declaration
@@ -691,10 +716,12 @@
         program resolver) .descriptor)
     (lower-value-descriptor source program resolver label)))
 
-(defn declaration-with-ref [(items Any) (ref Any) (label String)] Any
-  (let [matches
-        (filterv
-          (fn [(item Any)] Bool
+(defn declaration-with-ref
+  [items Any
+   ref Any
+   label String] Any
+  (let [matches (filterv
+          (fn [item Any] Bool
             (same-nominal? (or (js/get item .ref) (js/get item .root)) ref))
           items)]
     (if (not (= (count matches) 1))
@@ -704,10 +731,10 @@
       (first matches))))
 
 (defn root-storage-id
-  [(root IrApplicationRootSpec) (entity IrEntityRef)] String?
-  (let [matches
-        (filterv
-          (fn [(storage IrStorageSpec)] Bool
+  [root IrApplicationRootSpec
+   entity IrEntityRef] String?
+  (let [matches (filterv
+          (fn [storage IrStorageSpec] Bool
             (same-nominal? (js/get storage .entity) entity))
           (js/get root .storage))]
     (if (> (count matches) 1)
@@ -717,10 +744,10 @@
     (if (= (count matches) 0) nil (js/get (first matches) .storage_id))))
 
 (defn root-identity-field
-  [(root IrApplicationRootSpec) (entity IrEntityRef)] IrFieldRef?
-  (let [matches
-        (filterv
-          (fn [(identity IrIdentitySpec)] Bool
+  [root IrApplicationRootSpec
+   entity IrEntityRef] IrFieldRef?
+  (let [matches (filterv
+          (fn [identity IrIdentitySpec] Bool
             (same-nominal? (js/get identity .entity) entity))
           (js/get root .identities))]
     (if (> (count matches) 1)
@@ -729,7 +756,7 @@
       nil)
     (if (= (count matches) 0) nil (js/get (first matches) .field))))
 
-(defn field-cardinality-name [(cardinality IrFieldCardinality)] String
+(defn field-cardinality-name [cardinality IrFieldCardinality] String
   (let [tag (js/get cardinality ._tag)]
     (cond
       (= tag "IrSingleField") "single"
@@ -738,7 +765,7 @@
         (graph-error
           (str "field cardinality uses unsupported constructor '" tag "'")))))
 
-(defn field-write-name [(write IrFieldWriteMode)] String
+(defn field-write-name [write IrFieldWriteMode] String
   (let [tag (js/get write ._tag)]
     (cond
       (= tag "IrIdentityWrite") "identity"
@@ -751,10 +778,10 @@
           (str "field write mode uses unsupported constructor '" tag "'")))))
 
 (defn external-entity-binding
-  [(bindings IrPluginBindings) (role IrExternalEntityRoleRef)] IrEntityRef
-  (let [matches
-        (filterv
-          (fn [(binding IrExternalEntityBinding)] Bool
+  [bindings IrPluginBindings
+   role IrExternalEntityRoleRef] IrEntityRef
+  (let [matches (filterv
+          (fn [binding IrExternalEntityBinding] Bool
             (= (js/get (js/get binding .role) .declaration_id) (js/get role .declaration_id)))
           (js/get bindings .external_entities))]
     (if (not (= (count matches) 1))
@@ -764,7 +791,8 @@
       (js/get (first matches) .value))))
 
 (defn field-type-shape
-  [(value-type IrFieldValueType) (resolver DeclarationResolver)] Any
+  [value-type IrFieldValueType
+   resolver DeclarationResolver] Any
   (let [tag (js/get value-type ._tag)]
     (cond
       (= tag "IrStringField") ["String" "literal" nil]
@@ -797,13 +825,12 @@
           (str "field uses unsupported value type '" tag "'")))))
 
 (defn lower-stored-field
-  [(field IrFieldSpec)
-   (entity IrEntityDeclarationSpec)
-   (resolver DeclarationResolver)
-   (application-id String)
-   (entity-local Bool)
-   (entity-name String)]
-  GField
+  [field IrFieldSpec
+   entity IrEntityDeclarationSpec
+   resolver DeclarationResolver
+   application-id String
+   entity-local Bool
+   entity-name String] GField
   (if (not (same-nominal? (js/get field .owner) (js/get entity .ref)))
     (graph-error
       (str "field '" (js/get (js/get field .ref) .name) "' has a foreign entity owner"))
@@ -811,8 +838,7 @@
   (let [name (resolved-name resolver "field" (js/get field .ref))
         shape (field-type-shape (js/get field .value_type) resolver)
         write (field-write-name (js/get field .write))
-        storage-id
-        (required-storage-id
+        storage-id (required-storage-id
           (js/get field .storage_id)
           (str "field '" entity-name "." name "'")
           (str "app:" application-id "/entity:" entity-name "/field:" name)
@@ -830,14 +856,16 @@
       []
       nil)))
 
-(defn derived-expression-dependencies [(expr IrDerivedExpr)] (Vec String)
+(defn derived-expression-dependencies [expr IrDerivedExpr] (Vec String)
   (let [tag (js/get expr ._tag)]
     (cond
       (= tag "IrFieldDerivedExpr") [(js/get (js/get expr .field) .name)]
       (= tag "IrStringDerivedExpr") []
       (= tag "IrConcatDerivedExpr")
         (reduce
-          (fn [(result (Vec String)) (part IrDerivedExpr)] (Vec String)
+          (fn
+            [result (Vec String)
+             part IrDerivedExpr] (Vec String)
             (append-unique-derived-deps
               result (derived-expression-dependencies part)))
           []
@@ -847,18 +875,17 @@
           (str "derived expression uses unsupported constructor '" tag "'")))))
 
 (defn lower-derived-field
-  [(field IrDerivedFieldSpec)
-   (entity IrEntityDeclarationSpec)
-   (application-id String)
-   (entity-name String)]
-  GField
+  [field IrDerivedFieldSpec
+   entity IrEntityDeclarationSpec
+   application-id String
+   entity-name String] GField
   (if (not (same-nominal? (js/get field .owner) (js/get entity .ref)))
     (graph-error
       (str "derived field '" (js/get (js/get field .ref) .name)
            "' has a foreign entity owner"))
     nil)
   (let [name (js/get (js/get field .ref) .name)
-        declared (mapv (fn [(ref IrFieldRef)] String (js/get ref .name))
+        declared (mapv (fn [ref IrFieldRef] String (js/get ref .name))
                        (js/get field .dependencies))
         actual (derived-expression-dependencies (js/get field .expression))]
     (if (not (= declared actual))
@@ -880,17 +907,15 @@
       (js/get field .expression))))
 
 (defn lower-entity-declaration
-  [(entity IrEntityDeclarationSpec)
-   (root IrApplicationRootSpec?)
-   (resolver DeclarationResolver)
-   (application-id String)
-   (entity-local Bool)]
-  GEntity
+  [entity IrEntityDeclarationSpec
+   root IrApplicationRootSpec?
+   resolver DeclarationResolver
+   application-id String
+   entity-local Bool] GEntity
   (let [name (resolved-name resolver "entity" (js/get entity .ref))
         root-storage (if (nil? root) nil (root-storage-id root (js/get entity .ref)))
         declared-storage (js/get entity .storage_id)
-        storage-id
-        (do
+        storage-id (do
           (if (and (some? root-storage) (some? declared-storage)
                    (not (= root-storage declared-storage)))
             (graph-error
@@ -901,26 +926,23 @@
             (str "entity '" name "'")
             (str "app:" application-id "/entity:" name)
             entity-local))
-        stored
-        (mapv
-          (fn [(field IrFieldSpec)] GField
+        stored (mapv
+          (fn [field IrFieldSpec] GField
             (lower-stored-field
               field entity resolver application-id entity-local name))
           (js/get entity .fields))
-        derived
-        (mapv
-          (fn [(field IrDerivedFieldSpec)] GField
+        derived (mapv
+          (fn [field IrDerivedFieldSpec] GField
             (lower-derived-field field entity application-id name))
           (js/get entity .derived_fields))
         fields (into stored derived)
-        field-names (mapv (fn [(field GField)] String (js/get field .name)) fields)
-        identity-fields (filterv (fn [(field GField)] Bool (js/get field .identity)) stored)
+        field-names (mapv (fn [field GField] String (js/get field .name)) fields)
+        identity-fields (filterv (fn [field GField] Bool (js/get field .identity)) stored)
         root-identity (if (nil? root) nil (root-identity-field root (js/get entity .ref)))]
     (validate-distinct-names field-names (str "entity '" name "' field"))
     (if (some? root-identity)
-      (let [resolved
-            (filterv
-              (fn [(field IrFieldSpec)] Bool
+      (let [resolved (filterv
+              (fn [field IrFieldSpec] Bool
                 (same-nominal? (js/get field .ref) root-identity))
               (js/get entity .fields))]
         (if (not (= (count resolved) 1))
@@ -946,21 +968,19 @@
       fields
       stored
       derived
-      (filterv (fn [(field GField)] Bool (= (js/get field .value_kind) "ref")) fields)
+      (filterv (fn [field GField] Bool (= (js/get field .value_kind) "ref")) fields)
       (if (= (count identity-fields) 1) (first identity-fields) nil)
       (str name "s"))))
 
 (defn state-value-spec
-  [(program IrDeclarationProgram)
-   (ref IrStateValueRef)
-   (label String)]
-  IrStateValueSpec
-  (let [matches
-        (reduce
+  [program IrDeclarationProgram
+   ref IrStateValueRef
+   label String] IrStateValueSpec
+  (let [matches (reduce
           (fn [result state] (Vec IrStateValueSpec)
             (into result
               (filterv
-                (fn [(value IrStateValueSpec)] Bool
+                (fn [value IrStateValueSpec] Bool
                   (same-nominal? (js/get value .ref) ref))
                 (js/get state .values))))
           []
@@ -970,44 +990,40 @@
       (first matches))))
 
 (defn resolved-state-value
-  [(program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (ref IrStateValueRef)
-   (label String)]
-  String
+  [program IrDeclarationProgram
+   resolver DeclarationResolver
+   ref IrStateValueRef
+   label String] String
   (let [renamed (get (js/get resolver .state_values) (ref-key ref))]
     (if (some? renamed)
       renamed
       (strip-colon (js/get (state-value-spec program ref label) .value)))))
 
 (defn lower-state-declaration
-  [(state IrStateDeclarationSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  IrDefstate
+  [state IrStateDeclarationSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver] IrDefstate
   (let [name (resolved-name resolver "state" (js/get state .ref))
-        transitions
-        (reduce
+        transitions (reduce
           (fn [result transition] Any
             (assoc result
               (resolved-state-value
                 program resolver (js/get transition .from) (str "state '" name "'"))
               (mapv
-                (fn [(target IrStateValueRef)] String
+                (fn [target IrStateValueRef] String
                   (resolved-state-value
                     program resolver target (str "state '" name "'")))
                 (js/get transition .to))))
           {}
           (js/get state .transitions))
-        initial
-        (resolved-state-value
+        initial (resolved-state-value
           program resolver (js/get state .initial) (str "state '" name "' initial"))]
     (ir/->IrDefstate name transitions initial)))
 
-(defn authority-shape [(authority IrAuthoritySpec)] Any
+(defn authority-shape [authority IrAuthoritySpec] Any
   (let [tag (js/get authority ._tag)]
     (cond
-      (= tag "IrFramAuthority") [(ir/->IrBackend "fram") nil]
+      (= tag "IrStoreAuthority") [(ir/->IrBackend "store") nil]
       (= tag "IrLocalStorageAuthority")
         [nil (ir/->IrPersist "local-storage" (js/get authority .namespace))]
       (= tag "IrMemoryAuthority") [nil nil]
@@ -1015,10 +1031,9 @@
         (graph-error (str "application uses unsupported authority '" tag "'")))))
 
 (defn lower-publication
-  [(source IrPublicationDeclarationSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  IrPublication
+  [source IrPublicationDeclarationSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver] IrPublication
   (ir/->IrPublication
     (resolved-name resolver "publication" (js/get source .ref))
     (resolved-name resolver "entity" (js/get source .owner))
@@ -1031,7 +1046,8 @@
     (resolved-state-value program resolver (js/get source .retired) "publication retired")))
 
 (defn lower-form
-  [(source IrFormDeclarationSpec) (resolver DeclarationResolver)] IrSmartForm
+  [source IrFormDeclarationSpec
+   resolver DeclarationResolver] IrSmartForm
   (let [success (js/get (js/get source .on_success) ._tag)]
     (if (not (= success "IrClearFormSuccess"))
       (graph-error (str "form uses unsupported success action '" success "'"))
@@ -1039,26 +1055,23 @@
         (resolved-name resolver "form" (js/get source .ref))
         (resolved-name resolver "entity" (js/get source .entity))
         (mapv
-          (fn [(field IrFieldRef)] String (resolved-name resolver "field" field))
+          (fn [field IrFieldRef] String (resolved-name resolver "field" field))
           (js/get source .fields))
         (mapv
-          (fn [(field IrFieldRef)] String (resolved-name resolver "field" field))
+          (fn [field IrFieldRef] String (resolved-name resolver "field" field))
           (js/get source .required))
         (js/get source .submit_label)
         "clear"))))
 
 (defn lower-list-detail
-  [(source IrListDetailDeclarationSpec)
-   (resolver DeclarationResolver)]
-  IrListDetail
+  [source IrListDetailDeclarationSpec
+   resolver DeclarationResolver] IrListDetail
   (let [entity (resolved-name resolver "entity" (js/get source .entity))
-        field-names
-        (fn [fields] (Vec String)
+        field-names (fn [fields] (Vec String)
           (mapv
-            (fn [(field IrFieldRef)] String (resolved-name resolver "field" field))
+            (fn [field IrFieldRef] String (resolved-name resolver "field" field))
             fields))
-        tabs
-        (mapv
+        tabs (mapv
           (fn [tab] IrDetailTab
             (let [tag (js/get tab ._tag)]
               (cond
@@ -1084,13 +1097,17 @@
       tabs)))
 
 (defn lower-ui-value
-  [(value IrValueExpr) (resolver DeclarationResolver) (label String)] Any
+  [value IrValueExpr
+   resolver DeclarationResolver
+   label String] Any
   (if (= (js/get value ._tag) "IrBoundFieldValue")
     {"kind" "prop" "name" (resolved-name resolver "field" (js/get value .field))}
     {"kind" "literal" "value" (value-expression-literal value resolver label)}))
 
 (defn lower-ui-action
-  [(action IrUiAction) (resolver DeclarationResolver) (label String)] IrAction
+  [action IrUiAction
+   resolver DeclarationResolver
+   label String] IrAction
   (let [tag (js/get action ._tag)]
     (if (= tag "IrSetFieldAction")
       (ir/->IrAction
@@ -1101,17 +1118,17 @@
       (graph-error (str label " uses unsupported UI action '" tag "'")))))
 
 (defn lower-ui-node
-  [(node IrDeclarationUiNode) (resolver DeclarationResolver) (label String)] Any
+  [node IrDeclarationUiNode
+   resolver DeclarationResolver
+   label String] Any
   (let [tag (js/get node ._tag)]
     (cond
       (= tag "IrDeclarationElement")
-        (let [attrs
-              (reduce
+        (let [attrs (reduce
                 (fn [result name] Any
                   (let [attr (get (js/get node .attrs) name)
                         attr-tag (js/get attr ._tag)
-                        lowered
-                        (cond
+                        lowered (cond
                           (= attr-tag "IrStaticUiAttr")
                             {"type" "static" "value" (js/get attr .value)}
                           (= attr-tag "IrBoundUiAttr")
@@ -1131,12 +1148,12 @@
                                    attr-tag "'")))]
                     (assoc result name lowered)))
                 {}
-                (keys (js/get node .attrs)))]
+                (set (keys (js/get node .attrs))))]
           (ir/->IrElement
             (js/get node .tag)
             attrs
             (mapv
-              (fn [(child IrDeclarationUiNode)] IrNode
+              (fn [child IrDeclarationUiNode] IrNode
                 (lower-ui-node child resolver label))
               (js/get node .children))))
       (= tag "IrDeclarationWhen")
@@ -1148,36 +1165,38 @@
             (ir/->IrWhen
               (js/get condition .prop)
               (mapv
-                (fn [(child IrDeclarationUiNode)] IrNode
+                (fn [child IrDeclarationUiNode] IrNode
                   (lower-ui-node child resolver label))
                 (js/get node .children)))))
       :else (graph-error (str label " uses unsupported UI node '" tag "'")))))
 
 (defn lower-component
-  [(source IrComponentDeclarationSpec)
-   (resolver DeclarationResolver)]
-  IrComponent
+  [source IrComponentDeclarationSpec
+   resolver DeclarationResolver] IrComponent
   (let [name (resolved-name resolver "component" (js/get source .ref))]
     (ir/->IrComponent
       name
-      (mapv (fn [(prop IrComponentPropertySpec)] String (js/get prop .name))
+      (mapv (fn [prop IrComponentPropertySpec] String (js/get prop .name))
             (js/get source .properties))
       (mapv
-        (fn [(node IrDeclarationUiNode)] IrElement
+        (fn [node IrDeclarationUiNode] IrElement
           (lower-ui-node node resolver (str "component '" name "'")))
         (js/get source .body)))))
 
-(defn form-by-ref [(forms Any) (ref IrFormRef)] IrFormDeclarationSpec
+(defn form-by-ref
+  [forms Any
+   ref IrFormRef] IrFormDeclarationSpec
   (declaration-with-ref forms ref "view create form"))
 
 (defn lower-view
-  [(source IrViewDeclarationSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  IrView
-  (let [form (if (nil? (js/get source .create_form))
+  [source IrViewDeclarationSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver] IrView
+  (let [form-ref IrFormRef? (js/get source .create_form)
+        select-ref IrComponentRef? (js/get source .select_component)
+        form IrFormDeclarationSpec? (if (nil? form-ref)
                nil
-               (form-by-ref (js/get program .forms) (js/get source .create_form)))]
+               (form-by-ref (js/get program .forms) form-ref))]
     (ir/->IrView
       (resolved-name resolver "view" (js/get source .ref))
       (resolved-name resolver "entity" (js/get source .entity))
@@ -1185,19 +1204,18 @@
       (if (nil? form)
         []
         (mapv
-          (fn [(field IrFieldRef)] String (resolved-name resolver "field" field))
+          (fn [field IrFieldRef] String (resolved-name resolver "field" field))
           (js/get form .fields)))
       (js/get source .title)
-      (if (nil? (js/get source .select_component))
+      (if (nil? select-ref)
         nil
-        (resolved-name resolver "component" (js/get source .select_component)))
+        (resolved-name resolver "component" select-ref))
       [] [] [])))
 
 (defn value-type-name-for-query
-  [(value-type IrValueTypeSpec)
-   (resolver DeclarationResolver)
-   (label String)]
-  String
+  [value-type IrValueTypeSpec
+   resolver DeclarationResolver
+   label String] String
   (let [tag (js/get value-type ._tag)]
     (cond
       (= tag "IrStringValueType") "String"
@@ -1215,11 +1233,10 @@
           (str label " uses unsupported query value type '" tag "'")))))
 
 (defn query-expression
-  [(expr IrQueryValueExpr)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (label String)]
-  IrQueryOperand
+  [expr IrQueryValueExpr
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   label String] IrQueryOperand
   (let [tag (js/get expr ._tag)]
     (cond
       (= tag "IrQueryFieldValue")
@@ -1246,11 +1263,9 @@
           "literal" "Keyword" nil nil
           (resolved-state-value program resolver (js/get expr .value) label))
       (= tag "IrQueryConfiguredValue")
-        (let [value
-              (configured-projection-literal
+        (let [value (configured-projection-literal
                 (js/get expr .projection) resolver label)
-              type
-              (cond
+              type (cond
                 (string? value) "String"
                 (boolean? value) "Bool"
                 (number? value) "Int"
@@ -1263,11 +1278,10 @@
           (str label " uses unsupported query expression '" tag "'")))))
 
 (defn query-provider-input
-  [(expr IrQueryValueExpr)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (label String)]
-  Any
+  [expr IrQueryValueExpr
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   label String] Any
   (let [tag (js/get expr ._tag)]
     (cond
       (= tag "IrQueryFieldValue")
@@ -1278,7 +1292,7 @@
         {"kind" "record"
          "fields"
          (mapv
-           (fn [(field IrQueryRecordField)] Any
+           (fn [field IrQueryRecordField] Any
              {"name" (js/get field .name)
               "value"
               (query-provider-input (js/get field .value) program resolver label)})
@@ -1287,7 +1301,7 @@
         {"kind" "list"
          "items"
          (mapv
-           (fn [(item IrQueryValueExpr)] Any
+           (fn [item IrQueryValueExpr] Any
              (query-provider-input item program resolver label))
            (js/get expr .items))}
       :else
@@ -1297,11 +1311,10 @@
             {"kind" "literal" "value" (js/get operand .value)})))))
 
 (defn lower-query-predicate
-  [(source IrQueryPredicateSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (label String)]
-  IrQueryPredicate
+  [source IrQueryPredicateSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   label String] IrQueryPredicate
   (let [tag (js/get source ._tag)]
     (if (= tag "IrQueryEqualPredicate")
       (ir/->IrQueryPredicate
@@ -1311,34 +1324,29 @@
       (graph-error (str label " uses unsupported query predicate '" tag "'")))))
 
 (defn lower-query
-  [(source IrQueryDeclarationSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (extensions Any)]
-  IrQuery
+  [source IrQueryDeclarationSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   extensions Any] IrQuery
   (let [name (resolved-name resolver "query" (js/get source .ref))
         label (str "query '" name "'")
-        params
-        (mapv
-          (fn [(param IrQueryParameterSpec)] IrQueryParam
+        params (mapv
+          (fn [param IrQueryParameterSpec] IrQueryParam
             (ir/->IrQueryParam
               (js/get param .name)
               (value-type-name-for-query (js/get param .value_type) resolver label)))
           (js/get source .parameters))
-        bindings
-        (mapv
-          (fn [(binding IrQueryBindingSpec)] IrQueryBinding
+        bindings (mapv
+          (fn [binding IrQueryBindingSpec] IrQueryBinding
             (ir/->IrQueryBinding
               (js/get binding .name)
               (resolved-name resolver "entity" (js/get binding .entity))))
           (js/get source .bindings))
-        predicates
-        (mapv
-          (fn [(predicate IrQueryPredicateSpec)] IrQueryPredicate
+        predicates (mapv
+          (fn [predicate IrQueryPredicateSpec] IrQueryPredicate
             (lower-query-predicate predicate program resolver label))
           (js/get source .predicates))
-        selection
-        (reduce
+        selection (reduce
           (fn [result item] Any
             (let [tag (js/get item ._tag)]
               (cond
@@ -1353,10 +1361,8 @@
                           (js/get value .binding)
                           (resolved-name resolver "field" (js/get value .field))))))
                 (= tag "IrQueryExtensionSelection")
-                  (let [port-name
-                        (str (js/get resolver .prefix) "." (js/get (js/get item .port) .name))
-                        extension
-                        (first
+                  (let [port-name (str (js/get resolver .prefix) "." (js/get (js/get item .port) .name))
+                        extension (first
                           (filterv
                             (fn [candidate] Bool (= (js/get candidate .port) port-name))
                             extensions))]
@@ -1369,8 +1375,7 @@
                               (js/get field .name) (js/get item .binding) (js/get field .name)))
                           (js/get extension .fields)))))
                 (= tag "IrQueryProviderSelection")
-                  (let [provider
-                        (get
+                  (let [provider (get
                           (js/get resolver .provider_bindings)
                           (ref-key (js/get item .provider)))]
                     (if (nil? provider)
@@ -1389,14 +1394,12 @@
           (js/get source .selection))
         result (js/get source .result)
         result-tag (js/get result ._tag)
-        page
-        (if (= result-tag "IrQueryPageResult")
+        page (if (= result-tag "IrQueryPageResult")
           (ir/->IrQueryPage
             (resolved-bound-int (js/get result .default_limit) resolver label)
             (resolved-bound-int (js/get result .max_limit) resolver label))
           nil)
-        result-kind
-        (cond
+        result-kind (cond
           (= result-tag "IrQueryPageResult") "page"
           (= result-tag "IrQueryOptionalResult") "optional"
           (= result-tag "IrQueryOneResult") "one"
@@ -1404,28 +1407,29 @@
     (ir/->IrQuery
       name
       (mapv
-        (fn [(capability IrCapabilityRef)] String
+        (fn [capability IrCapabilityRef] String
           (resolved-capability-name resolver capability))
         (js/get source .capabilities))
       params bindings predicates selection result-kind page)))
 
 (defn lower-route-template
-  [(source IrRouteTemplateSpec) (resolver DeclarationResolver)] IrRoute
+  [source IrRouteTemplateSpec
+   resolver DeclarationResolver] IrRoute
   (ir/->IrRoute
     (resolved-name resolver "route" (js/get source .ref))
     (resolved-name resolver "view" (js/get source .view))
     (mapv
-      (fn [(query IrRouteQuerySpec)] IrRouteQuery
+      (fn [query IrRouteQuerySpec] IrRouteQuery
         (ir/->IrRouteQuery
           (resolved-name resolver "query" (js/get query .query)) (js/get query .alias)))
       (js/get source .queries))
-    (mapv (fn [(param IrRouteParameterSpec)] String (js/get param .name))
+    (mapv (fn [param IrRouteParameterSpec] String (js/get param .name))
           (js/get source .parameters))
-    (mapv (fn [(param IrRouteParameterSpec)] String (js/get param .name))
+    (mapv (fn [param IrRouteParameterSpec] String (js/get param .name))
           (js/get source .parameters))
     []))
 
-(defn route-parameters [(path String)] (Vec String)
+(defn route-parameters [path String] (Vec String)
   (if (= path "/")
     []
     (reduce
@@ -1439,7 +1443,7 @@
       []
       (js/call (subs path 1) .split "/"))))
 
-(defn plugin-evidence [(instance IrLinkedPluginInstance)] Any
+(defn plugin-evidence [instance IrLinkedPluginInstance] Any
   (let [evidence (js/get instance .evidence)]
     {:package_id (js/get evidence .package_id)
      :version (js/get evidence .version)
@@ -1453,18 +1457,24 @@
      :durable_schema_version (js/get evidence .durable_schema_version)
      :migration_ordinal (js/get evidence .migration_ordinal)}))
 
-(defn contribution-allowed? [(use IrPluginUseSpec) (tag String)] Bool
+(defn contribution-allowed?
+  [use IrPluginUseSpec
+   tag String] Bool
   (some?
     (first
       (filterv (fn [item] Bool (= (js/get item ._tag) tag)) (js/get use .allow)))))
 
-(defn imported-port-name [(prefix String) (ref Any)] String
+(defn imported-port-name
+  [prefix String
+   ref Any] String
   (str prefix "." (js/get ref .name)))
 
 (defn plugin-port
-  [(program IrDeclarationProgram) (ref Any) (field String) (label String)] Any
-  (let [declarations
-        (cond
+  [program IrDeclarationProgram
+   ref Any
+   field String
+   label String] Any
+  (let [declarations (cond
           (= field "value-types") (js/get program .value_types)
           (= field "provider-ports") (js/get program .provider_ports)
           (= field "entity-fields-ports") (js/get program .entity_fields_ports)
@@ -1473,8 +1483,7 @@
           (= field "route-templates") (js/get program .route_templates)
           :else
             (graph-error (str label " uses unsupported declaration set '" field "'")))]
-    (let [matches
-          (filterv
+    (let [matches (filterv
             (fn [item] Bool
               (= (ref-key (or (js/get item .ref) (js/get item .root))) (ref-key ref)))
             declarations)]
@@ -1485,10 +1494,9 @@
         (first matches)))))
 
 (defn lower-provider-port
-  [(source IrProviderPortSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  GProviderPort
+  [source IrProviderPortSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver] GProviderPort
   (let [name (resolved-name resolver "provider-port" (js/get source .ref))]
     (->GProviderPort
       name
@@ -1500,13 +1508,11 @@
         (str "provider port '" name "' output")))))
 
 (defn lower-provider-binding
-  [(source IrProviderBindingSpec)
-   (instance IrLinkedPluginInstance)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  GProvider
-  (let [declaration
-        (plugin-port program (js/get source .port) "provider-ports" "provider binding")
+  [source IrProviderBindingSpec
+   instance IrLinkedPluginInstance
+   program IrDeclarationProgram
+   resolver DeclarationResolver] GProvider
+  (let [declaration (plugin-port program (js/get source .port) "provider-ports" "provider binding")
         contract (lower-provider-port declaration program resolver)
         evidence (js/get instance .evidence)]
     (->GProvider
@@ -1519,16 +1525,14 @@
       (ir/->SourceSpan "linked-declarations" 0 0 1 1 1 1))))
 
 (defn lower-provider-bindings
-  [(instance IrLinkedPluginInstance)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  (Vec GProvider)
+  [instance IrLinkedPluginInstance
+   program IrDeclarationProgram
+   resolver DeclarationResolver] (Vec GProvider)
   (let [sources (js/get (js/get instance .composition) .providers)
-        required (js/get (js/get (js/get program .root) .plugin) .required_providers)]
+        required (js/get (plugin-spec program "provider bindings") .required_providers)]
     (doseq [port required]
-      (let [matches
-            (filterv
-              (fn [(binding IrProviderBindingSpec)] Bool
+      (let [matches (filterv
+              (fn [binding IrProviderBindingSpec] Bool
                 (= (ref-key (js/get binding .port)) (ref-key port)))
               sources)]
         (if (not (= (count matches) 1))
@@ -1537,15 +1541,14 @@
                  (js/get port .name) "' exactly once"))
           nil)))
     (mapv
-      (fn [(source IrProviderBindingSpec)] GProvider
+      (fn [source IrProviderBindingSpec] GProvider
         (lower-provider-binding source instance program resolver))
       sources)))
 
 (defn receipt-field-shape
-  [(source IrReceiptFieldDeclarationSpec)
-   (resolver DeclarationResolver)
-   (label String)]
-  Any
+  [source IrReceiptFieldDeclarationSpec
+   resolver DeclarationResolver
+   label String] Any
   (let [type (js/get source .value_type)
         tag (js/get type ._tag)]
     (cond
@@ -1565,10 +1568,10 @@
         (graph-error (str label " uses unsupported receipt field type '" tag "'")))))
 
 (defn lower-receipt-field
-  [(source IrReceiptFieldDeclarationSpec) (resolver DeclarationResolver)] GField
+  [source IrReceiptFieldDeclarationSpec
+   resolver DeclarationResolver] GField
   (let [name (resolved-name resolver "receipt-field" (js/get source .ref))
-        shape
-        (receipt-field-shape source resolver (str "receipt field '" name "'"))]
+        shape (receipt-field-shape source resolver (str "receipt field '" name "'"))]
     (->GField
       name
       (js/get source .storage_id)
@@ -1581,14 +1584,12 @@
       false [] nil)))
 
 (defn receipt-entity
-  [(application IrDeclarationProgram)
-   (plugins (Vec LoweredPlugin))
-   (commands (Vec Any))]
-  GEntity?
+  [application IrDeclarationProgram
+   plugins (Vec LoweredPlugin)
+   commands (Vec Any)] GEntity?
   (if (= (count commands) 0)
     nil
-    (let [sources
-        (reduce
+    (let [sources (reduce
           (fn [result plugin] (Vec Any)
             (conj result
               [(js/get (js/get plugin .program) .receipt_entity)
@@ -1598,12 +1599,10 @@
             (js/get application .receipt_fields)
             (empty-resolver)]]
           plugins)
-        entities
-        (filterv (fn [source] Bool (some? (nth source 0))) sources)]
-    (if (= (count entities) 0)
+          entities (filterv (fn [source] Bool (some? (nth source 0))) sources)]
+      (if (= (count entities) 0)
       nil
-      (let [storage-ids
-            (reduce
+      (let [storage-ids (reduce
               (fn [result source] (Vec String)
                 (let [value (js/get (nth source 0) .storage_id)]
                   (if (js/call result .includes value) result (conj result value))))
@@ -1611,39 +1610,37 @@
         (if (not (= (count storage-ids) 1))
           (graph-error "command receipt core has conflicting storage IDs")
           nil)
-        (let [fields
-              (reduce
+        (let [fields (reduce
                 (fn [result source] (Vec GField)
                   (reduce
                     (fn [current field] (Vec GField)
                       (let [lowered (lower-receipt-field field (nth source 2))
-                            prior
-                            (first
+                            prior (first
                               (filterv
-                                (fn [(item GField)] Bool
+                                (fn [item GField] Bool
                                   (= (js/get item .storage_id) (js/get lowered .storage_id)))
                                 current))]
                         (if (nil? prior) (conj current lowered) current)))
                     result
                     (nth source 1)))
                 [] sources)
-              identity
-              (first (filterv (fn [(field GField)] Bool (js/get field .identity)) fields))]
+              identity (first (filterv (fn [field GField] Bool (js/get field .identity)) fields))]
           (validate-distinct-names
-            (mapv (fn [(field GField)] String (js/get field .name)) fields)
+            (mapv (fn [field GField] String (js/get field .name)) fields)
             "command receipt field")
           (->GEntity
             "wake.core/command-receipt"
             (first storage-ids)
             fields fields []
             (filterv
-              (fn [(field GField)] Bool (= (js/get field .value_kind) "ref"))
+              (fn [field GField] Bool (= (js/get field .value_kind) "ref"))
               fields)
             identity
             "wake.core/command-receipts")))))))
 
 (defn extension-target-name
-  [(port IrEntityFieldsPortSpec) (resolver DeclarationResolver)] String
+  [port IrEntityFieldsPortSpec
+   resolver DeclarationResolver] String
   (let [target (js/get port .target)
         tag (js/get target ._tag)]
     (cond
@@ -1654,10 +1651,9 @@
         (graph-error (str "extension port uses unsupported target '" tag "'")))))
 
 (defn lower-extension-field
-  [(source IrExtensionFieldSpec)
-   (resolver DeclarationResolver)
-   (target String)]
-  IrAttr
+  [source IrExtensionFieldSpec
+   resolver DeclarationResolver
+   target String] IrAttr
   (let [shape (field-type-shape (js/get source .value_type) resolver)
         write (field-write-name (js/get source .write))]
     (if (not (nonempty-string? (js/get source .storage_id)))
@@ -1676,17 +1672,15 @@
        "target-entity" (nth shape 2)})))
 
 (defn lower-extensions
-  [(instance IrLinkedPluginInstance)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  (Vec ResolvedPluginExtension)
+  [instance IrLinkedPluginInstance
+   program IrDeclarationProgram
+   resolver DeclarationResolver] (Vec ResolvedPluginExtension)
   (if (and (> (count (js/get (js/get instance .composition) .extensions)) 0)
            (not (contribution-allowed? (js/get instance .use) "IrSchemaContribution")))
     (graph-error (str "plugin '" (js/get instance .alias) "' extensions require schema"))
     (mapv
-      (fn [(source IrExtendSpec)] ResolvedPluginExtension
-        (let [port
-              (plugin-port
+      (fn [source IrExtendSpec] ResolvedPluginExtension
+        (let [port (plugin-port
                 program (js/get source .port) "entity-fields-ports" "extension port")
               target (extension-target-name port resolver)
               policy (js/get port .policy)]
@@ -1706,16 +1700,15 @@
             (ir/->IrExtend
               (imported-port-name (js/get resolver .prefix) (js/get source .port))
               (mapv
-                (fn [(field IrExtensionFieldSpec)] IrAttr
+                (fn [field IrExtensionFieldSpec] IrAttr
                   (lower-extension-field field (empty-resolver) target))
                 (js/get source .fields))
               (ir/->SourceSpan "linked-declarations" 0 0 1 1 1 1)))))
       (js/get (js/get instance .composition) .extensions))))
 
-(defn extension-values
-  [(extensions (Vec ResolvedPluginExtension))] (Vec GExtension)
+(defn extension-values [extensions (Vec ResolvedPluginExtension)] (Vec GExtension)
   (mapv
-    (fn [(extension ResolvedPluginExtension)] GExtension
+    (fn [extension ResolvedPluginExtension] GExtension
       (let [raw (js/get extension .extension)]
         (->GExtension
           "entity-fields"
@@ -1726,30 +1719,30 @@
     extensions))
 
 (defn apply-plugin-extensions
-  [(entities (Vec GEntity))
-   (extensions (Vec ResolvedPluginExtension))]
-  (Vec GEntity)
+  [entities (Vec GEntity)
+   extensions (Vec ResolvedPluginExtension)] (Vec GEntity)
   (reduce
     (fn
-      [(result (Vec GEntity)) (extension ResolvedPluginExtension)] (Vec GEntity)
+      [result (Vec GEntity)
+       extension ResolvedPluginExtension] (Vec GEntity)
       (apply-extension
         result (js/get extension .extension) (js/get extension .target)))
     entities
     extensions))
 
 (defn apply-extension
-  [(entities (Vec GEntity)) (extension IrExtend) (target String)] (Vec GEntity)
-  (let [matches
-        (filterv (fn [(entity GEntity)] Bool (= (js/get entity .name) target)) entities)]
+  [entities (Vec GEntity)
+   extension IrExtend
+   target String] (Vec GEntity)
+  (let [matches (filterv (fn [entity GEntity] Bool (= (js/get entity .name) target)) entities)]
     (if (not (= (count matches) 1))
       (graph-error (str "extension '" (js/get extension .port) "' has no exact target"))
       nil)
     (mapv
-      (fn [(entity GEntity)] GEntity
+      (fn [entity GEntity] GEntity
         (if (not (= (js/get entity .name) target))
           entity
-          (let [additions
-                (mapv
+          (let [additions (mapv
                   (fn [field] GField
                     (let [opts (js/get field .opts)
                           value-kind (if (= (js/get field .type) "Ref") "ref" "literal")]
@@ -1763,43 +1756,37 @@
                 fields (into (js/get entity .fields) additions)
                 stored (into (js/get entity .stored_fields) additions)]
             (validate-distinct-names
-              (mapv (fn [(field GField)] String (js/get field .name)) fields)
+              (mapv (fn [field GField] String (js/get field .name)) fields)
               (str "entity '" target "' field"))
             (->GEntity
               (js/get entity .name) (js/get entity .storage_id) fields stored
               (js/get entity .derived_fields)
-              (filterv (fn [(field GField)] Bool (= (js/get field .value_kind) "ref")) fields)
+              (filterv (fn [field GField] Bool (= (js/get field .value_kind) "ref")) fields)
               (js/get entity .identity_field) (js/get entity .store_name)))))
       entities)))
 
 (defn lower-component-fill
-  [(source IrFillSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (application-components (Vec IrComponent))
-   (package-id String)]
-  GFill
-  (let [slot
-        (plugin-port program (js/get source .slot) "component-slots" "component fill")
+  [source IrFillSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   application-components (Vec IrComponent)
+   package-id String] GFill
+  (let [slot (plugin-port program (js/get source .slot) "component-slots" "component fill")
         target-ref (js/get slot .target)
-        target
-        (declaration-with-ref
+        target (declaration-with-ref
           (js/get program .components) target-ref "component fill target")
         target-name (resolved-name resolver "component" target-ref)
         component-name (js/get (js/get source .component) .name)
-        component
-        (first
+        component (first
           (filterv
-            (fn [(candidate IrComponent)] Bool
+            (fn [candidate IrComponent] Bool
               (= (js/get candidate .name) component-name))
             application-components))
-        required
-        (mapv
-          (fn [(property IrComponentPropertySpec)] String (js/get property .name))
+        required (mapv
+          (fn [property IrComponentPropertySpec] String (js/get property .name))
           (js/get target .properties))
         provided (if (nil? component) [] (js/get component .props))
-        missing
-        (filterv
+        missing (filterv
           (fn [property] Bool (not (js/call provided .includes property)))
           required)
         port (imported-port-name (js/get resolver .prefix) (js/get source .slot))]
@@ -1815,39 +1802,45 @@
       nil)
     (->GFill port component-name package-id target-name)))
 
-(defn filled-component-name [(name String) (fills (Vec GFill))] String
-  (let [matches
-        (filterv
-          (fn [(fill GFill)] Bool (= (js/get fill .target_component) name))
+(defn filled-component-name
+  [name String
+   fills (Vec GFill)] String
+  (let [matches (filterv
+          (fn [fill GFill] Bool (= (js/get fill .target_component) name))
           fills)]
     (if (> (count matches) 1)
       (graph-error (str "component '" name "' is filled more than once"))
       nil)
     (if (= (count matches) 1) (js/get (first matches) .component) name)))
 
-(defn apply-component-fills [(view IrView) (fills (Vec GFill))] IrView
-  (ir/->IrView
-    (js/get view .name)
-    (js/get view .entity_name)
-    (filled-component-name (js/get view .component) fills)
-    (js/get view .add_fields)
-    (js/get view .title)
-    (if (nil? (js/get view .select_component))
-      nil
-      (filled-component-name (js/get view .select_component) fills))
-    (js/get view .tabs)
-    (js/get view .filters)
-    (js/get view .date_filters)))
+(defn apply-component-fills
+  [view IrView
+   fills (Vec GFill)] IrView
+  (let [select-component String? (js/get view .select_component)]
+    (ir/->IrView
+      (js/get view .name)
+      (js/get view .entity_name)
+      (filled-component-name (js/get view .component) fills)
+      (js/get view .add_fields)
+      (js/get view .title)
+      (if (nil? select-component)
+        nil
+        (filled-component-name select-component fills))
+      (js/get view .tabs)
+      (js/get view .filters)
+      (js/get view .date_filters))))
 
 (defn apply-component-fills-to-components
-  [(components (Vec IrComponent)) (fills (Vec GFill))] (Vec IrComponent)
+  [components (Vec IrComponent)
+   fills (Vec GFill)] (Vec IrComponent)
   (reduce
-    (fn [(result (Vec IrComponent)) (component IrComponent)] (Vec IrComponent)
+    (fn
+      [result (Vec IrComponent)
+       component IrComponent] (Vec IrComponent)
       (let [name (filled-component-name (js/get component .name) fills)
-            replacement
-            (first
+            replacement (first
               (filterv
-                (fn [(candidate IrComponent)] Bool
+                (fn [candidate IrComponent] Bool
                   (= (js/get candidate .name) name))
                 components))]
         (if (nil? replacement)
@@ -1857,7 +1850,7 @@
         (if (some?
               (first
                 (filterv
-                  (fn [(candidate IrComponent)] Bool
+                  (fn [candidate IrComponent] Bool
                     (= (js/get candidate .name) name))
                   result)))
           result
@@ -1865,7 +1858,7 @@
     []
     components))
 
-(defn route-pattern [(path String)] String
+(defn route-pattern [path String] String
   (if (= path "/")
     ""
     (js/call
@@ -1875,13 +1868,11 @@
       "/")))
 
 (defn mounted-route
-  [(mount IrMountSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)]
-  IrRoute
+  [mount IrMountSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver] IrRoute
   (let [slot (plugin-port program (js/get mount .slot) "route-slots" "route slot")
-        template
-        (plugin-port program (js/get slot .target) "route-templates" "mounted route")
+        template (plugin-port program (js/get slot .target) "route-templates" "mounted route")
         lowered (lower-route-template template resolver)
         parameters (route-parameters (js/get mount .path))
         inputs (js/get lowered .input_parameters)]
@@ -1893,23 +1884,18 @@
         parameters inputs []))))
 
 (defn lowered-mount
-  [(source IrMountSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (package-id String)]
-  GMount
+  [source IrMountSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   package-id String] GMount
   (let [slot (plugin-port program (js/get source .slot) "route-slots" "route slot")
-        template
-        (plugin-port program (js/get slot .target) "route-templates" "mounted route")
-        view
-        (declaration-with-ref
+        template (plugin-port program (js/get slot .target) "route-templates" "mounted route")
+        view (declaration-with-ref
           (js/get program .views) (js/get template .view) "mounted route view")
-        component
-        (declaration-with-ref
+        component (declaration-with-ref
           (js/get program .components) (js/get view .component) "mounted route component")
-        input-parameters
-        (mapv
-          (fn [(parameter IrRouteParameterSpec)] String (js/get parameter .name))
+        input-parameters (mapv
+          (fn [parameter IrRouteParameterSpec] String (js/get parameter .name))
           (js/get template .parameters))
         parameters (route-parameters (js/get source .path))
         port (imported-port-name (js/get resolver .prefix) (js/get source .slot))]
@@ -1926,17 +1912,17 @@
       (route-pattern (js/get source .path))
       port
       (mapv
-        (fn [(query IrRouteQuerySpec)] IrRouteQuery
+        (fn [query IrRouteQuerySpec] IrRouteQuery
           (ir/->IrRouteQuery
             (resolved-name resolver "query" (js/get query .query)) (js/get query .alias)))
         (js/get template .queries))
       (mapv
-        (fn [(property IrComponentPropertySpec)] String (js/get property .name))
+        (fn [property IrComponentPropertySpec] String (js/get property .name))
         (js/get component .properties))
       (resolved-name resolver "route" (js/get slot .target))
       (resolved-name resolver "view" (js/get template .view)))))
 
-(defn command-descriptor-shape [(descriptor Any)] Any
+(defn command-descriptor-shape [descriptor Any] Any
   (let [kind (get descriptor "kind")]
     (cond
       (= kind "record")
@@ -1963,13 +1949,11 @@
       :else descriptor)))
 
 (defn command-extension
-  [(extensions (Vec ResolvedPluginExtension))
-   (ref IrEntityFieldsPortRef)
-   (label String)]
-  ResolvedPluginExtension
-  (let [matches
-        (filterv
-          (fn [(extension ResolvedPluginExtension)] Bool
+  [extensions (Vec ResolvedPluginExtension)
+   ref IrEntityFieldsPortRef
+   label String] ResolvedPluginExtension
+  (let [matches (filterv
+          (fn [extension ResolvedPluginExtension] Bool
             (= (ref-key (js/get (js/get extension .port) .ref)) (ref-key ref)))
           extensions)]
     (if (not (= (count matches) 1))
@@ -1977,7 +1961,8 @@
       (first matches))))
 
 (defn command-extension-field-type
-  [(field IrExtensionFieldSpec) (resolver DeclarationResolver)] Any
+  [field IrExtensionFieldSpec
+   resolver DeclarationResolver] Any
   (let [shape (field-type-shape (js/get field .value_type) resolver)
         type (nth shape 0)]
     (cond
@@ -1991,18 +1976,17 @@
       :else {"kind" "keyword"})))
 
 (defn command-value-type
-  [(source IrValueTypeSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (extensions (Vec ResolvedPluginExtension))
-   (label String)]
-  Any
+  [source IrValueTypeSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   extensions (Vec ResolvedPluginExtension)
+   label String] Any
   (if (= (js/get source ._tag) "IrExtensionValueType")
     (let [extension (command-extension extensions (js/get source .port) label)]
       {"kind" "record"
        "fields"
        (mapv
-         (fn [(field IrExtensionFieldSpec)] Any
+         (fn [field IrExtensionFieldSpec] Any
            {"name" (js/get (js/get field .ref) .name)
             "required" (js/get field .required)
             "type" (command-extension-field-type field resolver)})
@@ -2011,11 +1995,10 @@
       (resolved-value-type-descriptor source program resolver label))))
 
 (defn lower-command-expression
-  [(source IrCommandExpr)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (label String)]
-  Any
+  [source IrCommandExpr
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   label String] Any
   (let [tag (js/get source ._tag)]
     (cond
       (= tag "IrCommandInputExpr")
@@ -2039,7 +2022,7 @@
         {"kind" "record"
          "fields"
          (mapv
-           (fn [(field IrCommandRecordField)] Any
+           (fn [field IrCommandRecordField] Any
              {"name" (strip-colon (js/get field .name))
               "value"
               (lower-command-expression
@@ -2061,11 +2044,10 @@
         (graph-error (str label " uses unsupported command expression '" tag "'")))))
 
 (defn lower-command-condition
-  [(source IrCommandPredicate)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (label String)]
-  Any
+  [source IrCommandPredicate
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   label String] Any
   (let [tag (js/get source ._tag)]
     (cond
       (= tag "IrNonNullPredicate")
@@ -2076,59 +2058,55 @@
         (graph-error (str label " uses unsupported command condition '" tag "'")))))
 
 (defn lower-command-guard
-  [(source IrCommandGuardSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (label String)]
-  Any
-  (if (nil? (js/get source .when))
-    {"op" "guard"
-     "entity" (resolved-name resolver "entity" (js/get source .entity))
-     "identity" (lower-command-expression (js/get source .id) program resolver label)
-     "field" (resolved-name resolver "field" (js/get source .field))
-     "equals" (lower-command-expression (js/get source .expected) program resolver label)}
-    {"op" "guard"
-     "entity" (resolved-name resolver "entity" (js/get source .entity))
-     "identity" (lower-command-expression (js/get source .id) program resolver label)
-     "field" (resolved-name resolver "field" (js/get source .field))
-     "equals" (lower-command-expression (js/get source .expected) program resolver label)
-     "when" (lower-command-condition (js/get source .when) program resolver label)}))
+  [source IrCommandGuardSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   label String] Any
+  (let [condition IrCommandPredicate? (js/get source .when)]
+    (if (nil? condition)
+      {"op" "guard"
+       "entity" (resolved-name resolver "entity" (js/get source .entity))
+       "identity" (lower-command-expression (js/get source .id) program resolver label)
+       "field" (resolved-name resolver "field" (js/get source .field))
+       "equals" (lower-command-expression (js/get source .expected) program resolver label)}
+      {"op" "guard"
+       "entity" (resolved-name resolver "entity" (js/get source .entity))
+       "identity" (lower-command-expression (js/get source .id) program resolver label)
+       "field" (resolved-name resolver "field" (js/get source .field))
+       "equals" (lower-command-expression (js/get source .expected) program resolver label)
+       "when" (lower-command-condition condition program resolver label)})))
 
 (defn lower-command-write
-  [(source IrCommandWriteSpec)
-   (op String)
-   (entity String)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (extensions (Vec ResolvedPluginExtension))
-   (label String)]
-  (Vec Any)
-  (let [tag (js/get source ._tag)]
-    (cond
-      (= tag "IrFieldCommandWrite")
-        (let [write (js/get source .write)
-              field (resolved-name resolver "field" (js/get write .field))
-              value
-              (lower-command-expression (js/get write .value) program resolver label)]
+  [source IrCommandWriteSpec
+   op String
+   entity String
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   extensions (Vec ResolvedPluginExtension)
+   label String] (Vec Any)
+  (match source
+      [(IrFieldCommandWrite write)
+        (let [field String (resolved-name resolver "field" (js/get write .field))
+              value Any (lower-command-expression (js/get write .value) program resolver label)
+              allowed-current IrCommandExpr? (js/get write .allowed_current)]
           (if (= op "create")
             [{"field" field "value" value
               "omitIfNull" (js/get write .omit_if_null)}]
-            (if (nil? (js/get write .allowed_current))
+            (if (nil? allowed-current)
               [{"field" field "value" value}]
               [{"field" field "value" value
                 "allowedCurrent"
                 (lower-command-expression
-                  (js/get write .allowed_current) program resolver label)}])))
-      (= tag "IrExtensionCommandWrite")
+                  allowed-current program resolver label)}])))]
+      [(IrExtensionCommandWrite port input)
         (if (not (= op "create"))
           (graph-error (str label " cannot use extension fields in update"))
-          (let [extension
-                (command-extension extensions (js/get source .port) label)]
+          (let [extension (command-extension extensions port label)]
             (if (not (= (js/get extension .target) entity))
               (graph-error (str label " extension targets the wrong entity"))
               nil)
             (mapv
-              (fn [(field IrExtensionFieldSpec)] Any
+              (fn [field IrExtensionFieldSpec] Any
                 (let [name (js/get (js/get field .ref) .name)]
                   (if (or (not (js/get field .required))
                           (not (= (js/get (js/get field .write) ._tag) "IrCreateWrite"))
@@ -2141,20 +2119,17 @@
                    "value"
                    {"kind" "get"
                     "value" {"kind" "input"
-                             "name" (strip-colon (js/get source .input))}
+                             "name" (strip-colon input)}
                     "field" name}
                    "omitIfNull" false}))
-              (js/get (js/get extension .source) .fields))))
-      :else
-        (graph-error (str label " uses unsupported command write '" tag "'")))))
+              (js/get (js/get extension .source) .fields))))]))
 
 (defn lower-command-step
-  [(source IrCommandStep)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (extensions (Vec ResolvedPluginExtension))
-   (label String)]
-  Any
+  [source IrCommandStep
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   extensions (Vec ResolvedPluginExtension)
+   label String] Any
   (let [tag (js/get source ._tag)]
     (cond
       (= tag "IrAssertStep")
@@ -2181,14 +2156,15 @@
               (graph-error
                 (str label " uses unsupported assertion '" predicate-tag "'"))))
       (= tag "IrRequireStep")
-        (if (nil? (js/get source .when))
-          {"op" "require"
-           "entity" (resolved-name resolver "entity" (js/get source .entity))
-           "identity" (lower-command-expression (js/get source .id) program resolver label)}
-          {"op" "require"
-           "entity" (resolved-name resolver "entity" (js/get source .entity))
-           "identity" (lower-command-expression (js/get source .id) program resolver label)
-           "when" (lower-command-condition (js/get source .when) program resolver label)})
+        (let [condition IrCommandPredicate? (js/get source .when)]
+          (if (nil? condition)
+            {"op" "require"
+             "entity" (resolved-name resolver "entity" (js/get source .entity))
+             "identity" (lower-command-expression (js/get source .id) program resolver label)}
+            {"op" "require"
+             "entity" (resolved-name resolver "entity" (js/get source .entity))
+             "identity" (lower-command-expression (js/get source .id) program resolver label)
+             "when" (lower-command-condition condition program resolver label)}))
       (= tag "IrRequireEachStep")
         {"op" "require-each"
          "entity" (resolved-name resolver "entity" (js/get source .entity))
@@ -2198,8 +2174,7 @@
       (or (= tag "IrCreateStep") (= tag "IrUpdateStep"))
         (let [op (if (= tag "IrCreateStep") "create" "update")
               entity (resolved-name resolver "entity" (js/get source .entity))
-              fields
-              (reduce
+              fields (reduce
                 (fn [result write] (Vec Any)
                   (into result
                     (lower-command-write
@@ -2220,20 +2195,18 @@
         (graph-error (str label " uses unsupported command step '" tag "'")))))
 
 (defn lower-command-injection
-  [(source IrCommandInjection)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (extensions (Vec ResolvedPluginExtension))
-   (label String)]
-  Any
+  [source IrCommandInjection
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   extensions (Vec ResolvedPluginExtension)
+   label String] Any
   (let [tag (js/get source ._tag)]
     (cond
       (= tag "IrGeneratedIdInjection")
         {"name" (strip-colon (js/get source .name))
          "kind" "generated-id" "type" {"kind" "string"}}
       (= tag "IrProviderInjection")
-        (let [provider
-              (get (js/get resolver .provider_bindings) (ref-key (js/get source .port)))]
+        (let [provider (get (js/get resolver .provider_bindings) (ref-key (js/get source .port)))]
           (if (nil? provider)
             (graph-error (str label " names an unbound provider"))
             {"name" (strip-colon (js/get source .name))
@@ -2255,43 +2228,37 @@
         (graph-error (str label " uses unsupported command injection '" tag "'")))))
 
 (defn command-receipt-field
-  [(program IrDeclarationProgram)
-   (ref IrReceiptFieldRef)
-   (label String)]
-  IrReceiptFieldDeclarationSpec
+  [program IrDeclarationProgram
+   ref IrReceiptFieldRef
+   label String] IrReceiptFieldDeclarationSpec
   (declaration-with-ref (js/get program .receipt_fields) ref label))
 
 (defn lower-command
-  [(source IrCommandSpec)
-   (program IrDeclarationProgram)
-   (resolver DeclarationResolver)
-   (extensions (Vec ResolvedPluginExtension))]
-  Any
+  [source IrCommandSpec
+   program IrDeclarationProgram
+   resolver DeclarationResolver
+   extensions (Vec ResolvedPluginExtension)] Any
   (let [name (resolved-name resolver "command" (js/get source .ref))
         label (str "command '" name "'")
-        inputs
-        (mapv
-          (fn [(input IrCommandInputField)] Any
+        inputs (mapv
+          (fn [input IrCommandInputField] Any
             {"name" (strip-colon (js/get input .name))
              "required" true
              "type"
              (command-value-type
                (js/get input .value_type) program resolver extensions label)})
           (js/get source .input))
-        injections
-        (mapv
-          (fn [(injection IrCommandInjection)] Any
+        injections (mapv
+          (fn [injection IrCommandInjection] Any
             (lower-command-injection
               injection program resolver extensions label))
           (js/get source .injections))
-        steps
-        (mapv
-          (fn [(step IrCommandStep)] Any
+        steps (mapv
+          (fn [step IrCommandStep] Any
             (lower-command-step step program resolver extensions label))
           (js/get source .steps))
-        results
-        (mapv
-          (fn [(result IrCommandResultField)] Any
+        results (mapv
+          (fn [result IrCommandResultField] Any
             {"name" (strip-colon (js/get result .name))
              "type"
              (command-value-type
@@ -2300,17 +2267,14 @@
              (lower-command-expression (js/get result .value) program resolver label)})
           (js/get source .result))
         receipt (js/get source .receipt)
-        receipt-results
-        (mapv
-          (fn [(result IrReceiptResultField)] Any
+        receipt-results (mapv
+          (fn [result IrReceiptResultField] Any
             (let [name (strip-colon (js/get result .name))
-                  command-result
-                  (first
+                  command-result (first
                     (filterv
                       (fn [candidate] Bool (= (get candidate "name") name))
                       results))
-                  declaration
-                  (command-receipt-field program (js/get result .field) label)]
+                  declaration (command-receipt-field program (js/get result .field) label)]
               (if (nil? command-result)
                 (graph-error (str label " receipt names unknown result '" name "'"))
                 nil)
@@ -2318,8 +2282,7 @@
                "field" (resolved-name resolver "receipt-field" (js/get declaration .ref))
                "type" (get command-result "type")}))
           (js/get receipt .results))
-        server-fields
-        (reduce
+        server-fields (reduce
           (fn [result port] (Vec Any)
             (let [extension (command-extension extensions port label)]
               (if (not (= (js/get extension .target) "wake.core/command-receipt"))
@@ -2327,7 +2290,7 @@
                 nil)
               (into result
                 (mapv
-                  (fn [(field IrExtensionFieldSpec)] Any
+                  (fn [field IrExtensionFieldSpec] Any
                     (let [field-name (js/get (js/get field .ref) .name)
                           storage-id (js/get field .storage_id)
                           type (command-extension-field-type field resolver)
@@ -2347,8 +2310,7 @@
                   (js/get (js/get extension .source) .fields)))))
           []
           (js/get receipt .extensions))
-        final-injections
-        (into injections
+        final-injections (into injections
           (mapv
             (fn [field] Any
               {"name" (get field "injectionName")
@@ -2356,8 +2318,7 @@
                "storageId" (get field "storageId")
                "type" (get field "type")})
             server-fields))
-        final-results
-        (into results
+        final-results (into results
           (mapv
             (fn [field] Any
               {"name" (get field "name")
@@ -2365,8 +2326,7 @@
                "value" {"kind" "injected"
                         "name" (get field "injectionName")}})
             server-fields))
-        final-receipt-results
-        (into receipt-results
+        final-receipt-results (into receipt-results
           (mapv
             (fn [field] Any
               {"name" (get field "name")
@@ -2376,13 +2336,12 @@
     {"name" name
      "capabilities"
      (mapv
-       (fn [(ref IrCapabilityRef)] Any
-         (let [capability
-               (declaration-with-ref (js/get program .capabilities) ref label)]
+       (fn [ref IrCapabilityRef] Any
+         (let [capability (declaration-with-ref (js/get program .capabilities) ref label)]
            {"capability" (resolved-capability-name resolver ref)
             "guards"
             (mapv
-              (fn [(guard IrCommandGuardSpec)] Any
+              (fn [guard IrCommandGuardSpec] Any
                 (lower-command-guard guard program resolver label))
               (js/get capability .guards))}))
        (js/get source .capabilities))
@@ -2401,42 +2360,31 @@
       "resultFields" final-receipt-results}}))
 
 (defn lower-plugin-instance
-  [(instance IrLinkedPluginInstance)
-   (application-id String)
-   (application-components (Vec IrComponent))]
-  LoweredPlugin
-  (let [checked
-        (require-ir-tag
+  [instance IrLinkedPluginInstance
+   application-id String
+   application-components (Vec IrComponent)] LoweredPlugin
+  (let [checked (require-ir-tag
           (js/get instance .checked) "IrCheckedDeclarationProgram"
           (str "plugin '" (js/get instance .alias) "' declarations"))
-        program
-        (require-ir-tag
+        program (require-ir-tag
           (js/get checked .program) "IrDeclarationProgram"
           (str "plugin '" (js/get instance .alias) "' declaration program"))
-        root
-        (require-ir-tag
+        root (require-ir-tag
           (js/get program .root) "IrPluginDeclarationRoot"
           (str "plugin '" (js/get instance .alias) "' root"))
         resolver (plugin-resolver instance program)
-        schema?
-        (contribution-allowed? (js/get instance .use) "IrSchemaContribution")
-        query?
-        (contribution-allowed? (js/get instance .use) "IrQueryContribution")
-        command?
-        (contribution-allowed? (js/get instance .use) "IrCommandContribution")
-        capability?
-        (contribution-allowed? (js/get instance .use) "IrCapabilityContribution")
-        ui?
-        (contribution-allowed? (js/get instance .use) "IrUiContribution")
-        route?
-        (contribution-allowed? (js/get instance .use) "IrRouteContribution")
+        schema? (contribution-allowed? (js/get instance .use) "IrSchemaContribution")
+        query? (contribution-allowed? (js/get instance .use) "IrQueryContribution")
+        command? (contribution-allowed? (js/get instance .use) "IrCommandContribution")
+        capability? (contribution-allowed? (js/get instance .use) "IrCapabilityContribution")
+        ui? (contribution-allowed? (js/get instance .use) "IrUiContribution")
+        route? (contribution-allowed? (js/get instance .use) "IrRouteContribution")
         extensions (lower-extensions instance program resolver)
         raw-extensions (extension-values extensions)
         package-id (js/get (js/get instance .evidence) .package_id)
-        fills
-        (if ui?
+        fills (if ui?
           (mapv
-            (fn [(source IrFillSpec)] GFill
+            (fn [source IrFillSpec] GFill
               (lower-component-fill
                 source program resolver application-components package-id))
             (js/get (js/get instance .composition) .fills))
@@ -2455,56 +2403,56 @@
       (plugin-evidence instance)
       (if schema?
         (mapv
-          (fn [(entity IrEntityDeclarationSpec)] GEntity
+          (fn [entity IrEntityDeclarationSpec] GEntity
             (lower-entity-declaration
               entity nil resolver application-id false))
           (js/get program .entities))
         [])
       (if schema?
         (mapv
-          (fn [(state IrStateDeclarationSpec)] IrDefstate
+          (fn [state IrStateDeclarationSpec] IrDefstate
             (lower-state-declaration state program resolver))
           (js/get program .states))
         [])
       (if schema?
         (mapv
-          (fn [(publication IrPublicationDeclarationSpec)] IrPublication
+          (fn [publication IrPublicationDeclarationSpec] IrPublication
             (lower-publication publication program resolver))
           (js/get program .publications))
         [])
       (if query?
         (mapv
-          (fn [(query IrQueryDeclarationSpec)] IrQuery
+          (fn [query IrQueryDeclarationSpec] IrQuery
             (lower-query query program resolver raw-extensions))
           (js/get program .queries))
         [])
       (if command?
         (mapv
-          (fn [(command IrCommandSpec)] Any
+          (fn [command IrCommandSpec] Any
             (lower-command command program resolver extensions))
           (js/get program .commands))
         [])
       (if ui?
         (mapv
-          (fn [(form IrFormDeclarationSpec)] IrSmartForm
+          (fn [form IrFormDeclarationSpec] IrSmartForm
             (lower-form form resolver))
           (js/get program .forms))
         [])
       (if ui?
         (mapv
-          (fn [(detail IrListDetailDeclarationSpec)] IrListDetail
+          (fn [detail IrListDetailDeclarationSpec] IrListDetail
             (lower-list-detail detail resolver))
           (js/get program .list_details))
         [])
       (if schema?
         (mapv
-          (fn [(value-type IrValueTypeDeclarationSpec)] Any
+          (fn [value-type IrValueTypeDeclarationSpec] Any
             (lower-value-type-declaration value-type program resolver))
           (js/get program .value_types))
         [])
       (if capability?
         (mapv
-          (fn [(port IrProviderPortSpec)] GProviderPort
+          (fn [port IrProviderPortSpec] GProviderPort
             (lower-provider-port port program resolver))
           (js/get program .provider_ports))
         [])
@@ -2515,60 +2463,62 @@
       fills
       (if route?
         (mapv
-          (fn [(mount IrMountSpec)] GMount
+          (fn [mount IrMountSpec] GMount
             (lowered-mount mount program resolver package-id))
           (js/get (js/get instance .composition) .mounts))
         [])
       (if ui?
         (mapv
-          (fn [(component IrComponentDeclarationSpec)] IrComponent
+          (fn [component IrComponentDeclarationSpec] IrComponent
             (lower-component component resolver))
           (js/get program .components))
         [])
       (if ui?
         (mapv
-          (fn [(view IrViewDeclarationSpec)] IrView
+          (fn [view IrViewDeclarationSpec] IrView
             (lower-view view program resolver))
           (js/get program .views))
         [])
       (if route?
         (mapv
-          (fn [(route IrRouteTemplateSpec)] IrRoute
+          (fn [route IrRouteTemplateSpec] IrRoute
             (lower-route-template route resolver))
           (js/get program .route_templates))
         [])
       (if route?
         (mapv
-          (fn [(mount IrMountSpec)] IrRoute
+          (fn [mount IrMountSpec] IrRoute
             (mounted-route mount program resolver))
           (js/get (js/get instance .composition) .mounts))
         []))))
 
-(defn lower-theme [(theme IrThemeSpec?)] IrTheme?
+(defn lower-theme [theme IrThemeSpec?] IrTheme?
   (if (nil? theme) nil (ir/->IrTheme (js/get theme .colors))))
 
 ;; --- Shared utilities ---
 
 (js/export
- (defn strip-colon [(s String)] String
+ (defn strip-colon [s String] String
   (if (js/call s .startsWith ":") (subs s 1) s))
 )
 
-(defn capitalize [(s String)] String
+(defn capitalize [s String] String
   (str (js/call (subs s 0 1) .toUpperCase) (subs s 1)))
 
-(defn titlecase [(s String)] String
+(defn titlecase [s String] String
   (str (js/call (subs s 0 1) .toUpperCase) (subs s 1)))
 
 ;; --- Field analysis ---
 
-(defn graph-error [(message String)] Any
+(defn graph-error [message String] Any
   (throw (ex-info (str "wake: " message) {})))
 
 (def reserved-generated-names (Vec String)
   ["__proto__" "prototype" "constructor"])
 
-(defn validate-generated-name [(kind String) (name String)] Any
+(defn validate-generated-name
+  [kind String
+   name String] Any
   (if (js/call reserved-generated-names .includes (strip-colon name))
     (graph-error
       (str kind " name '" name
@@ -2576,14 +2526,16 @@
     nil))
 
 (defn validate-generated-names
-  [(prog Any) (entities (Vec GEntity)) (defstates (Vec IrDefstate))] Any
+  [prog Any
+   entities (Vec GEntity)
+   defstates (Vec IrDefstate)] Any
   (doseq [entity entities]
     (validate-generated-name "entity" (js/get entity .name))
     (doseq [field (js/get entity .fields)]
       (validate-generated-name "field" (js/get field .name))))
   (doseq [defstate defstates]
     (validate-generated-name "state type" (js/get defstate .name))
-    (doseq [state (keys (js/get defstate .transitions))]
+    (doseq [state (set (keys (js/get defstate .transitions)))]
       (validate-generated-name "state" state)))
   (doseq [component (or (js/get prog .components) [])]
     (validate-generated-name "component" (js/get component .name))
@@ -2605,7 +2557,8 @@
       nil)))
 
 (defn validate-unique-declaration-names
-  [(names (Vec String)) (label String)] Any
+  [names (Vec String)
+   label String] Any
   (reduce
     (fn [seen name] (Vec String)
       (if (js/call seen .includes name)
@@ -2614,7 +2567,9 @@
     []
     names))
 
-(defn validate-declaration-uniqueness [(prog Any) (entities (Vec GEntity))] Any
+(defn validate-declaration-uniqueness
+  [prog Any
+   entities (Vec GEntity)] Any
   (validate-unique-declaration-names
     (mapv (fn [entity] String (js/get entity .name)) entities)
     "entity")
@@ -2625,7 +2580,9 @@
     (mapv (fn [view] String (js/get view .name)) (or (js/get prog .views) []))
     "view"))
 
-(defn validate-ui-references [(prog Any) (entities (Vec GEntity))] Any
+(defn validate-ui-references
+  [prog Any
+   entities (Vec GEntity)] Any
   (let [components (or (js/get prog .components) [])
         views (or (js/get prog .views) [])
         entity-names (mapv (fn [entity] String (js/get entity .name)) entities)
@@ -2680,11 +2637,14 @@
             nil))
         nil))))
 
-(defn nonempty-string? [(value Any)] Bool
+(defn nonempty-string? [value Any] Bool
   (and (string? value) (> (count value) 0)))
 
 (defn required-storage-id
-  [(value Any) (label String) (fallback String) (local Bool)] String
+  [value Any
+   label String
+   fallback String
+   local Bool] String
   (if (nonempty-string? value)
     value
     (if local
@@ -2693,7 +2653,8 @@
         (str "plugin " label " requires a nonempty fixed storage ID")))))
 
 (defn append-unique-derived-deps
-  [(deps (Vec String)) (additions (Vec String))] (Vec String)
+  [deps (Vec String)
+   additions (Vec String)] (Vec String)
   (reduce
     (fn [result dependency] (Vec String)
       (if (js/call result .includes dependency)
@@ -2702,7 +2663,9 @@
     deps
     additions))
 
-(defn validate-derived-expression [(expr Any) (label String)] (Vec String)
+(defn validate-derived-expression
+  [expr Any
+   label String] (Vec String)
   (if (nil? expr)
     (graph-error (str label " requires a closed derived expression"))
     nil)
@@ -2730,7 +2693,9 @@
         (graph-error
           (str label " uses unsupported derived expression '" tag "'")))))
 
-(defn validate-derived-fields [(entity-name String) (fields (Vec GField))] Any
+(defn validate-derived-fields
+  [entity-name String
+   fields (Vec GField)] Any
   (doseq [field fields]
     (if (js/get field .derived)
       (let [label (str "derived field '" entity-name "." (js/get field .name) "'")
@@ -2744,8 +2709,7 @@
             (str label " dependencies do not exactly match its expression"))
           nil)
         (doseq [dependency actual]
-          (let [resolved
-                (first
+          (let [resolved (first
                   (filterv
                     (fn [candidate] Bool
                       (= (js/get candidate .name) dependency))
@@ -2769,7 +2733,7 @@
       nil))
   nil)
 
-(defn validate-storage-id-uniqueness [(entities (Vec GEntity))] Any
+(defn validate-storage-id-uniqueness [entities (Vec GEntity)] Any
   (reduce
     (fn [seen entry] (Map String String)
       (let [storage-id (nth entry 0)
@@ -2799,7 +2763,7 @@
 
 ;; --- FK edge resolution ---
 
-(defn resolve-fk-edges [(entities (Vec GEntity))] (Vec FkEdge)
+(defn resolve-fk-edges [entities (Vec GEntity)] (Vec FkEdge)
   (let [entity-names (mapv (fn [entity] String (js/get entity .name)) entities)]
     (reduce
       (fn [edges entity] (Vec FkEdge)
@@ -2828,7 +2792,7 @@
 
 ;; --- Backend invariants ---
 
-(defn fram-literal-type? [(type String)] Bool
+(defn store-literal-type? [type String] Bool
   (or (= type "String")
       (= type "Digest")
       (= type "Int")
@@ -2841,53 +2805,56 @@
       (= type "Keyword")
       (= type "Instant")))
 
-(defn fram-stored-field-type? [(field GField) (defstates (Vec IrDefstate))] Bool
+(defn store-stored-field-type?
+  [field GField
+   defstates (Vec IrDefstate)] Bool
   (let [type (js/get field .type)]
-    (or (fram-literal-type? type)
+    (or (store-literal-type? type)
         (= type "Ref")
         (some?
           (first
             (filterv (fn [state] Bool (= (js/get state .name) type)) defstates))))))
 
-(defn validate-backend [(prog Any) (entities (Vec GEntity))] Any
+(defn validate-backend
+  [prog Any
+   entities (Vec GEntity)] Any
   (let [backend (js/get prog .backend)
         defstates (or (js/get prog .defstates) [])]
-    (if (and (some? backend) (not (= (js/get backend .kind) "fram")))
+    (if (and (some? backend) (not (= (js/get backend .kind) "store")))
       (graph-error (str "unsupported backend '" (js/get backend .kind) "'"))
       nil)
     (if (and (some? backend) (some? (js/get prog .persist)))
-      (graph-error "FRAM-backed applications cannot declare local persistence")
+      (graph-error "Store-backed applications cannot declare local persistence")
       nil)
     (if (some? backend)
       (doseq [entity entities]
-        (let [identity-fields
-              (filterv (fn [field] Bool (js/get field .identity))
+        (let [identity-fields (filterv (fn [field] Bool (js/get field .identity))
                        (js/get entity .stored_fields))]
           (doseq [field (js/get entity .stored_fields)]
-            (if (not (fram-stored-field-type? field defstates))
+            (if (not (store-stored-field-type? field defstates))
               (graph-error
-                (str "FRAM-backed field '" (js/get entity .name) "."
+                (str "Store-backed field '" (js/get entity .name) "."
                      (js/get field .name) "' has unsupported type '"
                      (js/get field .type) "'"))
               nil))
           (if (= (count identity-fields) 0)
             (graph-error
-              (str "FRAM-backed entity '" (js/get entity .name)
+              (str "Store-backed entity '" (js/get entity .name)
                    "' requires exactly one :identity field"))
             nil)
           (if (> (count identity-fields) 1)
             (graph-error
-              (str "FRAM-backed entity '" (js/get entity .name)
+              (str "Store-backed entity '" (js/get entity .name)
                    "' has multiple :identity fields"))
             nil)))
       nil)))
 
 ;; --- State machine resolution ---
 
-(defn validate-defstate [(defstate IrDefstate)] Any
+(defn validate-defstate [defstate IrDefstate] Any
   (let [name (js/get defstate .name)
         transitions (js/get defstate .transitions)
-        source-names (keys transitions)
+        source-names (set (keys transitions))
         states (mapv strip-colon source-names)
         initial (strip-colon (js/get defstate .initial))]
     (if (= (count states) 0)
@@ -2930,12 +2897,13 @@
                    "' targets undeclared state '" target "'"))
             nil))))))
 
-(defn validate-defstates [(defstates (Vec IrDefstate))] Any
+(defn validate-defstates [defstates (Vec IrDefstate)] Any
   (doseq [defstate defstates]
     (validate-defstate defstate)))
 
 (defn resolve-state-machines
-  [(entities (Vec GEntity)) (defstates (Vec IrDefstate))] (Vec StateMachine)
+  [entities (Vec GEntity)
+   defstates (Vec IrDefstate)] (Vec StateMachine)
   (reduce
     (fn [machines entity] (Vec StateMachine)
       (let [status-fields (filterv
@@ -2963,13 +2931,19 @@
 
 ;; --- Publication policy resolution ---
 
-(defn entity-named [(entities (Vec GEntity)) (name String)] GEntity?
+(defn entity-named
+  [entities (Vec GEntity)
+   name String] GEntity?
   (first (filterv (fn [entity] Bool (= (js/get entity .name) name)) entities)))
 
-(defn field-named [(entity GEntity) (name String)] GField?
+(defn field-named
+  [entity GEntity
+   name String] GField?
   (first (filterv (fn [field] Bool (= (js/get field .name) name)) (js/get entity .fields))))
 
-(defn validate-distinct-names [(names (Vec String)) (label String)] Any
+(defn validate-distinct-names
+  [names (Vec String)
+   label String] Any
   (reduce
     (fn [seen name] (Vec String)
       (if (js/call seen .includes name)
@@ -2979,7 +2953,10 @@
     names)
   nil)
 
-(defn required-list-field [(entity GEntity) (name String) (label String)] GField
+(defn required-list-field
+  [entity GEntity
+   name String
+   label String] GField
   (let [field (field-named entity name)]
     (if (nil? field)
       (graph-error
@@ -2988,11 +2965,10 @@
     (or field (first (js/get entity .fields)))))
 
 (defn resolve-list-detail-tab
-  [(entities (Vec GEntity))
-   (owner GEntity)
-   (tab IrDetailTab)
-   (label String)]
-  GDetailTab
+  [entities (Vec GEntity)
+   owner GEntity
+   tab IrDetailTab
+   label String] GDetailTab
   (let [content-type (js/get tab .content_type)]
     (if (= content-type "fields")
       (let [fields (or (js/get tab .fields) [])]
@@ -3007,16 +2983,14 @@
             (graph-error (str label " names unknown related entity '" entity-name "'"))
             nil)
           (let [child (or related owner)
-                candidates
-                (filterv
+                candidates (filterv
                   (fn [field] Bool
                     (and (= (js/get field .type) "Ref")
                          (= (js/get field .cardinality) "single")
                          (= (js/get field .target_entity) (js/get owner .name))))
                   (js/get child .fields))
                 requested (js/get tab .relation_field)
-                relation
-                (if (= true (js/get tab .infer_relation))
+                relation (if (= true (js/get tab .infer_relation))
                   (do
                     (if (not (= (count candidates) 1))
                       (graph-error
@@ -3044,7 +3018,8 @@
         (graph-error (str label " has unknown content type '" content-type "'"))))))
 
 (defn resolve-list-details
-  [(prog Any) (entities (Vec GEntity))] (Vec GListDetail)
+  [prog Any
+   entities (Vec GEntity)] (Vec GListDetail)
   (let [details (or (js/get prog .list_details) [])]
     (if (> (count details) 1)
       (graph-error "program may declare at most one list detail")
@@ -3092,8 +3067,7 @@
                             tabs)) 1)
               (graph-error (str label " may declare at most one fields tab"))
               nil)
-            (let [resolved-tabs
-                  (mapv
+            (let [resolved-tabs (mapv
                     (fn [tab] GDetailTab
                       (resolve-list-detail-tab
                         entities entity tab
@@ -3134,7 +3108,7 @@
                 resolved-tabs)))))
       details)))
 
-(defn validate-ui-root-topology [(prog Any)] Any
+(defn validate-ui-root-topology [prog Any] Any
   (let [views (or (js/get prog .views) [])
         details (or (js/get prog .list_details) [])
         forms (or (js/get prog .forms) [])
@@ -3201,11 +3175,10 @@
   nil)
 
 (defn validate-create-fields
-  [(label String)
-   (entity-name String)
-   (field-names (Vec String))
-   (entities (Vec GEntity))]
-  Any
+  [label String
+   entity-name String
+   field-names (Vec String)
+   entities (Vec GEntity)] Any
   (let [entity (entity-named entities entity-name)]
     (if (nil? entity)
       (graph-error
@@ -3232,7 +3205,9 @@
                    field-name "'"))
             nil))))))
 
-(defn validate-fram-create-forms [(prog Any) (entities (Vec GEntity))] Any
+(defn validate-store-create-forms
+  [prog Any
+   entities (Vec GEntity)] Any
   (if (some? (js/get prog .backend))
     (do
       (doseq [view (or (js/get prog .views) [])]
@@ -3253,10 +3228,9 @@
     nil))
 
 (defn machine-named
-  [(machines (Vec StateMachine))
-   (entity-name String)
-   (field-name String)]
-  StateMachine?
+  [machines (Vec StateMachine)
+   entity-name String
+   field-name String] StateMachine?
   (first
     (filterv
       (fn [machine] Bool
@@ -3265,7 +3239,9 @@
       machines)))
 
 (defn require-write-policy
-  [(entity-name String) (field GField) (expected String)] Any
+  [entity-name String
+   field GField
+   expected String] Any
   (if (not (= (js/get field .write_policy) expected))
     (graph-error
       (str "publication field '" entity-name "." (js/get field .name)
@@ -3273,12 +3249,11 @@
     nil))
 
 (defn validate-publication-states
-  [(publication-name String)
-   (machine StateMachine)
-   (draft-state String)
-   (published-state String)
-   (retired-state String)]
-  Any
+  [publication-name String
+   machine StateMachine
+   draft-state String
+   published-state String
+   retired-state String] Any
   (let [transitions (js/get machine .transitions)
         states [draft-state published-state retired-state]]
     (if (not (= (count (distinct states)) 3))
@@ -3308,10 +3283,9 @@
       nil)))
 
 (defn resolve-publication
-  [(source IrPublication)
-   (entities (Vec GEntity))
-   (machines (Vec StateMachine))]
-  PublicationPolicy
+  [source IrPublication
+   entities (Vec GEntity)
+   machines (Vec StateMachine)] PublicationPolicy
   (let [name (js/get source .name)
         owner-name (js/get source .owner_entity)
         revision-name (js/get source .revision_entity)
@@ -3348,12 +3322,9 @@
                revision-name "." (js/get source .state_field) "'"))
         nil)
       (let [resolved-pointer (or pointer (first (js/get resolved-owner .fields)))
-            resolved-owner-field
-            (or owner-field (first (js/get resolved-revision .fields)))
-            resolved-state-field
-            (or state-field (first (js/get resolved-revision .fields)))
-            machine
-            (machine-named
+            resolved-owner-field (or owner-field (first (js/get resolved-revision .fields)))
+            resolved-state-field (or state-field (first (js/get resolved-revision .fields)))
+            machine (machine-named
               machines revision-name (js/get source .state_field))]
         (if (or (not (= (js/get resolved-pointer .value_kind) "ref"))
                 (not (= (js/get resolved-pointer .cardinality) "single"))
@@ -3399,13 +3370,12 @@
             (strip-colon retired-state)))))))
 
 (defn resolve-publications
-  [(prog Any)
-   (entities (Vec GEntity))
-   (machines (Vec StateMachine))]
-  (Vec PublicationPolicy)
+  [prog Any
+   entities (Vec GEntity)
+   machines (Vec StateMachine)] (Vec PublicationPolicy)
   (let [sources (or (js/get prog .publications) [])]
     (if (and (> (count sources) 0) (nil? (js/get prog .backend)))
-      (graph-error "publication policies require (backend :fram)")
+      (graph-error "publication policies require (backend :store)")
       nil)
     (reduce
       (fn [seen source] (Vec String)
@@ -3414,8 +3384,7 @@
             (graph-error (str "duplicate publication '" name "'"))
             (conj seen name))))
       [] sources)
-    (let [policies
-          (mapv (fn [source] PublicationPolicy (resolve-publication source entities machines))
+    (let [policies (mapv (fn [source] PublicationPolicy (resolve-publication source entities machines))
                 sources)]
       (reduce
         (fn [seen policy] (Vec String)
@@ -3431,11 +3400,10 @@
 
 ;; --- Main: build checked application ---
 
-(defn application-id [(prog Any)] String
+(defn application-id [prog Any] String
   (let [resolved (js/get prog .application_id)
         application (js/get prog .application)
-        application-id
-        (if (nonempty-string? resolved)
+        application-id (if (nonempty-string? resolved)
           resolved
           (if (nil? application) nil (js/get application .id)))]
     (if (nonempty-string? application-id)
@@ -3444,7 +3412,7 @@
         (graph-error "linked program requires (application :id \"ID\")")
         ""))))
 
-(defn checked-source-units [(prog Any)] (Vec IrSourceUnit)
+(defn checked-source-units [prog Any] (Vec IrSourceUnit)
   (let [linked (js/get prog .source_units)
         root (js/get prog .source_unit)]
     (if (some? linked)
@@ -3453,7 +3421,10 @@
 
 ;; --- Named query analysis ---
 
-(defn query-name-map [(items Any) (name-fn Any) (label String)] Any
+(defn query-name-map
+  [items Any
+   name-fn Any
+   label String] Any
   (reduce
     (fn [result item] (Map String Any)
       (let [name (name-fn item)]
@@ -3463,9 +3434,11 @@
     {}
     items))
 
-(defn query-field [(entity GEntity) (name String) (label String)] GField
-  (let [field
-        (first
+(defn query-field
+  [entity GEntity
+   name String
+   label String] GField
+  (let [field (first
           (filterv
             (fn [candidate] Bool (= (js/get candidate .name) name))
             (js/get entity .fields)))]
@@ -3476,26 +3449,27 @@
     (if (js/get field .derived)
       (graph-error
         (str label " cannot read derived field '" (js/get entity .name) "." name
-             "' from FRAM"))
+             "' from Store"))
       nil)
     field))
 
-(defn query-type-family [(type String)] String
+(defn query-type-family [type String] String
   (cond
     (or (= type "Int") (= type "Integer")) "integer"
     (or (= type "Float") (= type "Double") (= type "Number")) "float"
     (or (= type "Bool") (= type "Boolean")) "boolean"
     :else type))
 
-(defn query-types-compatible? [(left String) (right String)] Bool
+(defn query-types-compatible?
+  [left String
+   right String] Bool
   (= (query-type-family left) (query-type-family right)))
 
 (defn resolve-query-operand
-  [(raw IrQueryOperand)
-   (bindings Any)
-   (parameters Any)
-   (label String)]
-  GQueryOperand
+  [raw IrQueryOperand
+   bindings Any
+   parameters Any
+   label String] GQueryOperand
   (let [kind (js/get raw .kind)]
     (cond
       (= kind "parameter")
@@ -3529,15 +3503,16 @@
           "literal" (or (js/get raw .name) "") nil nil nil nil nil (js/get raw .value))
       :else (graph-error (str label " has unknown operand kind '" kind "'")))))
 
-(defn query-state [(defstates Any) (type String)] Any
+(defn query-state
+  [defstates Any
+   type String] Any
   (first (filterv (fn [state] Bool (= (js/get state .name) type)) defstates)))
 
 (defn coerce-query-literal
-  [(operand GQueryOperand)
-   (expected-type String)
-   (defstates Any)
-   (label String)]
-  GQueryOperand
+  [operand GQueryOperand
+   expected-type String
+   defstates Any
+   label String] GQueryOperand
   (if (not (= (js/get operand .kind) "literal"))
     operand
     (let [literal-type (js/get operand .type)
@@ -3558,24 +3533,21 @@
             operand))
         operand))))
 
-(defn query-operand-bindings [(operand GQueryOperand)] (Vec String)
+(defn query-operand-bindings [operand GQueryOperand] (Vec String)
   (if (some? (js/get operand .binding)) [(or (js/get operand .binding) "")] []))
 
 (defn analyze-query-predicate
-  [(raw IrQueryPredicate)
-   (bindings Any)
-   (parameters Any)
-   (defstates Any)
-   (label String)]
-  GQueryPredicate
+  [raw IrQueryPredicate
+   bindings Any
+   parameters Any
+   defstates Any
+   label String] GQueryPredicate
   (let [left0 (resolve-query-operand (js/get raw .left) bindings parameters label)
         right0 (resolve-query-operand (js/get raw .right) bindings parameters label)
-        left
-        (if (= (js/get left0 .kind) "literal")
+        left (if (= (js/get left0 .kind) "literal")
           (coerce-query-literal left0 (js/get right0 .type) defstates label)
           left0)
-        right
-        (if (= (js/get right0 .kind) "literal")
+        right (if (= (js/get right0 .kind) "literal")
           (coerce-query-literal right0 (js/get left0 .type) defstates label)
           right0)]
     (if (and (= (js/get left .type) "Ref")
@@ -3614,16 +3586,14 @@
     (->GQueryPredicate "eq" left right)))
 
 (defn query-binding-connected?
-  [(binding String)
-   (earlier (Vec String))
-   (predicates (Vec GQueryPredicate))]
-  Bool
+  [binding String
+   earlier (Vec String)
+   predicates (Vec GQueryPredicate)] Bool
   (some?
     (first
       (filterv
         (fn [predicate] Bool
-          (let [names
-                (into
+          (let [names (into
                   (query-operand-bindings (js/get predicate .left))
                   (query-operand-bindings (js/get predicate .right)))]
             (and (js/call names .includes binding)
@@ -3633,23 +3603,20 @@
         predicates))))
 
 (defn query-root-identity-constrained?
-  [(root String)
-   (identity-field String)
-   (predicates (Vec GQueryPredicate))]
-  Bool
+  [root String
+   identity-field String
+   predicates (Vec GQueryPredicate)] Bool
   (some?
     (first
       (filterv
         (fn [predicate] Bool
           (let [left (js/get predicate .left)
                 right (js/get predicate .right)
-                identity?
-                (fn [operand] Bool
+                identity? (fn [operand] Bool
                   (and (= (js/get operand .kind) "field")
                        (= (js/get operand .binding) root)
                        (= (js/get operand .field) identity-field)))
-                bound?
-                (fn [operand] Bool
+                bound? (fn [operand] Bool
                   (or (= (js/get operand .kind) "parameter")
                       (= (js/get operand .kind) "literal")))]
             (or (and (identity? left) (bound? right))
@@ -3657,19 +3624,16 @@
         predicates))))
 
 (defn query-dependencies
-  [(bindings (Vec IrQueryBinding))
-   (binding-entities Any)
-   (predicates (Vec GQueryPredicate))
-   (columns (Vec GQueryColumn))]
-  (Vec GQueryDependency)
-  (let [entries
-        (reduce
+  [bindings (Vec IrQueryBinding)
+   binding-entities Any
+   predicates (Vec GQueryPredicate)
+   columns (Vec GQueryColumn)] (Vec GQueryDependency)
+  (let [entries (reduce
           (fn [result binding] (Vec (Vec String))
             (let [entity (get binding-entities (js/get binding .name))]
               (conj result [(js/get entity .name) (js/get (js/get entity .identity_field) .name)])))
           [] bindings)
-        entries
-        (reduce
+        entries (reduce
           (fn [result predicate] (Vec (Vec String))
             (reduce
               (fn [acc operand] (Vec (Vec String))
@@ -3678,11 +3642,10 @@
                   acc))
               result [(js/get predicate .left) (js/get predicate .right)]))
           entries predicates)
-        entries
-        (into
+        entries (into
           entries
           (mapv
-            (fn [(column GQueryColumn)] (Vec String)
+            (fn [column GQueryColumn] (Vec String)
               [(js/get column .entity) (js/get column .field)])
             columns))]
     (mapv
@@ -3696,23 +3659,27 @@
             (conj unique entry)))
         [] entries))))
 
-(defn provider-named [(providers Any) (name String)] Any
+(defn provider-named
+  [providers Any
+   name String] Any
   (first (filterv (fn [provider] Bool (= (js/get provider .name) name)) providers)))
 
-(defn descriptor-field [(descriptor Any) (name String)] Any
+(defn descriptor-field
+  [descriptor Any
+   name String] Any
   (first
     (filterv
       (fn [field] Bool (= (get field "name") name))
       (or (get descriptor "fields") []))))
 
-(defn provider-field-type-compatible? [(field GField) (descriptor Any)] Bool
-  (let [checked-descriptor
-        (if (= (js/get field .cardinality) "multi")
+(defn provider-field-type-compatible?
+  [field GField
+   descriptor Any] Bool
+  (let [checked-descriptor (if (= (js/get field .cardinality) "multi")
           (get descriptor "items")
           descriptor)
         kind (if (nil? checked-descriptor) "" (get checked-descriptor "kind"))
-        scalar
-        (cond
+        scalar (cond
           (= (js/get field .type) "String") (= kind "string")
           (or (= (js/get field .type) "Int") (= (js/get field .type) "Integer"))
             (= kind "integer")
@@ -3727,7 +3694,9 @@
       (and (= (get descriptor "kind") "list") scalar)
       scalar)))
 
-(defn provider-literal-compatible? [(value Any) (descriptor Any)] Bool
+(defn provider-literal-compatible?
+  [value Any
+   descriptor Any] Bool
   (let [kind (get descriptor "kind")]
     (cond
       (= kind "nullable")
@@ -3756,13 +3725,12 @@
       :else false)))
 
 (defn analyze-provider-input
-  [(raw Any)
-   (expected Any)
-   (binding-entities Any)
-   (provider-index Int)
-   (next-column Int)
-   (label String)]
-  Any
+  [raw Any
+   expected Any
+   binding-entities Any
+   provider-index Int
+   next-column Int
+   label String] Any
   (let [kind (get raw "kind")]
     (cond
       (= kind "column")
@@ -3778,10 +3746,8 @@
                      "' is incompatible with provider input type '"
                      (get expected "kind") "'"))
               nil)
-            (let [internal-name
-                  (str "wake$provided$" provider-index "$" next-column)
-                  column
-                  (->GQueryColumn
+            (let [internal-name (str "wake$provided$" provider-index "$" next-column)
+                  column (->GQueryColumn
                     internal-name binding (js/get entity .name) (js/get field .name)
                     (js/get field .type) (js/get field .cardinality) (js/get field .value_kind)
                     (js/get field .target_entity) true)]
@@ -3819,16 +3785,15 @@
                   (str label " requires provider input field '"
                        (get field "name") "'"))
                 nil))
-            (loop [(remaining Any) raw-fields
-                   (fields Any) []
-                   (columns Any) []
-                   (next Int) next-column]
+            (loop [remaining Any raw-fields
+                   fields Any []
+                   columns Any []
+                   next Int next-column]
               (if (= (count remaining) 0)
                 [{"kind" "record" "fields" fields} columns next]
                 (let [field (first remaining)
                       field-name (get field "name")
-                      checked
-                      (analyze-provider-input
+                      checked (analyze-provider-input
                         (get field "value")
                         (get (descriptor-field expected field-name) "value")
                         binding-entities provider-index next
@@ -3841,11 +3806,10 @@
       :else (graph-error (str label " has unknown provider input expression '" kind "'")))))
 
 (defn analyze-query-column
-  [(selection Any)
-   (binding-entities Any)
-   (label String)
-   (internal Bool)]
-  GQueryColumn
+  [selection Any
+   binding-entities Any
+   label String
+   internal Bool] GQueryColumn
   (let [entity (get binding-entities (js/get selection .binding))]
     (if (nil? entity)
       (graph-error
@@ -3859,13 +3823,16 @@
         (js/get field .value_kind) (js/get field .target_entity) internal))))
 
 (defn analyze-query-selections
-  [(selections Any) (binding-entities Any) (providers Any) (label String)] Any
-  (loop [(remaining Any) selections
-         (provider-index Int) 0
-         (columns Any) []
-         (public-columns Any) []
-         (result-providers Any) []
-         (output-names (Vec String)) []]
+  [selections Any
+   binding-entities Any
+   providers Any
+   label String] Any
+  (loop [remaining Any selections
+         provider-index Int 0
+         columns Any []
+         public-columns Any []
+         result-providers Any []
+         output-names (Vec String) []]
     (if (= (count remaining) 0)
       [columns public-columns result-providers]
       (let [selection (first remaining)
@@ -3890,15 +3857,13 @@
                 (str label " provider '" provider-name
                      "' output must be a bounded checked value"))
               nil)
-            (let [checked
-                  (analyze-provider-input
+            (let [checked (analyze-provider-input
                     (js/get selection .input)
                     (js/get provider .input_type)
                     binding-entities provider-index 0
                     (str label " provider output '" output-name "' input"))
                   internal-columns (nth checked 1)
-                  result-provider
-                  (->GQueryResultProvider
+                  result-provider (->GQueryResultProvider
                     output-name provider-name (nth checked 0)
                     (js/get provider .input_type) (js/get provider .output_type))]
               (recur
@@ -3909,8 +3874,7 @@
                 (conj result-providers result-provider)
                 (conj output-names output-name))))
           (if (= tag "IrQuerySelect")
-            (let [column
-                  (analyze-query-column selection binding-entities label false)]
+            (let [column (analyze-query-column selection binding-entities label false)]
               (recur
                 (rest remaining)
                 provider-index
@@ -3921,26 +3885,21 @@
             (graph-error (str label " contains an unexpanded query projection"))))))))
 
 (defn analyze-query
-  [(raw IrQuery)
-   (entities (Vec GEntity))
-   (defstates (Vec IrDefstate))
-   (providers Any)]
-  GQuery
+  [raw IrQuery
+   entities (Vec GEntity)
+   defstates (Vec IrDefstate)
+   providers Any] GQuery
   (let [name (js/get raw .name)
         label (str "query '" name "'")
-        entities-by-name
-        (query-name-map entities (fn [entity] String (js/get entity .name)) "entity")
+        entities-by-name (query-name-map entities (fn [entity] String (js/get entity .name)) "entity")
         capabilities (or (js/get raw .capabilities) [])
         raw-bindings (js/get raw .bindings)
         raw-params (js/get raw .params)
-        binding-names
-        (query-name-map raw-bindings (fn [binding] String (js/get binding .name))
+        binding-names (query-name-map raw-bindings (fn [binding] String (js/get binding .name))
                         (str label " binding"))
-        parameters
-        (query-name-map raw-params (fn [parameter] String (js/get parameter .name))
+        parameters (query-name-map raw-params (fn [parameter] String (js/get parameter .name))
                         (str label " parameter"))
-        binding-entities
-        (reduce
+        binding-entities (reduce
           (fn [result binding] (Map String GEntity)
             (let [entity (get entities-by-name (js/get binding .entity_name))]
               (if (nil? entity)
@@ -3977,7 +3936,7 @@
                  "' cannot use Ref without a target entity"))
           nil)
         (if (not
-              (or (fram-literal-type? type)
+              (or (store-literal-type? type)
                   (some? (query-state defstates type))))
           (graph-error
             (str label " parameter '" (js/get parameter .name)
@@ -3989,27 +3948,23 @@
     (if (= (count (js/get raw .selection)) 0)
       (graph-error (str label " requires at least one output projection"))
       nil)
-    (let [predicates
-          (mapv
+    (let [predicates (mapv
             (fn [predicate] GQueryPredicate
               (analyze-query-predicate
                 predicate binding-entities parameters defstates label))
             (js/get raw .predicates))
-          checked-bindings
-          (mapv
+          checked-bindings (mapv
             (fn [binding] GQueryBinding
               (->GQueryBinding (js/get binding .name) (js/get binding .entity_name)))
             raw-bindings)
-          analyzed-selection
-          (analyze-query-selections
+          analyzed-selection (analyze-query-selections
             (js/get raw .selection) binding-entities providers label)
           columns (nth analyzed-selection 0)
           public-columns (nth analyzed-selection 1)
           result-providers (nth analyzed-selection 2)
           root-binding (first raw-bindings)
           root-entity (get binding-entities (js/get root-binding .name))
-          first-column
-          (if (> (count public-columns) 0)
+          first-column (if (> (count public-columns) 0)
             (first public-columns)
             (graph-error (str label " must expose at least one ordinary field output")))
           result-kind (js/get raw .result_kind)
@@ -4026,11 +3981,10 @@
           (graph-error
             (str label " parameter '" (js/get parameter .name) "' is unused"))
           nil))
-      (loop [(index Int) 1]
+      (loop [index Int 1]
         (if (< index (count raw-bindings))
           (let [binding (js/get (nth raw-bindings index) .name)
-                earlier
-                (mapv (fn [item] String (js/get item .name)) (subvec raw-bindings 0 index))]
+                earlier (mapv (fn [item] String (js/get item .name)) (subvec raw-bindings 0 index))]
             (if (not (query-binding-connected? binding earlier predicates))
               (graph-error
                 (str label " binding '" binding "' is disconnected"))
@@ -4079,13 +4033,12 @@
         (query-dependencies raw-bindings binding-entities predicates columns)))))
 
 (defn resolve-queries
-  [(prog Any)
-   (entities (Vec GEntity))
-   (defstates (Vec IrDefstate))]
-  (Vec GQuery)
+  [prog Any
+   entities (Vec GEntity)
+   defstates (Vec IrDefstate)] (Vec GQuery)
   (let [queries (or (js/get prog .queries) [])]
     (if (and (> (count queries) 0) (nil? (js/get prog .backend)))
-      (graph-error "named queries require (backend :fram)")
+      (graph-error "named queries require (backend :store)")
       nil)
     (query-name-map queries (fn [query] String (js/get query .name)) "query")
     (mapv
@@ -4093,17 +4046,26 @@
         (analyze-query query entities defstates (or (js/get prog .providers) [])))
       queries)))
 
-(defn query-named [(queries (Vec GQuery)) (name String)] GQuery?
+(defn query-named
+  [queries (Vec GQuery)
+   name String] GQuery?
   (first (filterv (fn [query] Bool (= (js/get query .name) name)) queries)))
 
-(defn view-named [(views Any) (name String)] Any
+(defn view-named
+  [views Any
+   name String] Any
   (first (filterv (fn [view] Bool (= (js/get view .name) name)) views)))
 
-(defn component-named [(components Any) (name String)] Any
+(defn component-named
+  [components Any
+   name String] Any
   (first (filterv (fn [component] Bool (= (js/get component .name) name)) components)))
 
 (defn checked-query-route
-  [(prog Any) (queries (Vec GQuery)) (route IrRoute) (label String)] IrRoute
+  [prog Any
+   queries (Vec GQuery)
+   route IrRoute
+   label String] IrRoute
   (let [view (view-named (or (js/get prog .views) []) (js/get route .view_name))
         parameters (or (js/get route .parameters) [])
         input-parameters (or (js/get route .input_parameters) parameters)
@@ -4113,11 +4075,9 @@
         (str label " names unknown view '" (js/get route .view_name) "'"))
       nil)
     (let [resolved-view (or view (first (or (js/get prog .views) [])))
-          component
-          (component-named
+          component (component-named
             (or (js/get prog .components) []) (js/get resolved-view .component))
-          resolved-queries
-          (mapv
+          resolved-queries (mapv
             (fn [reference] (Map Keyword Any)
               (let [query (query-named queries (js/get reference .name))]
                 (if (nil? query)
@@ -4135,32 +4095,27 @@
         nil)
       (doseq [resolved resolved-queries]
         (let [query (get resolved :query)
-              query-params
-              (mapv (fn [parameter] String (js/get parameter .name)) (js/get query .params))]
+              query-params (mapv (fn [parameter] String (js/get parameter .name)) (js/get query .params))]
           (if (not (= query-params input-parameters))
             (graph-error
               (str label " input parameters must exactly match query '"
                    (js/get query .name) "' parameters"))
             nil)))
-      (let [columns
-            (reduce
+      (let [columns (reduce
               (fn [result resolved] (Vec String)
                 (let [query (get resolved :query)
-                      public-column-names
-                      (mapv
+                      public-column-names (mapv
                         (fn [column] String (js/get column .name))
                         (filterv
                           (fn [column] Bool (not (js/get column .internal)))
                           (js/get query .columns)))
-                      provider-result-names
-                      (mapv
+                      provider-result-names (mapv
                         (fn [provider] String (js/get provider .name))
                         (or (js/get query .result_providers) []))]
                   (reduce
                     (fn [names output-name] (Vec String)
                       (let [prefix (js/get (get resolved :reference) .prefix)
-                          projected-name
-                          (if (nil? prefix)
+                            projected-name (if (nil? prefix)
                             output-name
                             (str prefix "-" output-name))]
                         (if (js/call names .includes projected-name)
@@ -4171,10 +4126,8 @@
                     result
                     (into public-column-names provider-result-names))))
               [] resolved-queries)
-            checked-component
-            (or component (first (or (js/get prog .components) [])))
-            missing
-            (filterv
+            checked-component (or component (first (or (js/get prog .components) [])))
+            missing (filterv
               (fn [prop] Bool (not (js/call columns .includes prop)))
               (js/get checked-component .props))]
         (if (> (count missing) 0)
@@ -4190,7 +4143,9 @@
           input-parameters
           (js/get checked-component .props))))))
 
-(defn checked-route-templates [(prog Any) (queries (Vec GQuery))] (Vec IrRoute)
+(defn checked-route-templates
+  [prog Any
+   queries (Vec GQuery)] (Vec IrRoute)
   (mapv
     (fn [route] IrRoute
       (if (> (count (or (js/get route .queries) [])) 0)
@@ -4199,7 +4154,9 @@
         route))
     (or (js/get prog .route_templates) [])))
 
-(defn checked-router [(prog Any) (queries (Vec GQuery))] IrRouter?
+(defn checked-router
+  [prog Any
+   queries (Vec GQuery)] IrRouter?
   (let [router (js/get prog .router)]
     (if (nil? router)
       nil
@@ -4213,7 +4170,7 @@
               route))
           (or (js/get router .routes) []))))))
 
-(defn check-composition [(prog Any)] Any
+(defn check-composition [prog Any] Any
   (let [providers (or (js/get prog .providers) [])
         extensions (or (js/get prog .extends) [])
         fills (or (js/get prog .fills) [])
@@ -4263,8 +4220,7 @@
       [] mounts)
     nil))
 
-(defn check-resolved-declaration-program
-  [(prog ResolvedDeclarationProgram)] CheckedApplication
+(defn check-resolved-declaration-program [prog ResolvedDeclarationProgram] CheckedApplication
   (let [app-id (application-id prog)
         entities (js/get prog .entities)
         defstates (or (js/get prog .defstates) [])
@@ -4274,24 +4230,21 @@
         validated (validate-backend prog entities)
         validated-composition (check-composition prog)
         validated-ui-root (validate-ui-root-topology prog)
-        validated-create-forms (validate-fram-create-forms prog entities)
+        validated-create-forms (validate-store-create-forms prog entities)
         validated-ui (validate-ui-references prog entities)
         validated-defstates (validate-defstates defstates)
         fk-edges (resolve-fk-edges entities)
-        state-machines
-        (resolve-state-machines entities defstates)
+        state-machines (resolve-state-machines entities defstates)
         publications (resolve-publications prog entities state-machines)
         queries (resolve-queries prog entities defstates)
         list-details (resolve-list-details prog entities)
         route-templates (checked-route-templates prog queries)
         router (checked-router prog queries)
         fills (or (js/get prog .fills) [])
-        components
-        (apply-component-fills-to-components
+        components (apply-component-fills-to-components
           (or (js/get prog .components) []) fills)
-        views
-        (mapv
-          (fn [(view IrView)] IrView (apply-component-fills view fills))
+        views (mapv
+          (fn [view IrView] IrView (apply-component-fills view fills))
           (or (js/get prog .views) []))]
     (->CheckedApplication
       1
@@ -4325,103 +4278,83 @@
       router
       (js/get prog .layout))))
 
-(defn lower-linked-declaration-program
-  [(linked IrLinkedDeclarationProgram)] ResolvedDeclarationProgram
+(defn lower-linked-declaration-program [linked IrLinkedDeclarationProgram] ResolvedDeclarationProgram
   (do
     (require-ir-tag linked "IrLinkedDeclarationProgram" "linked declarations")
-    (let [checked
-          (require-ir-tag
+    (let [checked (require-ir-tag
             (js/get linked .application) "IrCheckedDeclarationProgram"
             "application declarations")
-          program
-          (require-ir-tag
+          program (require-ir-tag
             (js/get checked .program) "IrDeclarationProgram"
             "application declaration program")
-          root-value
-          (require-ir-tag
+          root-value (require-ir-tag
             (js/get program .root) "IrApplicationDeclarationRoot"
             "application declaration root")
           root (js/get root-value .application)
           app-id (js/get root .id)
           application-resolver (empty-resolver)
           authority (authority-shape (js/get root .authority))
-          application-entities
-          (mapv
-            (fn [(entity IrEntityDeclarationSpec)] GEntity
+          application-entities (mapv
+            (fn [entity IrEntityDeclarationSpec] GEntity
               (lower-entity-declaration
                 entity root application-resolver app-id true))
             (js/get program .entities))
-          application-states
-          (mapv
-            (fn [(state IrStateDeclarationSpec)] IrDefstate
+          application-states (mapv
+            (fn [state IrStateDeclarationSpec] IrDefstate
               (lower-state-declaration state program application-resolver))
             (js/get program .states))
-          application-publications
-          (mapv
-            (fn [(publication IrPublicationDeclarationSpec)] IrPublication
+          application-publications (mapv
+            (fn [publication IrPublicationDeclarationSpec] IrPublication
               (lower-publication publication program application-resolver))
             (js/get program .publications))
-          application-forms
-          (mapv
-            (fn [(form IrFormDeclarationSpec)] IrSmartForm
+          application-forms (mapv
+            (fn [form IrFormDeclarationSpec] IrSmartForm
               (lower-form form application-resolver))
             (js/get program .forms))
-          application-details
-          (mapv
-            (fn [(detail IrListDetailDeclarationSpec)] IrListDetail
+          application-details (mapv
+            (fn [detail IrListDetailDeclarationSpec] IrListDetail
               (lower-list-detail detail application-resolver))
             (js/get program .list_details))
-          application-components
-          (mapv
-            (fn [(component IrComponentDeclarationSpec)] IrComponent
+          application-components (mapv
+            (fn [component IrComponentDeclarationSpec] IrComponent
               (lower-component component application-resolver))
             (js/get program .components))
-          application-views
-          (mapv
-            (fn [(view IrViewDeclarationSpec)] IrView
+          application-views (mapv
+            (fn [view IrViewDeclarationSpec] IrView
               (lower-view view program application-resolver))
             (js/get program .views))
-          application-routes
-          (mapv
-            (fn [(route IrRouteTemplateSpec)] IrRoute
+          application-routes (mapv
+            (fn [route IrRouteTemplateSpec] IrRoute
               (lower-route-template route application-resolver))
             (js/get program .route_templates))
-          plugins
-          (mapv
-            (fn [(instance IrLinkedPluginInstance)] LoweredPlugin
+          plugins (mapv
+            (fn [instance IrLinkedPluginInstance] LoweredPlugin
               (lower-plugin-instance
                 instance app-id application-components))
             (js/get linked .plugins))
-          plugin-extensions
-          (reduce
+          plugin-extensions (reduce
             (fn [result plugin] (Vec ResolvedPluginExtension)
               (into result (js/get plugin .extensions)))
             [] plugins)
-          application-commands
-          (mapv
-            (fn [(command IrCommandSpec)] Any
+          application-commands (mapv
+            (fn [command IrCommandSpec] Any
               (lower-command
                 command program application-resolver plugin-extensions))
             (js/get program .commands))
-          combined-commands
-          (reduce
+          combined-commands (reduce
             (fn [result plugin] (Vec Any)
               (into result (js/get plugin .commands)))
             application-commands plugins)
           receipt (receipt-entity program plugins combined-commands)
-          entities-before-extensions
-          (let [declared
-                (reduce
+          entities-before-extensions (let [declared (reduce
                   (fn [result plugin] (Vec GEntity)
                     (into result (js/get plugin .entities)))
                   application-entities plugins)]
             (if (nil? receipt) declared (conj declared receipt)))
-          combined-entities
-          (apply-plugin-extensions
+          combined-entities (apply-plugin-extensions
             entities-before-extensions
             plugin-extensions)
-          plugin-mounted-routes
-          (reduce
+          plugin-mounted-routes (reduce
             (fn [result plugin] (Vec IrRoute)
               (into result (js/get plugin .mounted_routes)))
             [] plugins)]
@@ -4435,31 +4368,27 @@
         (graph-error "application provider ports await checked provider lowering")
         nil)
       (let [default-target (js/get root .default_route)
-            router
-            (if (nil? default-target)
+            router (if (nil? default-target)
               nil
               (let [tag (js/get default-target ._tag)]
                 (cond
                   (= tag "IrLocalDefaultRoute")
-                    (let [route
-                        (declaration-with-ref
+                    (let [route (declaration-with-ref
                           (js/get program .route_templates) (js/get default-target .route)
                           "application default route")
-                        view
-                        (declaration-with-ref
+                          view (declaration-with-ref
                           (js/get program .views) (js/get route .view)
                           "application default route view")]
-                    (ir/->IrRouter
+                      (ir/->IrRouter
                       (resolved-name application-resolver "view" (js/get view .ref))
                       (into application-routes plugin-mounted-routes)))
                   (= tag "IrMountedDefaultRoute")
-                    (let [matches
-                          (filterv
-                            (fn [(plugin LoweredPlugin)] Bool
+                    (let [matches (filterv
+                            (fn [plugin LoweredPlugin] Bool
                               (some?
                                 (first
                                   (filterv
-                                    (fn [(mount IrMountSpec)] Bool
+                                    (fn [mount IrMountSpec] Bool
                                       (= (ref-key (js/get mount .slot))
                                          (ref-key (js/get default-target .slot))))
                                     (js/get (js/get (js/get plugin .instance) .composition) .mounts)))))
@@ -4469,11 +4398,10 @@
                           "application mounted default route must resolve exactly once")
                         nil)
                       (let [plugin (first matches)
-                            route
-                            (mounted-route
+                            route (mounted-route
                               (first
                                 (filterv
-                                  (fn [(mount IrMountSpec)] Bool
+                                  (fn [mount IrMountSpec] Bool
                                     (= (ref-key (js/get mount .slot))
                                        (ref-key (js/get default-target .slot))))
                                   (js/get
@@ -4493,7 +4421,7 @@
             (fn [result plugin] (Vec IrSourceUnit)
               (conj result (js/get plugin .source_unit)))
             [(js/get program .source_unit)] plugins)
-          (mapv (fn [(plugin LoweredPlugin)] Any (js/get plugin .evidence)) plugins)
+          (mapv (fn [plugin LoweredPlugin] Any (js/get plugin .evidence)) plugins)
           (reduce
             (fn [result plugin] (Vec IrDeclarationProvenance)
               (into result (js/get plugin .provenance)))
@@ -4514,7 +4442,7 @@
             (fn [result plugin] (Vec IrQuery)
               (into result (js/get plugin .queries)))
             (mapv
-              (fn [(query IrQueryDeclarationSpec)] IrQuery
+              (fn [query IrQueryDeclarationSpec] IrQuery
                 (lower-query query program application-resolver []))
               (js/get program .queries))
             plugins)
@@ -4545,7 +4473,7 @@
             (fn [result plugin] (Vec Any)
               (into result (js/get plugin .value_types)))
             (mapv
-              (fn [(value-type IrValueTypeDeclarationSpec)] Any
+              (fn [value-type IrValueTypeDeclarationSpec] Any
                 (lower-value-type-declaration
                   value-type program application-resolver))
               (js/get program .value_types))
@@ -4569,7 +4497,6 @@
             application-routes plugins)
           nil)))))
 
-(defn check-linked-declaration-program
-  [(linked IrLinkedDeclarationProgram)] CheckedApplication
+(defn check-linked-declaration-program [linked IrLinkedDeclarationProgram] CheckedApplication
   (check-resolved-declaration-program
     (lower-linked-declaration-program linked)))

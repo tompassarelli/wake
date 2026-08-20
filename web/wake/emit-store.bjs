@@ -1,27 +1,31 @@
 #lang beagle/js
-(ns wake.emit_fram)
+(ns wake.emit_store)
 
 ;; A subject template has one substitution hole: the checked identity field.
 ;; Its recursive scope is load-bearing: the stable application and storage IDs
-;; keep lexical aliases out of FRAM identity.
+;; keep lexical aliases out of persisted identity.
 
-(defn keyword-term [(spelling String)] Any
+(defn keyword-term [spelling String] Any
   ["keyword" spelling])
 
-(defn triple-term [(t1 Any) (t2 Any) (t3 Any)] Any
+(defn triple-term
+  [t1 Any
+   t2 Any
+   t3 Any] Any
   ["triple" t1 t2 t3])
 
-(defn app-scope-term [(application-id String) (value Any)] Any
+(defn app-scope-term
+  [application-id String
+   value Any] Any
   (triple-term
     (keyword-term "wake/app")
     (keyword-term application-id)
     value))
 
 (defn subject-template
-  [(application-id String)
-   (entity-storage-id String)
-   (identity-storage-id String)]
-  Any
+  [application-id String
+   entity-storage-id String
+   identity-storage-id String] Any
   (app-scope-term
     application-id
     (triple-term
@@ -30,10 +34,9 @@
       {:field identity-storage-id})))
 
 (defn predicate-term
-  [(application-id String)
-   (entity-storage-id String)
-   (field-storage-id String)]
-  Any
+  [application-id String
+   entity-storage-id String
+   field-storage-id String] Any
   (app-scope-term
     application-id
     (triple-term
@@ -42,24 +45,18 @@
       (keyword-term field-storage-id))))
 
 (defn field-plan
-  [(application-id String) (entity-storage-id String) (field Any)] Any
-  (let [plan {:name (js/get field .name)
-              :storageId (js/get field .storage_id)
-              :type (js/get field .type)
-              :cardinality (js/get field .cardinality)
-              :valueKind (js/get field .value_kind)
-              :write (js/get field .write_policy)
-              :predicateTerm
-              (predicate-term
-                application-id
-                entity-storage-id
-                (js/get field .storage_id))}]
+  [application-id String
+   entity-storage-id String
+   field Any] Any
+  (let [plan (Map Keyword Any) {:name (js/get field .name) :storageId (js/get field .storage_id) :type (js/get field .type) :cardinality (js/get field .cardinality) :valueKind (js/get field .value_kind) :write (js/get field .write_policy) :predicateTerm (predicate-term application-id entity-storage-id (js/get field .storage_id))}]
     (if (identical? (js/get field .value_kind) "ref")
       (assoc plan :targetEntity (js/get field .target_entity))
       plan)))
 
 (defn identity-plan
-  [(application-id String) (entity-storage-id String) (field Any)] Any
+  [application-id String
+   entity-storage-id String
+   field Any] Any
   {:field (js/get field .name)
    :storageId (js/get field .storage_id)
    :type (js/get field .type)
@@ -71,25 +68,28 @@
      entity-storage-id
      (js/get field .storage_id))})
 
-(defn entity-plan [(application-id String) (entity Any)] Any
-  (let [entity-name (js/get entity .name)
-        entity-storage-id (js/get entity .storage_id)]
+(defn entity-plan
+  [application-id String
+   entity Any] Any
+  (let [entity-name String (js/get entity .name)
+        entity-storage-id String (js/get entity .storage_id)]
     {:name entity-name
      :storageId entity-storage-id
      :identity
      (identity-plan
        application-id entity-storage-id (js/get entity .identity_field))
      :fields (mapv
-               (fn [(field Any)] Any
+               (fn [field Any] Any
                  (field-plan application-id entity-storage-id field))
                (js/get entity .stored_fields))}))
 
-(defn state-name [(state String)] String
+(defn state-name [state String] String
   (if (js/call state .startsWith ":") (js/call state .slice 1) state))
 
-(defn transition-plan [(transitions Any)] Any
+(defn transition-plan [transitions Any] Any
   (reduce
-    (fn [plan state] (Map String (Vec String))
+    (fn [plan (Map String (Vec String))
+         state String] (Map String (Vec String))
       (assoc
         plan
         (state-name state)
@@ -97,14 +97,14 @@
     {}
     (keys transitions)))
 
-(defn state-machine-plan [(machine Any)] Any
+(defn state-machine-plan [machine Any] Any
   {:entity (js/get machine .entity)
    :field (js/get machine .field)
    :stateType (js/get machine .state_type)
    :initial (state-name (js/get machine .initial))
    :transitions (transition-plan (js/get machine .transitions))})
 
-(defn publication-plan [(publication Any)] Any
+(defn publication-plan [publication Any] Any
   {:name (js/get publication .name)
    :owner {:entity (js/get publication .owner_entity)
            :pointer (js/get publication .pointer_field)}
@@ -115,76 +115,61 @@
             :published (js/get publication .published_state)
             :retired (js/get publication .retired_state)}})
 
-(defn query-operand-plan [(operand Any)] Any
-  (let [kind (js/get operand .kind)]
+(defn query-operand-plan [operand Any] Any
+  (let [kind String (js/get operand .kind)]
     (cond
       (= kind "parameter")
         {:kind "parameter" :name (js/get operand .parameter) :type (js/get operand .type)}
       (= kind "binding")
         {:kind "binding" :binding (js/get operand .binding) :entity (js/get operand .entity)}
       (= kind "field")
-        (let [plan
-              {:kind "field"
-               :binding (js/get operand .binding)
-               :entity (js/get operand .entity)
-               :field (js/get operand .field)
-               :type (js/get operand .type)}]
+        (let [plan (Map Keyword String) {:kind "field" :binding (js/get operand .binding) :entity (js/get operand .entity) :field (js/get operand .field) :type (js/get operand .type)}]
           (if (= (js/get operand .type) "Ref")
             (assoc plan :targetEntity (js/get operand .target_entity))
             plan))
       :else
         {:kind "literal" :type (js/get operand .type) :value (js/get operand .value)})))
 
-(defn query-predicate-plan [(predicate Any)] Any
+(defn query-predicate-plan [predicate Any] Any
   {:op (js/get predicate .op)
    :left (query-operand-plan (js/get predicate .left))
    :right (query-operand-plan (js/get predicate .right))})
 
-(defn query-column-plan [(column Any)] Any
-  (let [plan
-        {:name (js/get column .name)
-         :binding (js/get column .binding)
-         :entity (js/get column .entity)
-         :field (js/get column .field)
-         :type (js/get column .type)
-         :cardinality (js/get column .cardinality)
-         :valueKind (js/get column .value_kind)}]
-    (let [checked-plan
-          (if (= (js/get column .value_kind) "ref")
-            (assoc plan :targetEntity (js/get column .target_entity))
-            plan)]
+(defn query-column-plan [column Any] Any
+  (let [plan (Map Keyword Any) {:name (js/get column .name) :binding (js/get column .binding) :entity (js/get column .entity) :field (js/get column .field) :type (js/get column .type) :cardinality (js/get column .cardinality) :valueKind (js/get column .value_kind)}]
+    (let [checked-plan (Map Keyword Any) (if (= (js/get column .value_kind) "ref") (assoc plan :targetEntity (js/get column .target_entity)) plan)]
       (if (js/get column .internal)
         (assoc checked-plan :internal true)
         checked-plan))))
 
-(defn query-result-provider-plan [(provider Any)] Any
+(defn query-result-provider-plan [provider Any] Any
   {:name (js/get provider .name)
    :provider (js/get provider .provider)
    :input (js/get provider .input)
    :inputType (js/get provider .input_type)
    :outputType (js/get provider .output_type)})
 
-(defn query-result-plan [(query Any)] Any
+(defn query-result-plan [query Any] Any
   (if (= (js/get query .result_kind) "page")
     {:kind "page"
      :defaultLimit (js/get query .default_limit)
      :maxLimit (js/get query .max_limit)}
     {:kind (js/get query .result_kind)}))
 
-(defn route-query-plan [(query Any)] Any
+(defn route-query-plan [query Any] Any
   {:name (js/get query .name) :prefix (js/get query .prefix)})
 
-(defn query-plan [(query Any)] Any
+(defn query-plan [query Any] Any
   {:name (js/get query .name)
    :capabilities (js/get query .capabilities)
    :parameters
    (mapv
-     (fn [(parameter Any)] Any
+     (fn [parameter Any] Any
        {:name (js/get parameter .name) :type (js/get parameter .type)})
      (js/get query .params))
    :bindings
    (mapv
-     (fn [(binding Any)] Any
+     (fn [binding Any] Any
        {:name (js/get binding .name) :entity (js/get binding .entity)})
      (js/get query .bindings))
    :where (mapv query-predicate-plan (js/get query .predicates))
@@ -194,15 +179,15 @@
    :result (query-result-plan query)
    :dependencies
    (mapv
-     (fn [(dependency Any)] Any
+     (fn [dependency Any] Any
        {:entity (js/get dependency .entity) :field (js/get dependency .field)})
      (js/get query .dependencies))})
 
-(defn fram-plan [(checked Any)] Any
-  (let [application-id (js/get checked .application_id)]
+(defn store-plan [checked Any] Any
+  (let [application-id String (js/get checked .application_id)]
     {:schemaVersion 2
      :applicationId application-id
-     :backend "fram"
+     :backend "store"
      :semanticFingerprint (js/get checked .semantic_fingerprint)
      :pluginClosure (or (js/get checked .plugin_closure) [])
      :composition
@@ -214,7 +199,7 @@
      (if (nil? (js/get checked .router))
        []
        (mapv
-         (fn [(route Any)] Any
+         (fn [route Any] Any
            {:path (js/get route .path)
             :parameters (or (js/get route .parameters) [])
             :inputParameters (or (js/get route .input_parameters) [])
@@ -223,7 +208,7 @@
             :view (js/get route .view_name)})
          (js/get (js/get checked .router) .routes)))
      :entities (mapv
-                 (fn [(entity Any)] Any
+                 (fn [entity Any] Any
                    (entity-plan application-id entity))
                  (js/get checked .entities))
      :queries (mapv query-plan (or (js/get checked .queries) []))
@@ -232,5 +217,5 @@
      :publications (mapv publication-plan (js/get checked .publications))}))
 
 (js/export
-  (defn gen-fram [(checked Any)] String
-    (str (JSON/stringify (fram-plan checked) nil 2) "\n")))
+  (defn gen-store [checked Any] String
+    (str (JSON/stringify (store-plan checked) nil 2) "\n")))

@@ -17,7 +17,7 @@ const PLUGIN_CONTRIBUTIONS = new Set([
   "ui",
 ]);
 const EXPECTED_PROTOCOLS = Object.freeze({
-  framPlanSchemaVersion: 2,
+  storePlanSchemaVersion: 2,
   httpOperationProtocolVersion: 2,
   pluginAbiVersion: 1,
 });
@@ -260,10 +260,10 @@ function checkedManifest(input) {
   digest(value.checkedApplication.fingerprint, "manifest.checkedApplication.fingerprint");
   exactKeys(
     value.artifacts,
-    ["browserClient", "browserJavaScript", "framPlan"],
+    ["browserClient", "browserJavaScript", "storePlan"],
     "manifest.artifacts",
   );
-  for (const name of ["browserClient", "browserJavaScript", "framPlan"]) {
+  for (const name of ["browserClient", "browserJavaScript", "storePlan"]) {
     exactKeys(value.artifacts[name], ["path", "sha256"], `manifest.artifacts.${name}`);
     nonempty(value.artifacts[name].path, `manifest.artifacts.${name}.path`);
     digest(value.artifacts[name].sha256, `manifest.artifacts.${name}.sha256`);
@@ -294,9 +294,9 @@ function checkedManifest(input) {
 function checkedPlan(input) {
   const artifact = artifactDocument(input, "plan");
   const value = artifact.value;
-  if (!plainObject(value) || value.schemaVersion !== 2 || value.backend !== "fram"
+  if (!plainObject(value) || value.schemaVersion !== 2 || value.backend !== "store"
       || !Array.isArray(value.pluginClosure)) {
-    fail("receipt/invalid-artifact", "plan must be a Wake FRAM plan with schemaVersion 2");
+    fail("receipt/invalid-artifact", "plan must be a Wake Store plan with schemaVersion 2");
   }
   nonempty(value.applicationId, "plan.applicationId");
   digest(value.semanticFingerprint, "plan.semanticFingerprint");
@@ -314,7 +314,7 @@ function checkedDeploymentReceipt(input) {
     "applicationManifestDigest",
     "browserClientDigest",
     "browserJavaScriptDigest",
-    "framPlanDigest",
+    "storePlanDigest",
     "schemaVersion",
   ], "deploymentReceipt");
   if (value.schemaVersion !== 1) {
@@ -325,7 +325,7 @@ function checkedDeploymentReceipt(input) {
     "applicationManifestDigest",
     "browserClientDigest",
     "browserJavaScriptDigest",
-    "framPlanDigest",
+    "storePlanDigest",
   ]) {
     digest(value[name], `deploymentReceipt.${name}`);
   }
@@ -362,8 +362,8 @@ function expectedReceipt(applicationId, manifestArtifact, planArtifact, deployme
     "application manifest digest",
   );
   const planDigest = sha256Digest(planArtifact.bytes);
-  same(planDigest, manifest.artifacts.framPlan.sha256, "manifest FRAM plan digest");
-  same(planDigest, deployment.framPlanDigest, "deployment FRAM plan digest");
+  same(planDigest, manifest.artifacts.storePlan.sha256, "manifest Store plan digest");
+  same(planDigest, deployment.storePlanDigest, "deployment Store plan digest");
   same(
     manifest.artifacts.browserClient.sha256,
     deployment.browserClientDigest,
@@ -387,7 +387,7 @@ function expectedReceipt(applicationId, manifestArtifact, planArtifact, deployme
 }
 
 /**
- * Checks one exact compiler artifact closure without touching FRAM. The
+ * Checks one exact compiler artifact closure without touching Store. The
  * installer uses this before recording an intent or invoking host bootstrap.
  */
 export function prepareApplicationReceipt({
@@ -474,17 +474,17 @@ function receiptDocumentQuery(storage) {
   };
 }
 
-async function queryReceipt(fram, query, options, label) {
+async function queryReceipt(store, query, options, label) {
   let response;
   try {
-    response = await fram.query(query, options);
+    response = await store.query(query, options);
   } catch (error) {
     fail("receipt/unavailable", `${label} query failed`, undefined, { cause: error });
   }
   if (!plainObject(response) || !Array.isArray(response.result)
       || typeof response.servedVersion !== "bigint" || !plainObject(response.page)
       || typeof response.page.done !== "boolean") {
-    fail("receipt/protocol", `FRAM returned a malformed ${label} response`);
+    fail("receipt/protocol", `Store returned a malformed ${label} response`);
   }
   return response;
 }
@@ -520,18 +520,18 @@ function checkedStoredReceipt(value) {
 
 /**
  * Reads the one durable ApplicationPlanReceipt for a checked Wake artifact.
- * The FRAM query is fixed here; callers receive no raw query or storage escape.
+ * The Store query is fixed here; callers receive no raw query or storage escape.
  */
 export async function loadApplicationReceipt({
   applicationId,
   deploymentReceipt,
-  fram,
+  store,
   manifest,
   plan,
 } = {}) {
   nonempty(applicationId, "applicationId", "receipt/invalid-input");
-  if (!fram || typeof fram.query !== "function") {
-    fail("receipt/invalid-input", "fram must be the official client with query support");
+  if (!store || typeof store.query !== "function") {
+    fail("receipt/invalid-input", "store must be the official client with query support");
   }
 
   const { applicationReceipt: expected } = prepareApplicationReceipt({
@@ -543,7 +543,7 @@ export async function loadApplicationReceipt({
 
   const storage = receiptStorage(applicationId);
   const subjects = await queryReceipt(
-    fram,
+    store,
     receiptSubjectQuery(applicationId, storage),
     {
       page: { limit: 2 },
@@ -565,7 +565,7 @@ export async function loadApplicationReceipt({
   }
 
   const documents = await queryReceipt(
-    fram,
+    store,
     receiptDocumentQuery(storage),
     {
       asOf: subjects.servedVersion,
@@ -575,7 +575,7 @@ export async function loadApplicationReceipt({
     "application receipt document",
   );
   if (documents.servedVersion !== subjects.servedVersion) {
-    fail("receipt/protocol", "FRAM did not preserve the application receipt snapshot");
+    fail("receipt/protocol", "Store did not preserve the application receipt snapshot");
   }
   if (documents.result.length === 0 && documents.page.done) {
     fail("receipt/malformed", "installed application receipt has no document");
@@ -587,7 +587,7 @@ export async function loadApplicationReceipt({
   const row = documents.result[0];
   if (!Array.isArray(row) || row.length !== 1 || !Array.isArray(row[0])
       || row[0].length !== 2 || row[0][0] !== "string" || typeof row[0][1] !== "string") {
-    fail("receipt/protocol", "FRAM returned a malformed application receipt row");
+    fail("receipt/protocol", "Store returned a malformed application receipt row");
   }
   let storedValue;
   try {

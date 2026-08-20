@@ -11,7 +11,7 @@ test("portable SHA-256 matches the standard byte vectors", () => {
       "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
     ],
     [
-      new TextEncoder().encode("Wake \u{1f9ad} FRAM"),
+      new TextEncoder().encode("Wake \u{1f9ad} Store"),
       "02fafb4e07ba41819d6c5d053a210c8ce14e4cac8a2f742959250a101d35d95c",
     ],
   ]) {

@@ -7,7 +7,7 @@ import {
 const OUTPUTS = Object.freeze({
   browserClient: "wake-client.js",
   browserJavaScript: "app.js",
-  framPlan: "app.fram.json",
+  storePlan: "app.store.json",
 });
 
 function fail(message) {
@@ -57,13 +57,13 @@ function assertManifestArtifact(manifest, name, path, exactBytes) {
 export function generateDeploymentReceipt({
   browserClient,
   browserJavaScript,
-  framPlan,
+  storePlan,
   manifest,
 } = {}) {
   const artifacts = Object.freeze({
     browserClient: bytes(browserClient, OUTPUTS.browserClient),
     browserJavaScript: bytes(browserJavaScript, OUTPUTS.browserJavaScript),
-    framPlan: bytes(framPlan, OUTPUTS.framPlan),
+    storePlan: bytes(storePlan, OUTPUTS.storePlan),
   });
   const manifestDocument = canonicalManifest(manifest);
   const manifestValue = manifestDocument.value;
@@ -83,7 +83,7 @@ export function generateDeploymentReceipt({
     applicationManifestDigest: sha256Digest(manifestDocument.bytes),
     browserClientDigest: sha256Digest(artifacts.browserClient),
     browserJavaScriptDigest: sha256Digest(artifacts.browserJavaScript),
-    framPlanDigest: sha256Digest(artifacts.framPlan),
+    storePlanDigest: sha256Digest(artifacts.storePlan),
     schemaVersion: 1,
   });
 }

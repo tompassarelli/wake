@@ -72,7 +72,7 @@ function canonicalInteger(value, label, { nonnegative = false } = {}) {
   if (!INTEGER.test(text)) fail("gateway/type-mismatch", `${label} is not a canonical integer`);
   const integer = BigInt(text);
   if (integer < I64_MIN || integer > I64_MAX || (nonnegative && integer < 0n)) {
-    fail("gateway/type-mismatch", `${label} is outside FRAM's integer range`);
+    fail("gateway/type-mismatch", `${label} is outside Store's integer range`);
   }
   return text;
 }
@@ -1009,10 +1009,10 @@ function checkedResponse(response, query, requestedAsOf) {
   if (!plainObject(response) || !Array.isArray(response.result)
       || typeof response.servedVersion !== "bigint"
       || response.servedVersion < 0n || response.servedVersion > I64_MAX) {
-    fail("gateway/protocol", `FRAM returned an invalid response for query ${query.name}`);
+    fail("gateway/protocol", `Store returned an invalid response for query ${query.name}`);
   }
   if (requestedAsOf !== undefined && response.servedVersion !== requestedAsOf) {
-    fail("gateway/protocol", `FRAM did not serve query ${query.name} at its requested snapshot`);
+    fail("gateway/protocol", `Store did not serve query ${query.name} at its requested snapshot`);
   }
   return response;
 }
@@ -1022,16 +1022,16 @@ function pageState(response, query) {
     return { done: true, nextCursor: null };
   }
   if (!plainObject(response.page) || typeof response.page.done !== "boolean") {
-    fail("gateway/protocol", `FRAM returned invalid page metadata for query ${query.name}`);
+    fail("gateway/protocol", `Store returned invalid page metadata for query ${query.name}`);
   }
   if (response.page.done) {
     if (response.page.nextCursor !== null && response.page.nextCursor !== undefined) {
-      fail("gateway/protocol", `FRAM returned a cursor for completed query ${query.name}`);
+      fail("gateway/protocol", `Store returned a cursor for completed query ${query.name}`);
     }
     return { done: true, nextCursor: null };
   }
   if (response.page.nextCursor === null || response.page.nextCursor === undefined) {
-    fail("gateway/protocol", `FRAM omitted the continuation cursor for query ${query.name}`);
+    fail("gateway/protocol", `Store omitted the continuation cursor for query ${query.name}`);
   }
   return {
     done: false,
@@ -1044,7 +1044,7 @@ function rowGroups(query, rawRows) {
   const groups = new Map();
   for (const [rowIndex, raw] of rawRows.entries()) {
     if (!Array.isArray(raw) || raw.length !== width) {
-      fail("gateway/protocol", `FRAM returned a malformed row for query ${query.name}`);
+      fail("gateway/protocol", `Store returned a malformed row for query ${query.name}`);
     }
     const anchors = raw.slice(0, query.bindings.length).map((term, bindingIndex) => {
       const cloned = cloneTerm(term, `${query.name} row ${rowIndex} binding`, "gateway/protocol");
@@ -1188,7 +1188,7 @@ async function publicRow(query, group, providers, servedVersion) {
   return row;
 }
 
-async function hydrateMultiColumn(fram, query, group, column, servedVersion) {
+async function hydrateMultiColumn(store, query, group, column, servedVersion) {
   const bindingIndex = query.bindings.indexOf(column.binding);
   if (bindingIndex < 0) throw new TypeError("unreachable named-query binding");
   const relation = `wake/named/${query.name}/multi/${column.binding.name}/${column.field.name}`;
@@ -1210,17 +1210,17 @@ async function hydrateMultiColumn(fram, query, group, column, servedVersion) {
   for (let pageNumber = 0; pageNumber < MAX_QUERY_PAGES; pageNumber += 1) {
     const page = { limit: MAX_PAGE_LIMIT };
     if (cursor !== undefined) page.cursor = cursor;
-    const response = checkedResponse(await fram.query(structuredQuery, {
+    const response = checkedResponse(await store.query(structuredQuery, {
       timeoutMs: QUERY_TIMEOUT_MS,
       asOf: servedVersion,
       page,
     }), query, servedVersion);
     if (response.result.length > MAX_PAGE_LIMIT) {
-      fail("gateway/protocol", `FRAM exceeded the requested page limit for query ${query.name}`);
+      fail("gateway/protocol", `Store exceeded the requested page limit for query ${query.name}`);
     }
     for (const raw of response.result) {
       if (!Array.isArray(raw) || raw.length !== 1) {
-        fail("gateway/protocol", `FRAM returned a malformed multi-value row for query ${query.name}`);
+        fail("gateway/protocol", `Store returned a malformed multi-value row for query ${query.name}`);
       }
       const value = cloneTerm(raw[0], `${query.name}.${column.name}`, "gateway/protocol");
       const key = termKey(value);
@@ -1236,7 +1236,7 @@ async function hydrateMultiColumn(fram, query, group, column, servedVersion) {
     if (state.done) return values;
     const cursorKey = termKey(state.nextCursor);
     if (seenCursors.has(cursorKey)) {
-      fail("gateway/protocol", `FRAM repeated a cursor for query ${query.name}`);
+      fail("gateway/protocol", `Store repeated a cursor for query ${query.name}`);
     }
     seenCursors.add(cursorKey);
     cursor = state.nextCursor;
@@ -1244,28 +1244,28 @@ async function hydrateMultiColumn(fram, query, group, column, servedVersion) {
   fail("gateway/result-limit", `query ${query.name} exceeded its multi-value page limit`);
 }
 
-async function hydrateMultiColumns(fram, query, group, servedVersion) {
+async function hydrateMultiColumns(store, query, group, servedVersion) {
   const hydrated = new Map();
   for (const column of query.columns) {
     if (column.field.cardinality !== "multi") continue;
     const key = `${column.binding.name}\u0000${column.field.name}`;
     let values = hydrated.get(key);
     if (values === undefined) {
-      values = await hydrateMultiColumn(fram, query, group, column, servedVersion);
+      values = await hydrateMultiColumn(store, query, group, column, servedVersion);
       hydrated.set(key, values);
     }
     group.terms.set(column.name, values);
   }
 }
 
-async function executePage(fram, query, structuredQuery, options, providers) {
+async function executePage(store, query, structuredQuery, options, providers) {
   const page = { limit: options.limit };
   if (options.cursor !== undefined) page.cursor = options.cursor;
-  const framOptions = { timeoutMs: QUERY_TIMEOUT_MS, page };
-  if (options.asOf !== undefined) framOptions.asOf = options.asOf;
-  const response = checkedResponse(await fram.query(structuredQuery, framOptions), query, options.asOf);
+  const storeOptions = { timeoutMs: QUERY_TIMEOUT_MS, page };
+  if (options.asOf !== undefined) storeOptions.asOf = options.asOf;
+  const response = checkedResponse(await store.query(structuredQuery, storeOptions), query, options.asOf);
   if (response.result.length > options.limit) {
-    fail("gateway/protocol", `FRAM exceeded the requested page limit for query ${query.name}`);
+    fail("gateway/protocol", `Store exceeded the requested page limit for query ${query.name}`);
   }
   const rows = [];
   for (const group of rowGroups(query, response.result)) {
@@ -1278,7 +1278,7 @@ async function executePage(fram, query, structuredQuery, options, providers) {
   };
 }
 
-async function executeSingular(fram, query, structuredQuery, options, providers) {
+async function executeSingular(store, query, structuredQuery, options, providers) {
   const rawRows = [];
   const seenCursors = new Set();
   let cursor;
@@ -1286,15 +1286,15 @@ async function executeSingular(fram, query, structuredQuery, options, providers)
   for (let pageNumber = 0; pageNumber < MAX_QUERY_PAGES; pageNumber += 1) {
     const page = { limit: MAX_PAGE_LIMIT };
     if (cursor !== undefined) page.cursor = cursor;
-    const framOptions = { timeoutMs: QUERY_TIMEOUT_MS, page };
-    if (options.asOf !== undefined) framOptions.asOf = options.asOf;
-    const response = checkedResponse(await fram.query(structuredQuery, framOptions), query, options.asOf);
+    const storeOptions = { timeoutMs: QUERY_TIMEOUT_MS, page };
+    if (options.asOf !== undefined) storeOptions.asOf = options.asOf;
+    const response = checkedResponse(await store.query(structuredQuery, storeOptions), query, options.asOf);
     if (servedVersion === undefined) servedVersion = response.servedVersion;
     else if (response.servedVersion !== servedVersion) {
-      fail("gateway/protocol", `FRAM changed snapshots while reading query ${query.name}`);
+      fail("gateway/protocol", `Store changed snapshots while reading query ${query.name}`);
     }
     if (response.result.length > MAX_PAGE_LIMIT) {
-      fail("gateway/protocol", `FRAM exceeded the requested page limit for query ${query.name}`);
+      fail("gateway/protocol", `Store exceeded the requested page limit for query ${query.name}`);
     }
     if (response.result.length > MAX_SINGULAR_ROWS - rawRows.length) {
       fail("gateway/result-limit", `query ${query.name} exceeded its singular hydration limit`);
@@ -1309,24 +1309,24 @@ async function executeSingular(fram, query, structuredQuery, options, providers)
       if (groups.length !== 1) {
         fail(
           "gateway/data-integrity",
-          `query ${query.name} expected one logical row but FRAM returned ${groups.length}`,
+          `query ${query.name} expected one logical row but Store returned ${groups.length}`,
           { query: query.name, expected: query.result.kind, actual: groups.length },
         );
       }
-      await hydrateMultiColumns(fram, query, groups[0], servedVersion);
+      await hydrateMultiColumns(store, query, groups[0], servedVersion);
       return { row: await publicRow(query, groups[0], providers, servedVersion), servedVersion };
     }
     const key = termKey(state.nextCursor);
-    if (seenCursors.has(key)) fail("gateway/protocol", `FRAM repeated a cursor for query ${query.name}`);
+    if (seenCursors.has(key)) fail("gateway/protocol", `Store repeated a cursor for query ${query.name}`);
     seenCursors.add(key);
     cursor = state.nextCursor;
   }
   fail("gateway/result-limit", `query ${query.name} exceeded its page limit`);
 }
 
-export function createNamedQueryRuntime(entries, { fram, entities, providers = {} } = {}) {
-  if (!fram || typeof fram.query !== "function") {
-    fail("gateway/invalid-plan", "named query runtime requires fram.query");
+export function createNamedQueryRuntime(entries, { store, entities, providers = {} } = {}) {
+  if (!store || typeof store.query !== "function") {
+    fail("gateway/invalid-plan", "named query runtime requires store.query");
   }
   const compiled = compileNamedQueries(entries, entities);
   const providerRegistry = checkedProviderRegistry(providers, compiled);
@@ -1341,8 +1341,8 @@ export function createNamedQueryRuntime(entries, { fram, entities, providers = {
       const checkedOptions = executionOptions(query, options);
       const structuredQuery = query.lower(encodedParameters);
       return query.result.kind === "page"
-        ? executePage(fram, query, structuredQuery, checkedOptions, providerRegistry)
-        : executeSingular(fram, query, structuredQuery, checkedOptions, providerRegistry);
+        ? executePage(store, query, structuredQuery, checkedOptions, providerRegistry)
+        : executeSingular(store, query, structuredQuery, checkedOptions, providerRegistry);
     },
   });
 }

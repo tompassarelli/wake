@@ -40,7 +40,7 @@ function artifacts() {
   };
   const planValue = {
     applicationId,
-    backend: "fram",
+    backend: "store",
     commands: [],
     composition: { extensions: [], fills: [], mounts: [], providers: [] },
     entities: [{
@@ -70,7 +70,7 @@ function artifacts() {
     artifacts: {
       browserClient: { path: "wake-client.js", sha256: browserClientDigest },
       browserJavaScript: { path: "app.js", sha256: browserJavaScriptDigest },
-      framPlan: { path: "app.fram.json", sha256: sha256Digest(plan) },
+      storePlan: { path: "app.store.json", sha256: sha256Digest(plan) },
     },
     checkedApplication: { fingerprint, schemaVersion: 1 },
     compiler: { name: "wake", sourceCommit: "a".repeat(40), version: "0.1.0" },
@@ -82,7 +82,7 @@ function artifacts() {
     hostCapabilities: [],
     plugins: [manifestPlugin],
     protocols: {
-      framPlanSchemaVersion: 2,
+      storePlanSchemaVersion: 2,
       httpOperationProtocolVersion: 2,
       pluginAbiVersion: 1,
     },
@@ -94,7 +94,7 @@ function artifacts() {
     applicationManifestDigest: sha256Digest(manifest),
     browserClientDigest,
     browserJavaScriptDigest,
-    framPlanDigest: sha256Digest(plan),
+    storePlanDigest: sha256Digest(plan),
     schemaVersion: 1,
   });
   return { deploymentReceipt, manifest, plan };
@@ -122,7 +122,7 @@ function harness() {
     result,
     servedVersion: version,
   });
-  const fram = {
+  const store = {
     async query(query, options) {
       calls.query.push({ options, query });
       if (query.find.endsWith("subject")) {
@@ -175,7 +175,7 @@ function harness() {
   const input = {
     applicationId,
     ...checked,
-    fram,
+    store,
     async initialize(context) {
       calls.initialize.push(context);
     },
@@ -185,7 +185,7 @@ function harness() {
     calls,
     checked,
     faults,
-    fram,
+    store,
     input,
     schema,
     setState(document, schemaDocument) {
@@ -216,7 +216,7 @@ describe("application installer", () => {
     const create = fixture.calls.transactions[0].creates[0];
     expect(create.subject).toEqual(receiptSubject);
     expect(create.fields).toHaveLength(2);
-    expect(create.fields[1].value[1]).toContain('"framPlanSchemaVersion":2');
+    expect(create.fields[1].value[1]).toContain('"storePlanSchemaVersion":2');
     expect(create.fields[1].value[1]).toContain(`"semanticFingerprint":"${fingerprint}"`);
     const field = fixture.calls.transactions[1].updates[0].fields[0];
     expect(field).toEqual({
@@ -236,7 +236,7 @@ describe("application installer", () => {
     expect(await loadApplicationReceipt({
       applicationId,
       ...fixture.checked,
-      fram: fixture.fram,
+      store: fixture.store,
     })).toEqual(receipt);
   });
 

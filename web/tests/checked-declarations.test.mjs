@@ -183,7 +183,7 @@ test("decodes exact plugin and application declaration graphs with source sideca
     application: {
       _tag: "IrApplicationRootSpec",
       id: "greywrought-wiki",
-      authority: { _tag: "IrFramAuthority", service: "fram" },
+      authority: { _tag: "IrStoreAuthority", service: "store" },
       plugins: [{
         use: {
           ref: {

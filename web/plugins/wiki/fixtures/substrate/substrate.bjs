@@ -244,7 +244,7 @@
 (wake/application-root
   application
   "wake-wiki-substrate-fixture"
-  (wake/->FramAuthority "fram")
+  (wake/->StoreAuthority "store")
   [(wake/->StorageSpec
      member-ref
      "wake-wiki-substrate-fixture/entity/member")]

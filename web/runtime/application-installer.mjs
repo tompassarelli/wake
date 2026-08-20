@@ -120,7 +120,7 @@ function compiledSchema(applicationReceipt, manifest, plan) {
   return deepFreeze({
     applicationId: applicationReceipt.applicationId,
     entities: plan.entities,
-    framPlanSchemaVersion: applicationReceipt.protocols.framPlanSchemaVersion,
+    storePlanSchemaVersion: applicationReceipt.protocols.storePlanSchemaVersion,
     schemaVersion: 1,
     semanticFingerprint: applicationReceipt.semanticFingerprint,
     stateMachines: plan.stateMachines,
@@ -146,15 +146,15 @@ function sameTerm(actual, expected) {
 function checkedStoredString(term) {
   if (!Array.isArray(term) || term.length !== 2 || term[0] !== "string"
       || typeof term[1] !== "string") {
-    fail("application-install/protocol", "FRAM returned a malformed install document");
+    fail("application-install/protocol", "Store returned a malformed install document");
   }
   return term[1];
 }
 
-async function readState(fram, applicationId, storage) {
+async function readState(store, applicationId, storage) {
   let subjects;
   try {
-    subjects = await fram.query(receiptSubjectQuery(applicationId, storage), {
+    subjects = await store.query(receiptSubjectQuery(applicationId, storage), {
       page: { limit: 2 },
       timeoutMs: QUERY_TIMEOUT_MS,
     });
@@ -169,7 +169,7 @@ async function readState(fram, applicationId, storage) {
   if (!plainObject(subjects) || !Array.isArray(subjects.result)
       || typeof subjects.servedVersion !== "bigint" || !plainObject(subjects.page)
       || subjects.page.done !== true) {
-    fail("application-install/protocol", "FRAM returned a malformed install state response");
+    fail("application-install/protocol", "Store returned a malformed install state response");
   }
   if (subjects.result.length === 0) {
     return Object.freeze({ kind: "blank", servedVersion: subjects.servedVersion });
@@ -180,12 +180,12 @@ async function readState(fram, applicationId, storage) {
   const subjectRow = subjects.result[0];
   if (!Array.isArray(subjectRow) || subjectRow.length !== 1
       || !sameTerm(subjectRow[0], storage.subject)) {
-    fail("application-install/protocol", "FRAM returned a malformed install state row");
+    fail("application-install/protocol", "Store returned a malformed install state row");
   }
 
   let documents;
   try {
-    documents = await fram.query(receiptDocumentsQuery(storage), {
+    documents = await store.query(receiptDocumentsQuery(storage), {
       asOf: subjects.servedVersion,
       page: { limit: 2 },
       timeoutMs: QUERY_TIMEOUT_MS,
@@ -201,7 +201,7 @@ async function readState(fram, applicationId, storage) {
   if (!plainObject(documents) || !Array.isArray(documents.result)
       || documents.servedVersion !== subjects.servedVersion || !plainObject(documents.page)
       || documents.page.done !== true) {
-    fail("application-install/protocol", "FRAM returned malformed install documents");
+    fail("application-install/protocol", "Store returned malformed install documents");
   }
   if (documents.result.length !== 1) {
     fail(
@@ -211,7 +211,7 @@ async function readState(fram, applicationId, storage) {
   }
   const row = documents.result[0];
   if (!Array.isArray(row) || row.length !== 2) {
-    fail("application-install/protocol", "FRAM returned malformed install documents");
+    fail("application-install/protocol", "Store returned malformed install documents");
   }
   return Object.freeze({
     document: checkedStoredString(row[0]),
@@ -296,10 +296,10 @@ async function finalize(schema, applicationId, storage, installingText, readyTex
   }
 }
 
-async function exactStateAfterWrite(fram, applicationId, storage, allowed, operation) {
+async function exactStateAfterWrite(store, applicationId, storage, allowed, operation) {
   let state;
   try {
-    state = await readState(fram, applicationId, storage);
+    state = await readState(store, applicationId, storage);
   } catch (error) {
     fail(
       "application-install/ambiguous-outcome",
@@ -326,14 +326,14 @@ async function exactStateAfterWrite(fram, applicationId, storage, allowed, opera
 export async function installApplication({
   applicationId,
   deploymentReceipt,
-  fram,
+  store,
   initialize,
   manifest,
   plan,
   schema,
 } = {}) {
-  if (!fram || typeof fram.query !== "function") {
-    fail("application-install/invalid-input", "fram.query is required");
+  if (!store || typeof store.query !== "function") {
+    fail("application-install/invalid-input", "store.query is required");
   }
   if (!schema || ["createUnique", "transactUnique", "updateUnique", "updateUniqueMany"]
     .some(name => typeof schema[name] !== "function")) {
@@ -374,7 +374,7 @@ export async function installApplication({
   const schemaText = canonicalDocument(schemaDocument);
   const storage = receiptStorage(applicationId);
 
-  let state = await readState(fram, applicationId, storage);
+  let state = await readState(store, applicationId, storage);
   let phase = classifyState(state, readyText, installingText, schemaText);
   if (phase === "blank") {
     const committed = await persistInstalling(
@@ -386,7 +386,7 @@ export async function installApplication({
     );
     if (committed === null) {
       phase = await exactStateAfterWrite(
-        fram,
+        store,
         applicationId,
         storage,
         candidate => {
@@ -425,7 +425,7 @@ export async function installApplication({
     );
     if (committed === null) {
       await exactStateAfterWrite(
-        fram,
+        store,
         applicationId,
         storage,
         candidate => classifyState(candidate, readyText, installingText, schemaText) === "ready"
@@ -436,7 +436,7 @@ export async function installApplication({
     }
   }
 
-  const verified = await readState(fram, applicationId, storage);
+  const verified = await readState(store, applicationId, storage);
   if (classifyState(verified, readyText, installingText, schemaText) !== "ready") {
     fail("application-install/receipt-mismatch", "application install did not reach ready state");
   }
@@ -445,7 +445,7 @@ export async function installApplication({
     return await loadApplicationReceipt({
       applicationId,
       deploymentReceipt,
-      fram,
+      store,
       manifest,
       plan,
     });

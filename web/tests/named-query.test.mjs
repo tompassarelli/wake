@@ -10,10 +10,10 @@ const refParamFixture = `${webRoot}/tests/fixtures/named-query-ref-param.bjs`;
 const unknownParamFixture = `${webRoot}/tests/fixtures/named-query-unknown-param.bjs`;
 const pluginStateFixture = `${webRoot}/tests/fixtures/plugin-state-query`;
 
-function compileFram(source = fixture) {
+function compileStore(source = fixture) {
   const result = Bun.spawnSync([
     `${webRoot}/bin/wake-compile`,
-    "--fram",
+    "--store",
     source,
     "-",
   ], {
@@ -62,7 +62,7 @@ async function compilePluginStateQuery() {
       }],
       schemaVersion: 1,
     }));
-    return compileFram(`${temporary}/app.bjs`);
+    return compileStore(`${temporary}/app.bjs`);
   } finally {
     Bun.spawnSync(["rm", "-rf", "--", temporary]);
   }
@@ -70,8 +70,8 @@ async function compilePluginStateQuery() {
 
 describe("W1 checked named query compiler", () => {
   test("emits deterministic typed joins, projections, bounds, and dependencies", () => {
-    const first = compileFram();
-    const second = compileFram();
+    const first = compileStore();
+    const second = compileStore();
     expect(first.status).toBe(0);
     expect(second.status).toBe(0);
     expect(first.stdout).toBe(second.stdout);
@@ -156,29 +156,29 @@ describe("W1 checked named query compiler", () => {
   }, 45_000);
 
   test("rejects equality between references with different entity targets", () => {
-    const compiled = compileFram(invalidRefFixture);
+    const compiled = compileStore(invalidRefFixture);
     expect(compiled.status).not.toBe(0);
     expect(compiled.stderr).toContain(
       "compares references to different entity targets 'release' and 'actor'",
     );
   }, 30_000);
 
-  test("rejects derived fields because FRAM cannot serve them", () => {
-    const compiled = compileFram(derivedFixture);
+  test("rejects derived fields because Store cannot serve them", () => {
+    const compiled = compileStore(derivedFixture);
     expect(compiled.status).not.toBe(0);
     expect(compiled.stderr).toContain(
-      "cannot read derived field 'release.label' from FRAM",
+      "cannot read derived field 'release.label' from Store",
     );
   }, 30_000);
 
-  test("closes query parameters over typed FRAM values", () => {
-    const ref = compileFram(refParamFixture);
+  test("closes query parameters over typed Store values", () => {
+    const ref = compileStore(refParamFixture);
     expect(ref.status).not.toBe(0);
     expect(ref.stderr).toContain(
       "call to wake/->EntityReferenceValueType: expected 1 arg(s), got 0",
     );
 
-    const unknown = compileFram(unknownParamFixture);
+    const unknown = compileStore(unknownParamFixture);
     expect(unknown.status).not.toBe(0);
     expect(unknown.stderr).toContain(
       "parameter 'opaque' has unsupported type 'Opaque'",

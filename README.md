@@ -11,8 +11,8 @@ and projects it into deployable artifacts.
   (:require [wake.core :as wake]))
 ```
 
-Wake is not a browser framework or a storage engine. It owns application-domain
-validation and projection; FRAM owns storage and query execution, while the host
+Wake is not a browser storeework or a storage engine. It owns application-domain
+validation and projection; Store owns storage and query execution, while the host
 owns authentication, authorization, and provider implementations.
 
 ## Build and test

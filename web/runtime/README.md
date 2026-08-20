@@ -1,10 +1,10 @@
 # `@tompassarelli/wake-runtime`
 
 The production Fetch boundary for running one checked Wake application against
-the official FRAM client. It contains the checked adapter, a Cloudflare Worker
+the official Store client. It contains the checked adapter, a Cloudflare Worker
 host, and the internal HTTP, gateway, named-query, receipt, and canonical-JSON
 implementation. It contains no compiler, plugin implementation, dynamic plugin
-loader, or raw FRAM escape.
+loader, or raw Store escape.
 
 ```js
 import {
@@ -25,7 +25,7 @@ const compilerCompatibility = checkWakeCompilerCompatibility({
 const applicationReceipt = await installApplication({
   applicationId: "my-application",
   deploymentReceipt,
-  fram,
+  store,
   manifest,
   plan,
   schema,
@@ -37,7 +37,7 @@ const applicationReceipt = await installApplication({
 await loadApplicationReceipt({
   applicationId: "my-application",
   deploymentReceipt,
-  fram,
+  store,
   manifest,
   plan,
 }); // Verifies the ready receipt without changing state.
@@ -52,7 +52,7 @@ const runtime = createWakeApplicationAdapter({
     keys: { current: cursorEncryptionKey },
   },
   deploymentReceipt,
-  fram,
+  store,
   manifest,
   plan,
   providers,
@@ -90,7 +90,7 @@ await runtime.invokeCommand(
 );
 ```
 
-`loadApplicationReceipt` performs two bounded, application-scoped FRAM queries:
+`loadApplicationReceipt` performs two bounded, application-scoped Store queries:
 one to prove the receipt subject is unique and one snapshot-pinned document read.
 It refuses a missing, duplicate, malformed, or artifact-mismatched durable
 receipt. `installApplication` is the maintenance boundary: it validates the
@@ -114,7 +114,7 @@ stable `authorizationScope`. Wake seals continuation state behind opaque,
 application-bound cursors using the injected rotating AES-GCM key set.
 `browserClient` and `browserJavaScript` must be the exact compiler-emitted
 bytes bound by the deployment receipt. `providers` must exactly match
-the provider bindings in the checked FRAM plan; extra, missing, accessor, or
+the provider bindings in the checked Store plan; extra, missing, accessor, or
 non-function entries fail startup.
 `serverValues` is an optional static data registry whose own enumerable keys
 must exactly match checked server-value injections; Wake type-checks and
@@ -126,8 +126,8 @@ a closed `handle` boundary, so its public URL and protocol remain an application
 concern; Wake never forces the raw `/api/wake` protocol onto the internet.
 `fallback` can delegate every other route to a Cloudflare static-assets binding.
 The Worker host imports no Cloudflare module, does not inspect credentials, and
-does not select a FRAM transport. Applications inject the official FRAM client
-backed by either native FRAMRPC or a Durable Object transport.
+does not select a Store transport. Applications inject the official Store client
+backed by either native StoreRPC or a Durable Object transport.
 
 `fallback` is not authenticated by Wake. Use it only for deliberately public
 assets. A protected application should select every request in `route`, verify

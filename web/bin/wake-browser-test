@@ -102,9 +102,9 @@ cd "$wake_web"
 WAKE_BROWSER_FIXTURES="$fixture_dir" \
   bun --bun --no-install "$playwright" test \
     tests/crm-js.spec.ts \
-    tests/fram-connector.spec.ts \
+    tests/store-connector.spec.ts \
     tests/todo-component.spec.ts \
     tests/tracker.spec.ts \
     tests/webdev.spec.ts \
-    tests/wiki-fram.spec.ts \
+    tests/wiki-store.spec.ts \
     tests/wiki-routing.spec.ts

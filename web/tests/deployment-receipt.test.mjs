@@ -9,7 +9,7 @@ import { generateDeploymentReceipt } from "../compiler/deployment-receipt.mjs";
 function fixture() {
   const browserClient = "export const client = true;\n";
   const browserJavaScript = "export const app = true;\n";
-  const framPlan = canonicalDocument({ backend: "fram", schemaVersion: 2 });
+  const storePlan = canonicalDocument({ backend: "store", schemaVersion: 2 });
   const manifest = canonicalDocument({
     applicationId: "example-application",
     artifacts: {
@@ -21,13 +21,13 @@ function fixture() {
         path: "app.js",
         sha256: sha256Digest(browserJavaScript),
       },
-      framPlan: {
-        path: "app.fram.json",
-        sha256: sha256Digest(framPlan),
+      storePlan: {
+        path: "app.store.json",
+        sha256: sha256Digest(storePlan),
       },
     },
   });
-  return { browserClient, browserJavaScript, framPlan, manifest };
+  return { browserClient, browserJavaScript, storePlan, manifest };
 }
 
 describe("deployment artifact receipt", () => {
@@ -42,7 +42,7 @@ describe("deployment artifact receipt", () => {
       "applicationManifestDigest",
       "browserClientDigest",
       "browserJavaScriptDigest",
-      "framPlanDigest",
+      "storePlanDigest",
       "schemaVersion",
     ]);
   });
@@ -58,7 +58,7 @@ describe("deployment artifact receipt", () => {
       applicationManifestDigest: sha256Digest(input.manifest),
       browserClientDigest: sha256Digest(input.browserClient),
       browserJavaScriptDigest: sha256Digest(input.browserJavaScript),
-      framPlanDigest: sha256Digest(input.framPlan),
+      storePlanDigest: sha256Digest(input.storePlan),
       schemaVersion: 1,
     });
   });

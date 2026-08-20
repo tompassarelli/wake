@@ -40,10 +40,10 @@
     "protocols": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["framPlanSchemaVersion", "httpOperationProtocolVersion", "pluginAbiVersion"],
+      "required": ["storePlanSchemaVersion", "httpOperationProtocolVersion", "pluginAbiVersion"],
       "properties": {
         "pluginAbiVersion": { "const": 1 },
-        "framPlanSchemaVersion": { "const": 2 },
+        "storePlanSchemaVersion": { "const": 2 },
         "httpOperationProtocolVersion": { "const": 2 }
       }
     },
@@ -110,11 +110,11 @@
     "artifacts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["browserClient", "browserJavaScript", "framPlan"],
+      "required": ["browserClient", "browserJavaScript", "storePlan"],
       "properties": {
         "browserClient": { "$ref": "#/$defs/artifact" },
         "browserJavaScript": { "$ref": "#/$defs/artifact" },
-        "framPlan": { "$ref": "#/$defs/artifact" }
+        "storePlan": { "$ref": "#/$defs/artifact" }
       }
     }
   },

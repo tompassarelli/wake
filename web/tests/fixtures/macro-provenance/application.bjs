@@ -304,7 +304,7 @@
 (wake/application-root
   application
   "greywrought-wiki"
-  (wake/->FramAuthority "fram")
+  (wake/->StoreAuthority "store")
   [(wake/->StorageSpec article-ref "greywrought/article")]
   [(wake/->IdentitySpec article-ref article-id-ref)]
   [wiki-composition]

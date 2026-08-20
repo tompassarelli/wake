@@ -231,7 +231,7 @@ const application = `#lang beagle/js
 (wake/application-root
   application
   "wake-composition-fixture"
-  (wake/->FramAuthority "fram")
+  (wake/->StoreAuthority "store")
   [(wake/->StorageSpec actor-ref "wake-composition-fixture/entity/actor")]
   [(wake/->IdentitySpec actor-ref actor-id-ref)]
   [release-plugin-composition]
@@ -248,7 +248,7 @@ describe("W3 checked application composition", () => {
     const result = runCompile(root);
     expect(result.exitCode, result.stderr.toString()).toBe(0);
 
-    const plan = JSON.parse(await Bun.file(`${root}/out/app.fram.json`).text());
+    const plan = JSON.parse(await Bun.file(`${root}/out/app.store.json`).text());
     const release = plan.entities.find(entity => entity.name === "release-plugin.release");
     expect(release).toBeDefined();
     expect(release.fields.find(field => field.name === "channel")).toMatchObject({
@@ -345,7 +345,7 @@ describe("W3 checked application composition", () => {
       applicationManifestDigest: sha256Digest(manifestText),
       browserClientDigest: sha256Digest(clientText),
       browserJavaScriptDigest: sha256Digest(await Bun.file(`${root}/out/app.js`).text()),
-      framPlanDigest: sha256Digest(await Bun.file(`${root}/out/app.fram.json`).text()),
+      storePlanDigest: sha256Digest(await Bun.file(`${root}/out/app.store.json`).text()),
       schemaVersion: 1,
     });
     expect(manifest.digests.operationSurface).toMatch(/^sha256:[0-9a-f]{64}$/u);

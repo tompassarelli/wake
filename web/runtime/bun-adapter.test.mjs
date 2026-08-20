@@ -7,7 +7,7 @@ const fingerprint = `sha256:${"1".repeat(64)}`;
 const operationDigest = `sha256:${"3".repeat(64)}`;
 const storageDigest = `sha256:${"4".repeat(64)}`;
 const protocols = Object.freeze({
-  framPlanSchemaVersion: 2,
+  storePlanSchemaVersion: 2,
   httpOperationProtocolVersion: 2,
   pluginAbiVersion: 1,
 });
@@ -107,11 +107,11 @@ function realFixture({ title = "Wake" } = {}) {
   value.plan = `${JSON.stringify(planValue, null, 2)}\n`;
   const planDigest = sha256Digest(value.plan);
   const manifestValue = JSON.parse(value.manifest);
-  manifestValue.artifacts.framPlan.sha256 = planDigest;
+  manifestValue.artifacts.storePlan.sha256 = planDigest;
   value.manifest = canonicalDocument(manifestValue);
   const deploymentValue = JSON.parse(value.deploymentReceipt);
   deploymentValue.applicationManifestDigest = sha256Digest(value.manifest);
-  deploymentValue.framPlanDigest = planDigest;
+  deploymentValue.storePlanDigest = planDigest;
   value.deploymentReceipt = canonicalDocument(deploymentValue);
   value.applicationReceipt.deploymentArtifactReceiptDigest = sha256Digest(
     value.deploymentReceipt,
@@ -124,7 +124,7 @@ function realFixture({ title = "Wake" } = {}) {
   return {
     ...value,
     cursor: { activeKeyId: "test", keys: { test: new Uint8Array(32) } },
-    framResult: {
+    storeResult: {
       page: { done: true, nextCursor: null, ordinal: 0 },
       result: [[subject, term("string", "wake"), term("string", title)]],
       servedVersion: 7n,
@@ -144,12 +144,12 @@ function reboundFingerprint(value, nextFingerprint) {
   const manifest = JSON.parse(value.manifest);
   manifest.checkedApplication.fingerprint = nextFingerprint;
   manifest.artifacts.browserJavaScript.sha256 = sha256Digest(next.browserJavaScript);
-  manifest.artifacts.framPlan.sha256 = sha256Digest(next.plan);
+  manifest.artifacts.storePlan.sha256 = sha256Digest(next.plan);
   next.manifest = canonicalDocument(manifest);
   const receipt = JSON.parse(value.deploymentReceipt);
   receipt.applicationManifestDigest = sha256Digest(next.manifest);
   receipt.browserJavaScriptDigest = sha256Digest(next.browserJavaScript);
-  receipt.framPlanDigest = sha256Digest(next.plan);
+  receipt.storePlanDigest = sha256Digest(next.plan);
   next.deploymentReceipt = canonicalDocument(receipt);
   next.applicationReceipt.deploymentArtifactReceiptDigest = sha256Digest(next.deploymentReceipt);
   next.applicationReceipt.semanticFingerprint = nextFingerprint;
@@ -188,7 +188,7 @@ function fixture({ providerNames = [] } = {}) {
   };
   const planValue = {
     applicationId: "neutral.fixture",
-    backend: "fram",
+    backend: "store",
     composition: {
       extensions: [],
       fills: [],
@@ -216,7 +216,7 @@ function fixture({ providerNames = [] } = {}) {
     artifacts: {
       browserClient: { path: "wake-client.js", sha256: browserClientDigest },
       browserJavaScript: { path: "app.js", sha256: browserDigest },
-      framPlan: { path: "app.fram.json", sha256: planDigest },
+      storePlan: { path: "app.store.json", sha256: planDigest },
     },
     checkedApplication: { fingerprint, schemaVersion: 1 },
     compiler: { name: "wake", sourceCommit: "b".repeat(40), version: "0.1.0" },
@@ -236,7 +236,7 @@ function fixture({ providerNames = [] } = {}) {
     applicationManifestDigest: sha256Digest(manifest),
     browserClientDigest,
     browserJavaScriptDigest: browserDigest,
-    framPlanDigest: planDigest,
+    storePlanDigest: planDigest,
     schemaVersion: 1,
   };
   const deploymentReceipt = canonicalDocument(deploymentReceiptValue);
@@ -271,7 +271,7 @@ function mutatePluginArtifact(name, mutate) {
 
 function runtime(overrides = {}) {
   const calls = { gateway: [], http: [], authorized: [], invoked: [], queried: [] };
-  const fram = {
+  const store = {
     query: async () => ({ result: [], servedVersion: 1n }),
     status: async () => ({ result: { state: "ready" }, servedVersion: 1n }),
   };
@@ -324,19 +324,19 @@ function runtime(overrides = {}) {
     calls,
     createGateway,
     createHttpHandler,
-    fram,
+    store,
     schema,
     ...overrides,
   };
 }
 
-test("composes only the public FRAM and Wake runtime interfaces", async () => {
+test("composes only the public Store and Wake runtime interfaces", async () => {
   const input = runtime();
   const adapter = createWakeBunAdapter(input);
   expect(adapter.applicationId).toBe("neutral.fixture");
   expect(adapter.semanticFingerprint).toBe(fingerprint);
   expect(input.calls.gateway).toHaveLength(1);
-  expect(input.calls.gateway[0].clients.fram).toBe(input.fram);
+  expect(input.calls.gateway[0].clients.store).toBe(input.store);
   expect(input.calls.gateway[0].clients.providers).toEqual({});
   expect(Object.isFrozen(input.calls.gateway[0].clients.providers)).toBe(true);
   expect(input.calls.gateway[0].clients.schema).toBe(input.schema);
@@ -470,12 +470,12 @@ test("fails construction before runtime composition on plan or receipt drift", (
     input => { input.plan = input.plan.replace("neutral.fixture", "wrong.fixture"); },
     input => {
       const value = JSON.parse(input.manifest);
-      value.artifacts.framPlan.sha256 = `sha256:${"9".repeat(64)}`;
+      value.artifacts.storePlan.sha256 = `sha256:${"9".repeat(64)}`;
       input.manifest = canonicalDocument(value);
     },
     input => {
       const value = JSON.parse(input.deploymentReceipt);
-      value.framPlanDigest = `sha256:${"a".repeat(64)}`;
+      value.storePlanDigest = `sha256:${"a".repeat(64)}`;
       input.deploymentReceipt = canonicalDocument(value);
     },
     input => { input.applicationReceipt.semanticFingerprint = `sha256:${"b".repeat(64)}`; },
@@ -502,7 +502,7 @@ test("fails construction before runtime composition on plan or receipt drift", (
   }
 });
 
-test("readiness reports only a verified FRAM ready status and fails closed", async () => {
+test("readiness reports only a verified Store ready status and fails closed", async () => {
   for (const [status, expected] of [
     [async () => ({ result: { state: "ready" } }), true],
     [async () => ({ result: { state: "replaying" } }), false],
@@ -510,7 +510,7 @@ test("readiness reports only a verified FRAM ready status and fails closed", asy
     [async () => { throw new Error("transport secret"); }, false],
   ]) {
     const input = runtime();
-    input.fram.status = status;
+    input.store.status = status;
     const adapter = createWakeBunAdapter(input);
     expect(await adapter.checkReadiness()).toBe(expected);
   }
@@ -878,9 +878,9 @@ test("direct paged queries seal and validate opaque continuation cursors", async
   expect(foreignCalls).toHaveLength(0);
 });
 
-test("runs a fingerprinted named query through the real HTTP and FRAM boundary", async () => {
+test("runs a fingerprinted named query through the real HTTP and Store boundary", async () => {
   const checked = realFixture();
-  const framCalls = [];
+  const storeCalls = [];
   const authorized = [];
   const mappedActor = Object.freeze({
     capabilities: Object.freeze(["wake-wiki/cap/read-published"]),
@@ -892,10 +892,10 @@ test("runs a fingerprinted named query through the real HTTP and FRAM boundary",
       authorized.push(context);
       return Object.freeze({ actor: mappedActor, allowed: true });
     },
-    fram: {
+    store: {
       async query(query, options) {
-        framCalls.push({ options, query });
-        return checked.framResult;
+        storeCalls.push({ options, query });
+        return checked.storeResult;
       },
       status: async () => ({ result: { state: "ready" }, servedVersion: 7n }),
     },
@@ -931,8 +931,8 @@ test("runs a fingerprinted named query through the real HTTP and FRAM boundary",
   expect(await response.text()).toBe(
     '{"rows":[{"id":"wake","title":"Wake"}],"page":{"done":true,"nextCursor":null},"servedVersion":"7"}',
   );
-  expect(framCalls).toHaveLength(1);
-  expect(framCalls[0].options).toEqual({ page: { limit: 1 }, timeoutMs: 5_000 });
+  expect(storeCalls).toHaveLength(1);
+  expect(storeCalls[0].options).toEqual({ page: { limit: 1 }, timeoutMs: 5_000 });
   expect(authorized).toHaveLength(1);
   expect(authorized[0].actor).toEqual(actor);
   expect(Object.isFrozen(authorized[0].actor)).toBe(true);
@@ -948,7 +948,7 @@ test("runs a fingerprinted named query through the real HTTP and FRAM boundary",
     '{"error":{"code":"application_mismatch","message":"Request fingerprint does not match the deployed application."}}',
   );
   expect(authorized).toHaveLength(1);
-  expect(framCalls).toHaveLength(1);
+  expect(storeCalls).toHaveLength(1);
 });
 
 test("enforces exact Wake request and response byte ceilings through the adapter", async () => {
@@ -966,8 +966,8 @@ test("enforces exact Wake request and response byte ceilings through the adapter
     return createWakeBunAdapter({
       ...checked,
       authorize: () => true,
-      fram: {
-        query: async () => checked.framResult,
+      store: {
+        query: async () => checked.storeResult,
         status: async () => ({ result: { state: "ready" }, servedVersion: 7n }),
       },
       schema: {

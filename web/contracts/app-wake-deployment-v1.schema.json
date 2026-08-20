@@ -9,7 +9,7 @@
     "applicationManifestDigest",
     "browserClientDigest",
     "browserJavaScriptDigest",
-    "framPlanDigest",
+    "storePlanDigest",
     "schemaVersion"
   ],
   "properties": {
@@ -18,7 +18,7 @@
     "applicationManifestDigest": { "$ref": "#/$defs/digest" },
     "browserClientDigest": { "$ref": "#/$defs/digest" },
     "browserJavaScriptDigest": { "$ref": "#/$defs/digest" },
-    "framPlanDigest": { "$ref": "#/$defs/digest" }
+    "storePlanDigest": { "$ref": "#/$defs/digest" }
   },
   "$defs": {
     "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }

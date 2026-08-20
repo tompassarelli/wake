@@ -36,19 +36,19 @@ function runCompile(args) {
   assert.equal(result.status, 0, diagnostics);
 }
 
-describe("FRAM command UX", () => {
+describe("Store command UX", () => {
   let outputDir;
-  let framSource;
+  let storeSource;
 
   beforeAll(() => {
-    outputDir = mkdtempSync(join(tmpdir(), "wake-command-ux-fram-"));
-    const framDir = join(outputDir, "fram");
+    outputDir = mkdtempSync(join(tmpdir(), "wake-command-ux-store-"));
+    const storeDir = join(outputDir, "store");
     runCompile([
       "--all",
-      "tests/fixtures/fram-command-ux.bjs",
-      framDir,
+      "tests/fixtures/store-command-ux.bjs",
+      storeDir,
     ]);
-    framSource = readFileSync(join(framDir, "app.js"), "utf8");
+    storeSource = readFileSync(join(storeDir, "app.js"), "utf8");
   }, { timeout: 45_000 });
 
   afterAll(() => {
@@ -58,56 +58,56 @@ describe("FRAM command UX", () => {
   });
 
   test("propagate promises and surface failures", () => {
-    const itemStore = framSource.match(
+    const itemStore = storeSource.match(
       /\["item", \{ store: ([A-Za-z_$][\w$]*)/,
     )?.[1];
     assert.ok(itemStore, "generated connector must bind the item store");
 
-    assert.match(framSource, /return wakeFramCreate\("item", fields\);/);
+    assert.match(storeSource, /return wakeStoreCreate\("item", fields\);/);
     assert.match(
-      framSource,
-      /return wakeFramSet\("item", identity, attr, value\)\.then\(\(\) => true\);/,
+      storeSource,
+      /return wakeStoreSet\("item", identity, attr, value\)\.then\(\(\) => true\);/,
     );
-    assert.doesNotMatch(framSource, /void wakeFram(?:Create|Set)/);
-    assert.doesNotMatch(framSource, /FRAM (?:create|set) failed/);
+    assert.doesNotMatch(storeSource, /void wakeStore(?:Create|Set)/);
+    assert.doesNotMatch(storeSource, /Store (?:create|set) failed/);
     assert.match(
-      framSource,
+      storeSource,
       /addEventListener\("click", async \(ev\) => \{[^\n]+await store\.update[^\n]+store\.commandFailed\(error\)/,
     );
-    assert.match(framSource, /const commit = async \(\) => \{/);
+    assert.match(storeSource, /const commit = async \(\) => \{/);
     assert.ok(
-      framSource.includes(`await ${itemStore}.update(selectedEid, attr, value);`),
+      storeSource.includes(`await ${itemStore}.update(selectedEid, attr, value);`),
     );
-    assert.ok(framSource.includes(`${itemStore}.commandFailed(error);`));
-    assert.match(framSource, /data-wake-command-error/);
-    assert.match(framSource, /Could not save changes\. Try again\./);
-    assert.match(framSource, /const wakeFramHttpTimeoutMs = 10000;/);
-    assert.match(framSource, /const controller = new AbortController\(\);/);
+    assert.ok(storeSource.includes(`${itemStore}.commandFailed(error);`));
+    assert.match(storeSource, /data-wake-command-error/);
+    assert.match(storeSource, /Could not save changes\. Try again\./);
+    assert.match(storeSource, /const wakeStoreHttpTimeoutMs = 10000;/);
+    assert.match(storeSource, /const controller = new AbortController\(\);/);
     assert.match(
-      framSource,
-      /setTimeout\(\(\) => controller\.abort\(\), wakeFramHttpTimeoutMs\)/,
+      storeSource,
+      /setTimeout\(\(\) => controller\.abort\(\), wakeStoreHttpTimeoutMs\)/,
     );
-    assert.match(framSource, /signal: controller\.signal/);
-    assert.match(framSource, /finally \{\s+clearTimeout\(timeout\);/);
+    assert.match(storeSource, /signal: controller\.signal/);
+    assert.match(storeSource, /finally \{\s+clearTimeout\(timeout\);/);
     assert.match(
-      framSource,
-      /async function wakeFramRefreshAfterCommand\(entities\)/,
+      storeSource,
+      /async function wakeStoreRefreshAfterCommand\(entities\)/,
     );
     assert.match(
-      framSource,
-      /FRAM command committed; refresh deferred to change polling/,
+      storeSource,
+      /Store command committed; refresh deferred to change polling/,
     );
-    assert.match(framSource, /wakeFramSchedulePoll\(0\)/);
-    assert.match(framSource, /await wakeFramRefreshAfterCommand\(\[entity\]\);/);
-    assert.doesNotMatch(framSource, /await wakeFramReload\(entity\);/);
+    assert.match(storeSource, /wakeStoreSchedulePoll\(0\)/);
+    assert.match(storeSource, /await wakeStoreRefreshAfterCommand\(\[entity\]\);/);
+    assert.doesNotMatch(storeSource, /await wakeStoreReload\(entity\);/);
 
-    const submit = framSource.indexOf(
+    const submit = storeSource.indexOf(
       "formEl.addEventListener('submit', async (e) =>",
     );
-    const command = framSource.indexOf(`await ${itemStore}.add`, submit);
-    const clear = framSource.indexOf(".value = '';", command);
-    const hide = framSource.indexOf("formEl.style.display = 'none';", clear);
-    const failure = framSource.indexOf(`${itemStore}.commandFailed(error);`, hide);
+    const command = storeSource.indexOf(`await ${itemStore}.add`, submit);
+    const clear = storeSource.indexOf(".value = '';", command);
+    const hide = storeSource.indexOf("formEl.style.display = 'none';", clear);
+    const failure = storeSource.indexOf(`${itemStore}.commandFailed(error);`, hide);
     assert.ok(submit >= 0 && submit < command);
     assert.ok(command < clear && clear < hide && hide < failure);
   });

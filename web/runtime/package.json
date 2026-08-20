@@ -1,7 +1,7 @@
 {
   "name": "@tompassarelli/wake-runtime",
   "version": "0.2.0",
-  "description": "Checked Wake application runtime for Fetch hosts and FRAM",
+  "description": "Checked Wake application runtime for Fetch hosts and Store",
   "type": "module",
   "exports": {
     ".": {
@@ -22,8 +22,8 @@
     "commands.mjs",
     "compiler-compatibility.mjs",
     "cursor-provider.mjs",
-    "fram-gateway.mjs",
-    "fram-http.mjs",
+    "store-gateway.mjs",
+    "store-http.mjs",
     "index.d.ts",
     "index.mjs",
     "named-query.mjs",

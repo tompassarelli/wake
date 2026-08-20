@@ -578,8 +578,8 @@ export function checkCommandGraph(commands, checked, {
   exportedCapabilities = null,
 } = {}) {
   if (!Array.isArray(commands)) fail("commands must be an array");
-  if (commands.length > 0 && checked.backend?.kind !== "fram") {
-    fail("named commands require (backend :fram)");
+  if (commands.length > 0 && checked.backend?.kind !== "store") {
+    fail("named commands require (backend :store)");
   }
   const names = new Set();
   const capabilities = exportedCapabilities === null

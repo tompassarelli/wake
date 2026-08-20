@@ -9,45 +9,71 @@
 
 ;; --- Typed records ---
 
-(defrecord RenderResult [(code String) (vname String) (bindings Any)])
-(defrecord Binding [(prop String) (vname String) (dom_prop String)])
-(defrecord LayoutRef [(id String) (vname String)])
-(defrecord LayoutResult [(code String) (refs (Vec LayoutRef))])
+(defrecord RenderResult
+  [code String
+   vname String
+   bindings Any])
+(defrecord Binding
+  [prop String
+   vname String
+   dom_prop String])
+(defrecord LayoutRef
+  [id String
+   vname String])
+(defrecord LayoutResult
+  [code String
+   refs (Vec LayoutRef)])
 
 ;; --- JS AST (inline, typed) ---
 
-(defrecord JsIdent [(name String)])
-(defrecord JsLiteral [(value Any)])
-(defrecord JsRawExpr [(code String)])
-(defrecord JsCall [(callee JsExpr) (args (Vec JsExpr))])
-(defrecord JsMember [(obj JsExpr) (prop String)])
-(defrecord JsBinary [(op String) (left JsExpr) (right JsExpr)])
-(defrecord JsAwait [(expr JsExpr)])
-(defrecord JsArrowBlock [(params (Vec String)) (body (Vec JsStmt))])
-(defrecord JsArray [(items (Vec JsExpr))])
-(defrecord JsSpread [(expr JsExpr)])
+(defrecord JsIdent [name String])
+(defrecord JsLiteral [value Any])
+(defrecord JsRawExpr [code String])
+(defrecord JsCall
+  [callee JsExpr
+   args (Vec JsExpr)])
+(defrecord JsMember
+  [obj JsExpr
+   prop String])
+(defrecord JsBinary
+  [op String
+   left JsExpr
+   right JsExpr])
+(defrecord JsAwait [expr JsExpr])
+(defrecord JsArrowBlock
+  [params (Vec String)
+   body (Vec JsStmt)])
+(defrecord JsArray [items (Vec JsExpr)])
+(defrecord JsSpread [expr JsExpr])
 
 (defunion JsExpr JsIdent JsLiteral JsRawExpr JsCall JsMember JsBinary JsAwait JsArrowBlock JsArray JsSpread)
 
-(defrecord JsRawStmt [(code String)])
-(defrecord JsConst [(name String) (value JsExpr)])
-(defrecord JsAssign [(target JsExpr) (value JsExpr)])
-(defrecord JsReturn [(expr JsExpr)])
-(defrecord JsIf [(test JsExpr) (then (Vec JsStmt)) (else_branch (Vec JsStmt))])
-(defrecord JsBlock [(stmts (Vec JsStmt))])
-(defrecord JsExprStmt [(expr JsExpr)])
+(defrecord JsRawStmt [code String])
+(defrecord JsConst
+  [name String
+   value JsExpr])
+(defrecord JsAssign
+  [target JsExpr
+   value JsExpr])
+(defrecord JsReturn [expr JsExpr])
+(defrecord JsIf
+  [test JsExpr
+   then (Vec JsStmt)
+   else_branch (Vec JsStmt)])
+(defrecord JsBlock [stmts (Vec JsStmt)])
+(defrecord JsExprStmt [expr JsExpr])
 
 (defunion JsStmt JsRawStmt JsConst JsAssign JsReturn JsIf JsBlock JsExprStmt)
 
 ;; JSON produces a JavaScript string literal with correct quote, slash, and
 ;; control-character escaping. Escape the two ECMAScript line separators too:
 ;; they terminate // comments, including the generated source-name comment.
-(defn q [(s String)] String
-  (let [serialized (JSON/stringify s)]
-    (loop [(i Int) 0 (out String) ""]
+(defn q [s String] String
+  (let [serialized String (JSON/stringify s)]
+    (loop [i Int 0 out String ""]
       (if (>= i (count serialized))
         out
-        (let [code (js/call serialized .charCodeAt i)]
+        (let [code Int (js/call serialized .charCodeAt i)]
           (cond
             (= code 8232) (recur (+ i 1) (str out "\\u2028"))
             (= code 8233) (recur (+ i 1) (str out "\\u2029"))
@@ -55,7 +81,7 @@
 
 ;; --- JS AST emitter ---
 
-(defn emit-expr [(node JsExpr)] String
+(defn emit-expr [node JsExpr] String
   (match node
     [(JsIdent name) name]
     [(JsLiteral value) (if (string? value) (q value) (str value))]
@@ -68,11 +94,14 @@
     [(JsArray items) (str "[" (js/call (mapv emit-expr items) .join ", ") "]")]
     [(JsSpread expr) (str "..." (emit-expr expr))]))
 
-(defn indent [(depth Int)] String
-  (loop [i 0 acc ""]
+(defn indent [depth Int] String
+  (loop [i Int 0 acc String ""]
     (if (>= i depth) acc (recur (+ i 1) (str acc "  ")))))
 
-(defn emit-stmt [(node JsStmt) (depth Int)] String
+(defn emit-stmt
+  [node JsStmt
+   depth Int]
+  String
   (let [pad (indent depth)]
     (match node
       [(JsRawStmt code) (str pad code)]
@@ -87,67 +116,90 @@
          (str pad "if (" (emit-expr test) ")" then-str else-str))]
       [(JsBlock stmts) (emit-stmts stmts depth)])))
 
-(defn emit-stmts [(stmts (Vec JsStmt)) (depth Int)] String
-  (js/call (mapv (fn [s] String (emit-stmt s depth)) stmts) .join "\n"))
+(defn emit-stmts
+  [stmts (Vec JsStmt)
+   depth Int]
+  String
+  (js/call (mapv (fn [s JsStmt] String (emit-stmt s depth)) stmts) .join "\n"))
 
 ;; --- DOM AST helpers ---
 
-(defn dom-create [(tag String)] JsExpr
+(defn dom-create [tag String] JsExpr
   (->JsCall (->JsMember (->JsIdent "document") "createElement") [(->JsLiteral tag)]))
 
-(defn dom-set-prop [(target JsExpr) (prop String) (value JsExpr)] JsStmt
+(defn dom-set-prop
+  [target JsExpr
+   prop String
+   value JsExpr]
+  JsStmt
   (->JsAssign (->JsMember target prop) value))
 
-(defn dom-append [(parent JsExpr) (child JsExpr)] JsStmt
+(defn dom-append
+  [parent JsExpr
+   child JsExpr]
+  JsStmt
   (->JsExprStmt (->JsCall (->JsMember parent "appendChild") [child])))
 
-(defn dom-add-listener [(target JsExpr) (event String) (handler JsExpr)] JsStmt
+(defn dom-add-listener
+  [target JsExpr
+   event String
+   handler JsExpr]
+  JsStmt
   (->JsExprStmt (->JsCall (->JsMember target "addEventListener") [(->JsLiteral event) handler])))
 
 ;; --- Helpers ---
 
-(defn id->ref [(s String)] String
+(defn id->ref [s String] String
   ;; Encode every UTF-16 code unit. The fixed non-keyword prefix makes the
   ;; result a valid JavaScript binding even when the source starts with a
   ;; digit or is itself a JavaScript keyword; delimiters make it injective.
-  (loop [(i Int) 0 (out String) "wake$"]
+  (loop [i Int 0 out String "wake$"]
     (if (>= i (count s))
       out
       (recur (+ i 1) (str out (js/call s .charCodeAt i) "$")))))
 
-(defn store-ref [(store-name String)] String
+(defn store-ref [store-name String] String
   (id->ref (str "store/" store-name)))
 
-(defn titlecase [(s String)] String
+(defn titlecase [s String] String
   (if (= (count s) 0) s
     (js/call
-      (mapv (fn [w] String (if (= (count w) 0) w (str (js/call (subs w 0 1) .toUpperCase) (subs w 1))))
+      (mapv (fn [w String] String (if (= (count w) 0) w (str (js/call (subs w 0 1) .toUpperCase) (subs w 1))))
             (js/call s .split " ")) .join
       " ")))
 
-(defn sym? [(x Any)] Bool
+(defn sym? [x Any] Bool
   (if (nil? x) false (= (js/get x ._tag) "Sym")))
 
-(defn sym-name [(x Any)] String
+(defn sym-name [x Any] String
   (js/get x .name))
 
-(defn fram-graph? [(g Any)] Bool
+(defn store-graph? [g Any] Bool
   (let [backend (js/get g .backend)]
-    (and (not (nil? backend)) (= (js/get backend .kind) "fram"))))
+    (and (not (nil? backend)) (= (js/get backend .kind) "store"))))
 
-(defn entity-identity-name [(ge Any)] Any
+(defn entity-identity-name [ge Any] Any
   (let [identity-field (js/get ge .identity_field)]
     (if (nil? identity-field) nil (js/get identity-field .name))))
 
-(defn graph-entity-named [(entities Any) (name String)] Any
+(defn graph-entity-named
+  [entities Any
+   name String]
+  Any
   (first (filterv (fn [entity] Bool (= (js/get entity .name) name)) entities)))
 
-(defn graph-field-named [(entity Any) (name String)] Any
+(defn graph-field-named
+  [entity Any
+   name String]
+  Any
   (if (nil? entity) nil
     (first
       (filterv (fn [field] Bool (= (js/get field .name) name)) (js/get entity .fields)))))
 
-(defn field-wire-type [(field Any) (entities Any)] String
+(defn field-wire-type
+  [field Any
+   entities Any]
+  String
   (if (nil? field) "String"
     (if (= (js/get field .value_kind) "ref")
       (let [target (graph-entity-named entities (or (js/get field .target_entity) ""))
@@ -155,12 +207,15 @@
         (if (nil? target-identity) "String" (js/get target-identity .type)))
       (js/get field .type))))
 
-(defn field-checkbox? [(field Any)] Bool
+(defn field-checkbox? [field Any] Bool
   (if (nil? field) false
     (and (= (js/get field .cardinality) "single")
          (or (= (js/get field .type) "Bool") (= (js/get field .type) "Boolean")))))
 
-(defn fram-field-meta-expr [(field Any) (entities Any)] String
+(defn store-field-meta-expr
+  [field Any
+   entities Any]
+  String
   (if (nil? field)
     "{ type: 'String', cardinality: 'single', write: 'set', identity: false }"
     (str "{ type: " (q (field-wire-type field entities))
@@ -168,13 +223,20 @@
          ", write: " (q (js/get field .write_policy))
          ", identity: " (if (js/get field .identity) "true" "false") " }")))
 
-(defn add-entity-by-name [(entities Any) (selected Any) (name String)] Any
+(defn add-entity-by-name
+  [entities Any
+   selected Any
+   name String]
+  Any
   (if (some? (first (filterv (fn [entity] Bool (= (js/get entity .name) name)) selected)))
     selected
     (let [entity (graph-entity-named entities name)]
       (if (nil? entity) selected (conj selected entity)))))
 
-(defn publication-entities [(g Any) (selected Any)] Any
+(defn publication-entities
+  [g Any
+   selected Any]
+  Any
   (reduce
     (fn [result publication] (Vec Any)
       (add-entity-by-name
@@ -186,7 +248,10 @@
     (or (js/get g .publications) [])))
 
 (defn state-machine-field?
-  [(g Any) (entity-name String) (field-name String)] Bool
+  [g Any
+   entity-name String
+   field-name String]
+  Bool
   (some?
     (first
       (filterv
@@ -195,8 +260,11 @@
                (= (js/get machine .field) field-name)))
         (js/get g .state_machines)))))
 
-(defn fram-related-add-fields
-  [(g Any) (entity Any) (automatic-field String)] Any
+(defn store-related-add-fields
+  [g Any
+   entity Any
+   automatic-field String]
+  Any
   (filterv
     (fn [field] Bool
       (and (not (= (js/get field .name) automatic-field))
@@ -206,7 +274,7 @@
                g (js/get entity .name) (js/get field .name)))))
     (js/get entity .stored_fields)))
 
-(defn fram-publication-meta-expr [(publication Any)] String
+(defn store-publication-meta-expr [publication Any] String
   (str "{ owner: { entity: " (q (js/get publication .owner_entity))
        ", pointer: " (q (js/get publication .pointer_field))
        " }, revision: { entity: " (q (js/get publication .revision_entity))
@@ -217,7 +285,10 @@
        ", retired: " (q (js/get publication .retired_state)) " } }"))
 
 
-(defn compile-derived-expr [(expr Any) (subst Any)] String
+(defn compile-derived-expr
+  [expr Any
+   subst Any]
+  String
   (let [tag (js/get expr ._tag)]
     (cond
       (= tag "IrFieldDerivedExpr")
@@ -321,8 +392,11 @@
 
 ;; --- Entity store ---
 
-(defn gen-store [(name String) (fk-methods Any)] String
-  (let [ref-name (store-ref name)]
+(defn gen-store
+  [name String
+   fk-methods Any]
+  String
+  (let [ref-name String (store-ref name)]
     (js/call
       (js/call
         [(str "const " ref-name " = (() => {")
@@ -378,14 +452,17 @@
          "})();"]) .join
       "\n")))
 
-;; FRAM stores expose the same read/watch surface as local stores. Their eid is
+;; Store stores expose the same read/watch surface as local stores. Their eid is
 ;; only a stable browser-cache key; every command is addressed by the declared
 ;; entity identity.
-(defn gen-fram-store [(ge Any) (fk-methods Any)] String
-  (let [name (store-ref (js/get ge .store_name))
-        entity-name (js/get ge .name)
-        identity-field (js/get ge .identity_field)
-        identity-name (if (nil? identity-field) "" (js/get identity-field .name))]
+(defn gen-store-store
+  [ge Any
+   fk-methods Any]
+  String
+  (let [name String (store-ref (js/get ge .store_name))
+        entity-name String (js/get ge .name)
+        identity-field Any (js/get ge .identity_field)
+        identity-name String (if (nil? identity-field) "" (js/get identity-field .name))]
     (js/call
       (js/call
         [(str "const " name " = (() => {")
@@ -428,7 +505,7 @@
          "  return {"
          "    add(fields) {"
          "      clearCommandError();"
-         (str "      return wakeFramCreate(" (q entity-name) ", fields);")
+         (str "      return wakeStoreCreate(" (q entity-name) ", fields);")
          "    },"
          "    get(eid) { return entities.get(eid); },"
          "    update(eid, attr, value) {"
@@ -437,7 +514,7 @@
          "      const identity = entity[identityField];"
          "      if (identity == null) return Promise.resolve(false);"
          "      clearCommandError();"
-         (str "      return wakeFramSet(" (q entity-name)
+         (str "      return wakeStoreSet(" (q entity-name)
               ", identity, attr, value).then(() => true);")
          "    },"
          "    commandFailed(error) { reportCommandError(error); },"
@@ -452,7 +529,7 @@
          "      const nextIdentityIndex = new Map();"
          "      for (const row of items) {"
          "        const identity = row[identityField];"
-         "        if (identity == null) { console.error('FRAM row is missing identity field', identityField); continue; }"
+         "        if (identity == null) { console.error('Store row is missing identity field', identityField); continue; }"
          "        const key = identityKey(identity);"
          "        const cachedEid = identityIndex.get(key);"
          "        const eid = cachedEid == null ? nextEid++ : cachedEid;"
@@ -469,20 +546,24 @@
          "})();"]) .join
       "\n")))
 
-(defn gen-store-for [(ge Any) (fk-methods Any) (fram? Bool)] String
-  (if fram?
-    (gen-fram-store ge fk-methods)
+(defn gen-store-for
+  [ge Any
+   fk-methods Any
+   store? Bool]
+  String
+  (if store?
+    (gen-store-store ge fk-methods)
     (gen-store (js/get ge .store_name) fk-methods)))
 
-(defn gen-fram-connector
-  [(entities Any)
-   (all-entities Any)
-   (publications Any)
-   (semantic-fingerprint String)]
+(defn gen-store-connector
+  [entities Any
+   all-entities Any
+   publications Any
+   semantic-fingerprint String]
   String
-  (let [bindings (js/call
-        (mapv (fn [ge] String
-            (let [identity-field (js/get ge .identity_field)]
+  (let [bindings String (js/call
+        (mapv (fn [ge Any] String
+            (let [identity-field Any (js/get ge .identity_field)]
               (str "  [" (q (js/get ge .name)) ", { store: "
                    (store-ref (js/get ge .store_name))
                    ", identityField: "
@@ -490,34 +571,34 @@
                    ", loadedVersion: '0' }]")))
             entities) .join
           ",\n")
-        field-metas (js/call
-          (mapv (fn [ge] String
-            (let [fields (js/call
+        field-metas String (js/call
+          (mapv (fn [ge Any] String
+            (let [fields String (js/call
                            (mapv
-                             (fn [field] String
+                             (fn [field Any] String
                                (str "    [" (q (js/get field .name)) "]: "
-                                    (fram-field-meta-expr field all-entities)))
+                                    (store-field-meta-expr field all-entities)))
                              (js/get ge .stored_fields)) .join
                            ",\n")]
               (str "  [" (q (js/get ge .name)) "]: Object.assign(Object.create(null), {\n"
                    fields "\n  })")))
             entities) .join
           ",\n")
-        publication-metas (js/call
+        publication-metas String (js/call
           (mapv
-            (fn [publication] String
+            (fn [publication Any] String
               (str "  [" (q (js/get publication .name)) "]: "
-                   (fram-publication-meta-expr publication)))
+                   (store-publication-meta-expr publication)))
             publications) .join
           ",\n")]
     (str "const wakeApplicationFingerprint = " (q semantic-fingerprint) ";\n"
-         #r#"const wakeFramFieldMeta = Object.assign(Object.create(null), {
+         #r#"const wakeStoreFieldMeta = Object.assign(Object.create(null), {
 "#
          field-metas
          #r#"
 });
 
-function wakeFramCoerceScalar(raw, type) {
+function wakeStoreCoerceScalar(raw, type) {
   if (type === 'Bool' || type === 'Boolean') {
     if (typeof raw === 'boolean') return raw;
     const booleanText = String(raw == null ? '' : raw).trim().toLowerCase();
@@ -561,25 +642,25 @@ function wakeFramCoerceScalar(raw, type) {
   return text;
 }
 
-function wakeFramCoerceValue(raw, meta) {
+function wakeStoreCoerceValue(raw, meta) {
   if (!meta) throw new Error('Wake generated no field metadata for this mutation');
   if (meta.cardinality === 'multi') {
     const pieces = Array.isArray(raw)
       ? raw
       : String(raw == null ? '' : raw).split(',').map(piece => piece.trim()).filter(piece => piece.length > 0);
-    return pieces.map(piece => wakeFramCoerceScalar(piece, meta.type));
+    return pieces.map(piece => wakeStoreCoerceScalar(piece, meta.type));
   }
-  return wakeFramCoerceScalar(raw, meta.type);
+  return wakeStoreCoerceScalar(raw, meta.type);
 }
 
-function wakeFramReadInput(input, meta) {
+function wakeStoreReadInput(input, meta) {
   const raw = input.type === 'checkbox' ? input.checked : input.value;
-  return wakeFramCoerceValue(raw, meta);
+  return wakeStoreCoerceValue(raw, meta);
 }
 
-function wakeFramInputValue(value, meta) {
+function wakeStoreInputValue(value, meta) {
   if (Array.isArray(value)) {
-    return value.map(item => wakeFramInputValue(item, { ...meta, cardinality: 'single' })).join(', ');
+    return value.map(item => wakeStoreInputValue(item, { ...meta, cardinality: 'single' })).join(', ');
   }
   if (meta && meta.type === 'Instant' && value && typeof value === 'object') {
     return `${String(value.epochSeconds)}:${String(value.nanos)}`;
@@ -587,47 +668,47 @@ function wakeFramInputValue(value, meta) {
   return value == null ? '' : String(value);
 }
 
-function wakeFramCoerceValues(entity, rawValues) {
-  const fields = wakeFramFieldMeta[entity];
+function wakeStoreCoerceValues(entity, rawValues) {
+  const fields = wakeStoreFieldMeta[entity];
   if (!fields) throw new Error(`Wake generated no metadata for entity ${entity}`);
   const values = Object.create(null);
   for (const [field, raw] of Object.entries(rawValues)) {
-    values[field] = wakeFramCoerceValue(raw, fields[field]);
+    values[field] = wakeStoreCoerceValue(raw, fields[field]);
   }
   return values;
 }
 
-const wakeFramBindings = new Map([
+const wakeStoreBindings = new Map([
 "#
          bindings
          #r#"
 ]);
-const wakeFramPublications = Object.assign(Object.create(null), {
+const wakeStorePublications = Object.assign(Object.create(null), {
 "#
          publication-metas
          #r#"
 });
-const wakeFramHttpTimeoutMs = 10000;
-let wakeFramServedVersion = '0';
-let wakeFramPollTimer = null;
-let wakeFramPolling = false;
+const wakeStoreHttpTimeoutMs = 10000;
+let wakeStoreServedVersion = '0';
+let wakeStorePollTimer = null;
+let wakeStorePolling = false;
 
-function wakeFramCompareVersion(left, right) {
+function wakeStoreCompareVersion(left, right) {
   const a = String(left == null ? '0' : left).replace(/^0+(?=\d)/, '');
   const b = String(right == null ? '0' : right).replace(/^0+(?=\d)/, '');
   if (a.length !== b.length) return a.length < b.length ? -1 : 1;
   return a === b ? 0 : (a < b ? -1 : 1);
 }
 
-function wakeFramAdvanceVersion(version) {
-  if (wakeFramCompareVersion(version, wakeFramServedVersion) > 0) {
-    wakeFramServedVersion = String(version);
+function wakeStoreAdvanceVersion(version) {
+  if (wakeStoreCompareVersion(version, wakeStoreServedVersion) > 0) {
+    wakeStoreServedVersion = String(version);
   }
 }
 
-async function wakeFramPost(path, body) {
+async function wakeStorePost(path, body) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), wakeFramHttpTimeoutMs);
+  const timeout = setTimeout(() => controller.abort(), wakeStoreHttpTimeoutMs);
   try {
     const response = await fetch(path, {
       method: 'POST',
@@ -645,70 +726,70 @@ async function wakeFramPost(path, body) {
   }
 }
 
-async function wakeFramReload(entity) {
-  const binding = wakeFramBindings.get(entity);
+async function wakeStoreReload(entity) {
+  const binding = wakeStoreBindings.get(entity);
   if (!binding) return;
-  const result = await wakeFramPost('/api/wake/query', { op: 'list', entity });
+  const result = await wakeStorePost('/api/wake/query', { op: 'list', entity });
   if (!result || !Array.isArray(result.rows) || result.servedVersion == null) {
     throw new Error('Wake gateway returned an invalid list response');
   }
   const version = String(result.servedVersion);
-  if (wakeFramCompareVersion(version, binding.loadedVersion) >= 0) {
+  if (wakeStoreCompareVersion(version, binding.loadedVersion) >= 0) {
     binding.store.load(result.rows);
     binding.loadedVersion = version;
   }
   return version;
 }
 
-async function wakeFramReloadAll() {
+async function wakeStoreReloadAll() {
   const versions = await Promise.all(
-    Array.from(wakeFramBindings.keys(), wakeFramReload),
+    Array.from(wakeStoreBindings.keys(), wakeStoreReload),
   );
   if (versions.length === 0) return null;
   return versions.reduce((oldest, version) =>
-    wakeFramCompareVersion(version, oldest) < 0 ? version : oldest
+    wakeStoreCompareVersion(version, oldest) < 0 ? version : oldest
   );
 }
 
-async function wakeFramRefreshAfterCommand(entities) {
+async function wakeStoreRefreshAfterCommand(entities) {
   try {
-    await Promise.all(entities.map(wakeFramReload));
+    await Promise.all(entities.map(wakeStoreReload));
   } catch (error) {
-    console.warn('FRAM command committed; refresh deferred to change polling:', error);
-    if (!wakeFramPolling) wakeFramSchedulePoll(0);
+    console.warn('Store command committed; refresh deferred to change polling:', error);
+    if (!wakeStorePolling) wakeStoreSchedulePoll(0);
   }
 }
 
-async function wakeFramCreate(entity, values) {
-  const coercedValues = wakeFramCoerceValues(entity, values);
-  const result = await wakeFramPost('/api/wake/command', {
+async function wakeStoreCreate(entity, values) {
+  const coercedValues = wakeStoreCoerceValues(entity, values);
+  const result = await wakeStorePost('/api/wake/command', {
     op: 'create', entity, values: coercedValues,
   });
   if (!result || result.servedVersion == null) {
     throw new Error('Wake gateway returned an invalid create response');
   }
-  await wakeFramRefreshAfterCommand([entity]);
+  await wakeStoreRefreshAfterCommand([entity]);
   return result;
 }
 
-async function wakeFramSet(entity, identity, field, value) {
-  const fields = wakeFramFieldMeta[entity];
-  const coercedValue = wakeFramCoerceValue(value, fields && fields[field]);
-  const result = await wakeFramPost('/api/wake/command', {
+async function wakeStoreSet(entity, identity, field, value) {
+  const fields = wakeStoreFieldMeta[entity];
+  const coercedValue = wakeStoreCoerceValue(value, fields && fields[field]);
+  const result = await wakeStorePost('/api/wake/command', {
     op: 'set', entity, identity, field, value: coercedValue,
   });
   if (!result || result.servedVersion == null) {
     throw new Error('Wake gateway returned an invalid set response');
   }
-  await wakeFramRefreshAfterCommand([entity]);
+  await wakeStoreRefreshAfterCommand([entity]);
   return result;
 }
 
-async function wakeFramPublish(name, row) {
-  const publication = wakeFramPublications[name];
+async function wakeStorePublish(name, row) {
+  const publication = wakeStorePublications[name];
   if (!publication) throw new Error(`Wake generated no publication policy named ${name}`);
-  const ownerBinding = wakeFramBindings.get(publication.owner.entity);
-  const revisionBinding = wakeFramBindings.get(publication.revision.entity);
+  const ownerBinding = wakeStoreBindings.get(publication.owner.entity);
+  const revisionBinding = wakeStoreBindings.get(publication.revision.entity);
   if (!ownerBinding || !revisionBinding) {
     throw new Error(`Wake generated incomplete publication bindings for ${name}`);
   }
@@ -718,13 +799,13 @@ async function wakeFramPublish(name, row) {
     throw new Error(`Publication ${name} row is missing its owner or identity`);
   }
 
-  await wakeFramReload(publication.owner.entity);
+  await wakeStoreReload(publication.owner.entity);
   const ownerRow = ownerBinding.store.all().find(candidate =>
     equiv(candidate[ownerBinding.identityField], owner)
   );
   if (!ownerRow) throw new Error(`Publication ${name} owner is not loaded`);
   const currentPointer = ownerRow[publication.owner.pointer];
-  const result = await wakeFramPost('/api/wake/command', {
+  const result = await wakeStorePost('/api/wake/command', {
     op: 'publish',
     publication: name,
     owner,
@@ -734,20 +815,20 @@ async function wakeFramPublish(name, row) {
   if (!result || result.servedVersion == null) {
     throw new Error('Wake gateway returned an invalid publish response');
   }
-  await wakeFramRefreshAfterCommand([
+  await wakeStoreRefreshAfterCommand([
     publication.owner.entity,
     publication.revision.entity,
   ]);
   return result;
 }
 
-function wakeFramAttachPublicationActions(entityName, row, inst, store) {
+function wakeStoreAttachPublicationActions(entityName, row, inst, store) {
   const actions = document.createElement('div');
   actions.className = 'flex items-center justify-end gap-2 px-2';
-  for (const [name, publication] of Object.entries(wakeFramPublications)) {
+  for (const [name, publication] of Object.entries(wakeStorePublications)) {
     if (publication.revision.entity !== entityName
         || row[publication.revision.stateField] !== publication.states.draft) continue;
-    const revisionBinding = wakeFramBindings.get(publication.revision.entity);
+    const revisionBinding = wakeStoreBindings.get(publication.revision.entity);
     if (!revisionBinding) continue;
     const revision = row[revisionBinding.identityField];
     const button = document.createElement('button');
@@ -765,7 +846,7 @@ function wakeFramAttachPublicationActions(entityName, row, inst, store) {
       button.disabled = true;
       store.commandStarted();
       try {
-        await wakeFramPublish(name, row);
+        await wakeStorePublish(name, row);
         accepted = true;
       } catch (error) {
         store.commandFailed(error);
@@ -779,19 +860,19 @@ function wakeFramAttachPublicationActions(entityName, row, inst, store) {
   if (actions.childElementCount > 0) inst.el.appendChild(actions);
 }
 
-function wakeFramSchedulePoll(delayMs = 1000) {
-  if (wakeFramPollTimer != null) clearTimeout(wakeFramPollTimer);
-  wakeFramPollTimer = setTimeout(wakeFramPollChanges, delayMs);
+function wakeStoreSchedulePoll(delayMs = 1000) {
+  if (wakeStorePollTimer != null) clearTimeout(wakeStorePollTimer);
+  wakeStorePollTimer = setTimeout(wakeStorePollChanges, delayMs);
 }
 
-async function wakeFramPollChanges() {
-  if (wakeFramPolling) return;
-  wakeFramPolling = true;
-  if (wakeFramPollTimer != null) clearTimeout(wakeFramPollTimer);
-  wakeFramPollTimer = null;
-  const sinceVersion = wakeFramServedVersion;
+async function wakeStorePollChanges() {
+  if (wakeStorePolling) return;
+  wakeStorePolling = true;
+  if (wakeStorePollTimer != null) clearTimeout(wakeStorePollTimer);
+  wakeStorePollTimer = null;
+  const sinceVersion = wakeStoreServedVersion;
   try {
-    const result = await wakeFramPost('/api/wake/changes', {
+    const result = await wakeStorePost('/api/wake/changes', {
       sinceVersion,
     });
     if (!result || result.servedVersion == null
@@ -799,35 +880,35 @@ async function wakeFramPollChanges() {
       throw new Error('Wake gateway returned an invalid changes response');
     }
     if (result.resync === true) {
-      const loadedVersion = await wakeFramReloadAll();
-      wakeFramAdvanceVersion(
+      const loadedVersion = await wakeStoreReloadAll();
+      wakeStoreAdvanceVersion(
         loadedVersion == null ? result.servedVersion : loadedVersion,
       );
     } else {
       const affected = new Set();
       for (const change of result.changes) {
-        if (change && wakeFramBindings.has(change.entity)) affected.add(change.entity);
+        if (change && wakeStoreBindings.has(change.entity)) affected.add(change.entity);
       }
-      await Promise.all(Array.from(affected, wakeFramReload));
-      wakeFramAdvanceVersion(result.servedVersion);
+      await Promise.all(Array.from(affected, wakeStoreReload));
+      wakeStoreAdvanceVersion(result.servedVersion);
     }
   } catch (err) {
-    wakeFramServedVersion = sinceVersion;
-    console.error('FRAM change poll failed:', err);
+    wakeStoreServedVersion = sinceVersion;
+    console.error('Store change poll failed:', err);
   } finally {
-    wakeFramPolling = false;
-    wakeFramSchedulePoll();
+    wakeStorePolling = false;
+    wakeStoreSchedulePoll();
   }
 }
 
-async function wakeFramStart() {
+async function wakeStoreStart() {
   try {
-    const loadedVersion = await wakeFramReloadAll();
-    if (loadedVersion != null) wakeFramServedVersion = loadedVersion;
+    const loadedVersion = await wakeStoreReloadAll();
+    if (loadedVersion != null) wakeStoreServedVersion = loadedVersion;
   } catch (err) {
-    console.error('FRAM initial load failed:', err);
+    console.error('Store initial load failed:', err);
   } finally {
-    wakeFramSchedulePoll();
+    wakeStoreSchedulePoll();
   }
 }
 "#)))
@@ -835,16 +916,16 @@ async function wakeFramStart() {
 ;; --- Detail panel ---
 
 (defn gen-detail
-  [(en String)
-   (store-name String)
-   (overview-fields Any)
-   (derived-attrs Any)
-   (related-info Any)
-   (field-info Any)
-   (g Any)
-   (identity-name Any)
-   (fram? Bool)
-   (allow-delete Bool)]
+  [en String
+   store-name String
+   overview-fields Any
+   derived-attrs Any
+   related-info Any
+   field-info Any
+   g Any
+   identity-name Any
+   store? Bool
+   allow-delete Bool]
   String
   (let [tab-active-cls "px-4 py-2 text-sm font-medium border-b-2 border-primary text-foreground"
         tab-inactive-cls "px-4 py-2 text-sm font-medium text-muted-foreground"
@@ -928,8 +1009,8 @@ async function wakeFramStart() {
                   fk-field (js/get ri .fk_field)
                   rel-ge (graph-entity-named (js/get g .entities) rel-en)
                   add-fields
-                  (if fram?
-                    (fram-related-add-fields g rel-ge fk-field)
+                  (if store?
+                    (store-related-add-fields g rel-ge fk-field)
                     [])
                   identity-field (if (nil? rel-ge) nil (js/get rel-ge .identity_field))
                   related-identity-name
@@ -940,7 +1021,7 @@ async function wakeFramStart() {
                   input-prop (str key-ref "Input")
                   form-ref (id->ref (str "related/" key "/form"))
                   button-ref (id->ref (str "related/" key "/add"))
-                  fram-inputs
+                  store-inputs
                   (js/call
                     (mapv
                       (fn [field] String
@@ -966,7 +1047,7 @@ async function wakeFramStart() {
                                "  " form-ref ".appendChild(" input-ref ");\n")))
                       add-fields) .join
                     "")
-                  fram-values
+                  store-values
                   (js/call
                     (mapv
                       (fn [field] String
@@ -975,12 +1056,12 @@ async function wakeFramStart() {
                               (id->ref
                                 (str "related/" key "/" field-name "/input"))]
                           (str "      values[" (q field-name)
-                               "] = wakeFramReadInput(" input-ref
-                               ", wakeFramFieldMeta[" (q rel-en) "]["
+                               "] = wakeStoreReadInput(" input-ref
+                               ", wakeStoreFieldMeta[" (q rel-en) "]["
                                (q field-name) "]);\n")))
                       add-fields) .join
                     "")
-                  fram-clears
+                  store-clears
                   (js/call
                     (mapv
                       (fn [field] String
@@ -1007,9 +1088,9 @@ async function wakeFramStart() {
                 list-prop ");\n"
                 "  const " form-ref " = document.createElement('div');\n"
                 "  " form-ref ".className = 'flex flex-col gap-2';\n"
-                (if fram?
+                (if store?
                   (str
-                    fram-inputs
+                    store-inputs
                     "  const " button-ref " = document.createElement('button');\n"
                     "  " button-ref ".type = 'button';\n"
                     "  " button-ref ".className = 'px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 self-end';\n"
@@ -1019,13 +1100,13 @@ async function wakeFramStart() {
                     "    " button-ref ".disabled = true;\n"
                     "    try {\n"
                     "      const values = Object.create(null);\n"
-                    fram-values
+                    store-values
                     "      values[" (q fk-field) "] = " selected-reference ";\n"
                     "      if (String(values[" (q related-identity-name)
                     "] == null ? '' : values[" (q related-identity-name)
                     "]).trim() === '') return;\n"
                     "      await " rel-store ".add(values);\n"
-                    fram-clears
+                    store-clears
                     "    } catch (error) {\n"
                     "      " rel-store ".commandFailed(error);\n"
                     "    } finally {\n"
@@ -1080,7 +1161,7 @@ async function wakeFramStart() {
                    ".get(selectedContact)?.[" (q "name") "] || '');\n"
                    "  const items = " rel-store ".by(" (q fk-field) ", "
                    selected-reference ")"
-                   (if fram?
+                   (if store?
                      ";\n"
                      (str ".sort((a, b) => (b[" (q "created-at")
                           "] || '').localeCompare(a[" (q "created-at")
@@ -1199,8 +1280,8 @@ async function wakeFramStart() {
       "    if (!selectedContact) return;\n"
       "    let done = false;\n"
       "    const ft = fieldTypes[attr];\n"
-      (if fram?
-        (str "    const fieldMeta = wakeFramFieldMeta[" (q en) "][attr];\n"
+      (if store?
+        (str "    const fieldMeta = wakeStoreFieldMeta[" (q en) "][attr];\n"
              "    const kind = fieldMeta.cardinality === 'multi' ? 'text' : (ft ? ft.kind : 'text');\n")
         "    const kind = ft ? ft.kind : 'text';\n")
       "    let input;\n"
@@ -1219,15 +1300,15 @@ async function wakeFramStart() {
       "    } else {\n"
       "      input = document.createElement('input');\n"
       "      input.type = kind;\n"
-      (if fram?
-        (str "      input.value = wakeFramInputValue(" store-name
+      (if store?
+        (str "      input.value = wakeStoreInputValue(" store-name
              ".get(selectedContact)?.[attr], fieldMeta);\n")
         "      input.value = el.textContent;\n")
       "    }\n"
       "    input.className = 'text-sm w-full px-1 py-0 border border-input rounded bg-background text-foreground outline-none';\n"
       "    el.replaceWith(input);\n"
       "    input.focus();\n"
-      (if fram?
+      (if store?
         (str
           "    let saving = false;\n"
           "    async function commit() {\n"
@@ -1235,7 +1316,7 @@ async function wakeFramStart() {
           "      saving = true;\n"
           "      input.disabled = true;\n"
           "      try {\n"
-          "        const val = wakeFramReadInput(input, fieldMeta);\n"
+          "        const val = wakeStoreReadInput(input, fieldMeta);\n"
           "        await " store-name ".update(selectedContact, attr, val);\n"
           "        done = true;\n"
           "        input.replaceWith(el);\n"
@@ -1263,7 +1344,7 @@ async function wakeFramStart() {
       "      input.addEventListener('blur', commit);\n"
       "      input.addEventListener('keydown', (e) => {\n"
       "        if (e.key === 'Enter') { e.preventDefault(); commit(); }\n"
-      (if fram?
+      (if store?
         "        if (e.key === 'Escape' && !saving) { done = true; input.replaceWith(el); }\n"
         "        if (e.key === 'Escape') { done = true; input.replaceWith(el); }\n")
       "      });\n"
@@ -1373,12 +1454,12 @@ async function wakeFramStart() {
 ;; --- List view ---
 
 (defn gen-list-fns
-  [(en String)
-   (store-name String)
-   (columns Any)
-   (search-cols Any)
-   (derived-attrs Any)
-   (attach-publications? Bool)]
+  [en String
+   store-name String
+   columns Any
+   search-cols Any
+   derived-attrs Any
+   attach-publications? Bool]
   String
   (let [list-ref (id->ref (str "ld-" en "-list"))
         search-ref (id->ref (str "ld-" en "-search"))
@@ -1445,7 +1526,7 @@ async function wakeFramStart() {
       "  };\n"
       "  rowEls.set(entity.eid, rowEntry);\n"
       (if attach-publications?
-        (str "  wakeFramAttachPublicationActions(" (q en)
+        (str "  wakeStoreAttachPublicationActions(" (q en)
              ", entity, rowEntry, " store-name ");\n")
         "")
       "}\n\n"
@@ -1473,9 +1554,12 @@ async function wakeFramStart() {
 
 ;; --- Stats ---
 
-(defn gen-stats [(en String) (store-name String)] String
-  (let [stats-ref (id->ref (str "ld-" en "-stats"))
-        count-var (str (id->ref en) "Count")]
+(defn gen-stats
+  [en String
+   store-name String]
+  String
+  (let [stats-ref String (id->ref (str "ld-" en "-stats"))
+        count-var String (str (id->ref en) "Count")]
     (str "let " count-var " = 0;\n"
          "function updateStats() {\n"
          "  " count-var " = " store-name ".all().length;\n"
@@ -1484,7 +1568,12 @@ async function wakeFramStart() {
 
 ;; --- Form handler ---
 
-(defn gen-form-handler [(en String) (form Any) (ge Any) (fram? Bool)] String
+(defn gen-form-handler
+  [en String
+   form Any
+   ge Any
+   store? Bool]
+  String
   (let [form-name (js/get form .name)
         fields (js/get form .fields)
         field-info (js/get form .field_info)
@@ -1495,9 +1584,9 @@ async function wakeFramStart() {
             (let [ref (id->ref (str "form-" form-name "-" f))
                   fi (field-info-for field-info f)
                   kind (if (nil? fi) "text" (js/get fi .kind))]
-              (if fram?
-                (str "  const " ref "_val = wakeFramReadInput(" ref
-                     ", wakeFramFieldMeta[" (q en) "][" (q f) "]);")
+              (if store?
+                (str "  const " ref "_val = wakeStoreReadInput(" ref
+                     ", wakeStoreFieldMeta[" (q en) "][" (q f) "]);")
                 (cond
                   (= kind "checkbox")
                     (str "  const " ref "_val = " ref ".checked;")
@@ -1537,12 +1626,12 @@ async function wakeFramStart() {
                               (not status-in-form))
                        (str ", [" (q "status") "]: " (q status-default))
                        "")
-        first-check (if (and fram?
+        first-check (if (and store?
                              (field-checkbox?
                                (graph-field-named ge (nth fields 0))))
                       ""
                       (str "  if (!" first-ref "_val) return;\n"))]
-    (if fram?
+    (if store?
       (str "async function handleSubmit(e) {\n"
            "  e.preventDefault();\n"
            "  const submitButton = e.submitter;\n"
@@ -1568,7 +1657,10 @@ async function wakeFramStart() {
 
 ;; --- Persistence ---
 
-(defn gen-persistence [(persist-key Any) (all-stores Any)] String
+(defn gen-persistence
+  [persist-key Any
+   all-stores Any]
+  String
   (let [snapshot-entries (js/call
           (mapv (fn [s] String (str "      " s ": " s ".snapshot()")) all-stores) .join
           ",\n")
@@ -1600,13 +1692,13 @@ async function wakeFramStart() {
 ;; injected <style> in init so a no-build deploy (wake app dropped into a static host) is
 ;; self-contained — the var values ride in the JS, the utility→var mapping rides in dist.css.
 ;; (Was parsed-and-threaded but never emitted — a silent no-op; this closes that.) ---
-(defn gen-theme-style [(theme Any)] String
+(defn gen-theme-style [theme Any] String
   (if (nil? theme) ""
-    (let [colors (js/get theme .colors)
-          decls (js/call
+    (let [colors Any (js/get theme .colors)
+          decls String (js/call
                   (mapv (fn [k] String (str "    --" k ": " (get colors k) ";\n")) (keys colors)) .join
                   "")
-          css (str ":root {\n" decls "}")]
+          css String (str ":root {\n" decls "}")]
       (str "  { const _themeStyle = document.createElement('style');\n"
            "    _themeStyle.textContent = " (q css) ";\n"
            "    document.head.appendChild(_themeStyle); }\n"))))
@@ -1614,14 +1706,14 @@ async function wakeFramStart() {
 ;; --- Compiled per-attribute update paths ---
 
 (defn gen-update-fns
-  [(columns Any)
-   (search-cols Any)
-   (overview-fields Any)
-   (subtitle-field Any)
-   (persist-key Any)
-   (related-tab-keys Any)
-   (derived-attrs Any)
-   (store-name String)]
+  [columns Any
+   search-cols Any
+   overview-fields Any
+   subtitle-field Any
+   persist-key Any
+   related-tab-keys Any
+   derived-attrs Any
+   store-name String]
   String
   (let [search-text-expr
         (str "["
@@ -1766,10 +1858,13 @@ async function wakeFramStart() {
 
 ;; --- Layout (DOM construction for init) ---
 
-(defn field-info-for [(fi-list Any) (fname String)] Any
+(defn field-info-for
+  [fi-list Any
+   fname String]
+  Any
   (first (filterv (fn [fi] Bool (= (js/get fi .name) fname)) fi-list)))
 
-(defn gen-field-types-map [(fi-list Any)] String
+(defn gen-field-types-map [fi-list Any] String
   (if (or (nil? fi-list) (= (count fi-list) 0)) "Object.create(null)"
     (let [entries (filterv (fn [fi] Bool (not (= (js/get fi .kind) "text"))) fi-list)
           parts (mapv (fn [fi] String
@@ -1785,34 +1880,39 @@ async function wakeFramStart() {
            (js/call parts .join ", ") " })"))))
 
 (defn gen-layout
-  [(en String) (form Any) (title String) (ge Any) (fram? Bool)] Any
-  (let [has-form (some? form)
-        form-name (if has-form (js/get form .name) "")
-        fields (if has-form (js/get form .fields) [])
-        required (if has-form (js/get form .required) [])
-        submit-label (if has-form (js/get form .label) "")
-        field-info (if has-form (js/get form .field_info) [])]
+  [en String
+   form Any
+   title String
+   ge Any
+   store? Bool]
+  Any
+  (let [has-form Bool (some? form)
+        form-name String (if has-form (js/get form .name) "")
+        fields Any (if has-form (js/get form .fields) [])
+        required Any (if has-form (js/get form .required) [])
+        submit-label String (if has-form (js/get form .label) "")
+        field-info Any (if has-form (js/get form .field_info) [])]
     ;; Build form fields, threading counter
-    (loop [i 0 c 2 code "" refs []]
+    (loop [i Int 0 c Int 2 code String "" refs (Vec LayoutRef) []]
       (if (>= i (count fields))
         ;; All fields done. Build submit button + split pane.
-        (let [btn (+ c 1)
-              split (+ c 2)
-              left (+ c 3)
-              hdr (+ c 4)
-              h1v (+ c 5)
-              srch (+ c 6)
-              stat (+ c 7)
-              lst (+ c 8)
-              dtl (+ c 9)
+        (let [btn Int (+ c 1)
+              split Int (+ c 2)
+              left Int (+ c 3)
+              hdr Int (+ c 4)
+              h1v Int (+ c 5)
+              srch Int (+ c 6)
+              stat Int (+ c 7)
+              lst Int (+ c 8)
+              dtl Int (+ c 9)
 
-              search-id (str "ld-" en "-search")
-              stats-id (str "ld-" en "-stats")
-              list-id (str "ld-" en "-list")
-              detail-id (str "ld-" en "-detail")
-              form-id (str "form-" form-name)
+              search-id String (str "ld-" en "-search")
+              stats-id String (str "ld-" en "-stats")
+              list-id String (str "ld-" en "-list")
+              detail-id String (str "ld-" en "-detail")
+              form-id String (str "form-" form-name)
 
-              rest-code (str
+              rest-code String (str
                 ;; Submit button
                 (if has-form
                   (str
@@ -1865,7 +1965,7 @@ async function wakeFramStart() {
                 "  el_1.appendChild(el_" split ");\n"
                 "  root.appendChild(el_1);\n")
 
-              full-code (str
+              full-code String (str
                 "  const el_1 = document.createElement(\"div\");\n"
                 "  el_1.className = \"flex flex-col h-screen\";\n"
                 (if has-form
@@ -1878,7 +1978,7 @@ async function wakeFramStart() {
                 rest-code)
 
               ;; Refs in reverse order (matching Racket cons behavior)
-              all-refs (js/call
+              all-refs (Vec LayoutRef) (js/call
                 (js/call
                   [(->LayoutRef detail-id (str "el_" dtl))
                    (->LayoutRef list-id (str "el_" lst))
@@ -1889,22 +1989,22 @@ async function wakeFramStart() {
           (->LayoutResult full-code all-refs))
 
         ;; Build one form field
-        (let [field (nth fields i)
-              is-req (js/call required .includes field)
-              fid (str "form-" form-name "-" field)
-              fi (field-info-for field-info field)
-              graph-field (graph-field-named ge field)
-              base-kind (if (nil? fi) "text" (js/get fi .kind))
-              kind (if (and fram? (not (nil? graph-field))
+        (let [field String (nth fields i)
+              is-req Bool (js/call required .includes field)
+              fid String (str "form-" form-name "-" field)
+              fi Any (field-info-for field-info field)
+              graph-field Any (graph-field-named ge field)
+              base-kind String (if (nil? fi) "text" (js/get fi .kind))
+              kind String (if (and store? (not (nil? graph-field))
                             (= (js/get graph-field .cardinality) "multi"))
                      "text"
                      base-kind)
-              options (if (nil? fi) [] (js/get fi .options))
-              d (+ c 1)
-              l (+ c 2)
-              inp (+ c 3)
-              input-css "px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
-              input-code (cond
+              options (Vec String) (if (nil? fi) [] (js/get fi .options))
+              d Int (+ c 1)
+              l Int (+ c 2)
+              inp Int (+ c 3)
+              input-css String "px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm"
+              input-code String (cond
                 (= kind "select")
                   (str
                     "  const el_" inp " = document.createElement(\"select\");\n"
@@ -1913,7 +2013,7 @@ async function wakeFramStart() {
                     "  el_" inp ".className = " (q input-css) ";\n"
                     "  el_" inp ".name = " (q fid) ";\n"
                     "  { const _ph = document.createElement('option'); _ph.value = ''; _ph.textContent = " (q (str "Select " (titlecase field))) "; el_" inp ".appendChild(_ph); }\n"
-                    (js/call (mapv (fn [opt] String
+                    (js/call (mapv (fn [opt String] String
                       (str "  { const _o = document.createElement('option'); _o.value = " (q opt) "; _o.textContent = " (q (titlecase opt)) "; el_" inp ".appendChild(_o); }\n"))
                       options) .join ""))
                 (= kind "checkbox")
@@ -1932,7 +2032,7 @@ async function wakeFramStart() {
                     "  el_" inp ".id = " (q fid) ";\n"
                     "  el_" inp ".className = " (q input-css) ";\n"
                     "  el_" inp ".name = " (q fid) ";\n"))
-              field-code (str
+              field-code String (str
                 "  const el_" d " = document.createElement(\"div\");\n"
                 "  el_" d ".className = " (q (if (= kind "checkbox") "flex items-center gap-2" "flex flex-col gap-1")) ";\n"
                 "  const el_" l " = document.createElement(\"label\");\n"
@@ -1951,33 +2051,33 @@ async function wakeFramStart() {
 
 ;; --- Ref declarations ---
 
-(defn gen-ref-decls [(refs Any)] String
+(defn gen-ref-decls [refs Any] String
   (js/call (mapv (fn [r] String (str "let " (id->ref (js/get r .id)) ";")) refs) .join "\n"))
 
-(defn gen-ref-assigns [(refs Any)] String
+(defn gen-ref-assigns [refs Any] String
   (js/call (mapv (fn [r] String (str "  " (id->ref (js/get r .id)) " = " (js/get r .vname) ";")) refs) .join "\n"))
 
 ;; --- Init function ---
 
 (defn gen-init-fn
-  [(en String)
-   (form-name String?)
-   (store-name String)
-   (related-info Any)
-   (persist-key Any)
-   (layout-result Any)
-   (enable-undo Bool)
-   (fram? Bool)]
+  [en String
+   form-name String?
+   store-name String
+   related-info Any
+   persist-key Any
+   layout-result Any
+   enable-undo Bool
+   store? Bool]
   String
-  (let [has-form (some? form-name)
-        form-ref (if has-form (id->ref (str "form-" form-name)) "")
-        search-ref (id->ref (str "ld-" en "-search"))
-        ref-assigns (gen-ref-assigns (js/get layout-result .refs))
-        related-watchers (js/call
-          (mapv (fn [ri] String
-            (let [rel-store (store-ref (js/get ri .store))
-                  key (js/get ri .key)
-                  render-fn (id->ref (str "render-related/" key))]
+  (let [has-form Bool (some? form-name)
+        form-ref String (if has-form (id->ref (str "form-" form-name)) "")
+        search-ref String (id->ref (str "ld-" en "-search"))
+        ref-assigns String (gen-ref-assigns (js/get layout-result .refs))
+        related-watchers String (js/call
+          (mapv (fn [ri Any] String
+            (let [rel-store String (store-ref (js/get ri .store))
+                  key String (js/get ri .key)
+                  render-fn String (id->ref (str "render-related/" key))]
               (str "  " rel-store ".watch((evt) => {\n"
                    "    if (evt.type === 'add' || evt.type === 'load' || evt.type === 'remove') " render-fn "();\n"
                    "    if (evt.type === 'add') {\n"
@@ -2064,7 +2164,7 @@ async function wakeFramStart() {
           "  });\n\n")
         "")
       (cond (not (nil? persist-key)) "  restoreDb();\n"
-            fram? "  void wakeFramStart();\n"
+            store? "  void wakeStoreStart();\n"
             :else "")
       "  updateStats();\n"
       "  renderDetail();\n"
@@ -2072,21 +2172,24 @@ async function wakeFramStart() {
 
 ;; === Component-based codegen ===
 
-;; An IrAction becomes a mutation against the selected entity store. FRAM
+;; An IrAction becomes a mutation against the selected entity store. Store
 ;; stores translate assert/set to closed gateway commands; retract is local-only.
 (defn compile-action
-  [(action Any) (store-name String) (allow-delete Bool)] String
+  [action Any
+   store-name String
+   allow-delete Bool]
+  String
   (if (nil? action) ""
-    (let [verb (js/get action .verb)
-          args (js/get action .args)
-          argval (fn [a] String
+    (let [verb String (js/get action .verb)
+          args Any (js/get action .args)
+          argval (Fn [Any] String) (fn [a Any] String
                    (cond
                      (= (get a "kind") "literal") (q (get a "value"))
                      (= (get a "kind") "tag")
                        (q (graph/strip-colon (get a "name")))
                      :else (str "props[" (q (get a "name")) "]")))
-          dynamic-store? (or (= store-name "") (nil? store-name))
-          store-expr (if dynamic-store? "store" store-name)]
+          dynamic-store? Bool (or (= store-name "") (nil? store-name))
+          store-expr String (if dynamic-store? "store" store-name)]
       (cond
         (or (= verb "assert") (= verb "set"))
           (if (>= (count args) 2)
@@ -2101,28 +2204,28 @@ async function wakeFramStart() {
         :else ""))))
 
 (defn gen-when-block!
-  [(node Any)
-   (counter Any)
-   (parent-var String)
-   (props Any)
-   (store-name String)
-   (allow-delete Bool)]
+  [node Any
+   counter Any
+   parent-var String
+   props Any
+   store-name String
+   allow-delete Bool]
   Any
-  (let [prop (js/get node .prop)
-        (wc Int) (get counter "n")
-        when-var (str "when_" wc)
-        anchor-var (str "whenAnchor_" wc)]
+  (let [prop String (js/get node .prop)
+        wc Int (get counter "n")
+        when-var String (str "when_" wc)
+        anchor-var String (str "whenAnchor_" wc)]
     (js/set! counter .n (+ wc 1))
-    (let [child-results
+    (let [child-results (Vec RenderResult)
           (mapv
-            (fn [el] RenderResult
+            (fn [el Any] RenderResult
               (gen-element! el counter props store-name allow-delete))
             (js/get node .children))
-          child-code (js/call (mapv (fn [cr] String (js/get cr .code)) child-results) .join "")
-          child-appends (js/call
-            (mapv (fn [cr] String (str "      " parent-var ".insertBefore(" (js/get cr .vname) ", " anchor-var ");\n"))
+          child-code String (js/call (mapv (fn [cr RenderResult] String (js/get cr .code)) child-results) .join "")
+          child-appends String (js/call
+            (mapv (fn [cr RenderResult] String (str "      " parent-var ".insertBefore(" (js/get cr .vname) ", " anchor-var ");\n"))
               child-results) .join "")
-          child-vars (mapv (fn [cr] String (js/get cr .vname)) child-results)]
+          child-vars (Vec String) (mapv (fn [cr RenderResult] String (js/get cr .vname)) child-results)]
       (->RenderResult
         (str "  const " anchor-var " = document.createComment('when:" prop "');\n"
              "  " parent-var ".appendChild(" anchor-var ");\n"
@@ -2142,45 +2245,45 @@ async function wakeFramStart() {
         [(->Binding prop (str when-var "_update") "_when")]))))
 
 (defn gen-element!
-  [(el Any)
-   (counter Any)
-   (props Any)
-   (store-name String)
-   (allow-delete Bool)]
+  [el Any
+   counter Any
+   props Any
+   store-name String
+   allow-delete Bool]
   Any
   (if (not (nil? (js/get el .prop)))
     nil
-    (let [(c Int) (get counter "n")
-          var-name (str "el_" c)
-          tag (js/get el .tag)
-          attrs (js/get el .attrs)
-          children (js/get el .children)]
+    (let [c Int (get counter "n")
+          var-name String (str "el_" c)
+          tag String (js/get el .tag)
+          attrs Any (js/get el .attrs)
+          children Any (js/get el .children)]
       (js/set! counter .n (+ c 1))
-      (let [cls-attr (get attrs "class")
-            text-attr (get attrs "text")
-            placeholder-attr (get attrs "placeholder")
-            type-attr (get attrs "type")
-            cls-line (if (nil? cls-attr) ""
+      (let [cls-attr Any (get attrs "class")
+            text-attr Any (get attrs "text")
+            placeholder-attr Any (get attrs "placeholder")
+            type-attr Any (get attrs "type")
+            cls-line String (if (nil? cls-attr) ""
                       (str "  " var-name ".className = " (q (get cls-attr "value")) ";\n"))
-            text-line (if (nil? text-attr) ""
+            text-line String (if (nil? text-attr) ""
                        (if (= (get text-attr "type") "bind")
                          (str "  " var-name ".textContent = props["
                               (q (get text-attr "prop")) "] || '';\n")
                          (str "  " var-name ".textContent = " (q (get text-attr "value")) ";\n")))
-            placeholder-line (if (nil? placeholder-attr) ""
+            placeholder-line String (if (nil? placeholder-attr) ""
                               (str "  " var-name ".placeholder = " (q (get placeholder-attr "value")) ";\n"))
-            type-line (if (nil? type-attr) ""
+            type-line String (if (nil? type-attr) ""
                        (str "  " var-name ".type = " (q (get type-attr "value")) ";\n"))
-            action-lines (js/call
-              (mapv (fn [k] String
-                      (let [a (get attrs k)
-                            action-code (compile-action
+            action-lines String (js/call
+              (mapv (fn [k String] String
+                      (let [a Any (get attrs k)
+                            action-code String (compile-action
                                           (get a "action")
                                           store-name
                                           allow-delete)
-                            dynamic-store? (or (= store-name "")
+                            dynamic-store? Bool (or (= store-name "")
                                                (nil? store-name))
-                            store-expr (if dynamic-store? "store" store-name)]
+                            store-expr String (if dynamic-store? "store" store-name)]
                         (if allow-delete
                           (str "  " var-name ".addEventListener("
                                (q (get a "event"))
@@ -2192,31 +2295,37 @@ async function wakeFramStart() {
                                action-code " } catch (error) { if ("
                                store-expr ") " store-expr
                                ".commandFailed(error); } });\n"))))
-                (filterv (fn [k] Bool (= (get (get attrs k) "type") "action")) (keys attrs))) .join
+                (filterv (fn [k String] Bool (= (get (get attrs k) "type") "action")) (keys attrs))) .join
               "")
-            bindings (if (and (not (nil? text-attr)) (= (get text-attr "type") "bind"))
+            bindings (Vec Binding) (if (and (not (nil? text-attr)) (= (get text-attr "type") "bind"))
                       [(->Binding (get text-attr "prop") var-name "textContent")]
                       [])
-            when-children (filterv (fn [child] Bool (not (nil? (js/get child .prop)))) children)
-            element-children (filterv (fn [child] Bool (nil? (js/get child .prop))) children)
-            child-results
+            when-children (Vec Any) (filterv (fn [child Any] Bool (not (nil? (js/get child .prop)))) children)
+            element-children (Vec Any) (filterv (fn [child Any] Bool (nil? (js/get child .prop))) children)
+            child-results (Vec RenderResult)
             (mapv
-              (fn [child] RenderResult
+              (fn [child Any] RenderResult
                 (gen-element! child counter props store-name allow-delete))
               element-children)
-            child-code (js/call (mapv (fn [cr] String (js/get cr .code)) child-results) .join "")
-            child-appends (js/call
-              (mapv (fn [cr] String (str "  " var-name ".appendChild(" (js/get cr .vname) ");\n"))
+            child-code String (js/call (mapv (fn [cr RenderResult] String (js/get cr .code)) child-results) .join "")
+            child-appends String (js/call
+              (mapv (fn [cr RenderResult] String (str "  " var-name ".appendChild(" (js/get cr .vname) ");\n"))
                 child-results) .join "")
-            when-results
+            when-results (Vec RenderResult)
             (mapv
-              (fn [wc] RenderResult
+              (fn [wc Any] RenderResult
                 (gen-when-block!
                   wc counter var-name props store-name allow-delete))
               when-children)
-            when-code (js/call (mapv (fn [wr] String (js/get wr .code)) when-results) .join "")
-            child-bindings (reduce (fn [acc cr] (Vec Binding) (into acc (js/get cr .bindings))) bindings child-results)
-            all-bindings (reduce (fn [acc wr] (Vec Binding) (into acc (js/get wr .bindings))) child-bindings when-results)]
+            when-code String (js/call (mapv (fn [wr RenderResult] String (js/get wr .code)) when-results) .join "")
+            child-bindings (Vec Binding) (reduce (fn
+                                                   [acc (Vec Binding)
+                                                    cr RenderResult] (Vec Binding)
+                                                   (into acc (js/get cr .bindings))) bindings child-results)
+            all-bindings (Vec Binding) (reduce (fn
+                                                 [acc (Vec Binding)
+                                                  wr RenderResult] (Vec Binding)
+                                                 (into acc (js/get wr .bindings))) child-bindings when-results)]
         (->RenderResult
           (str "  const " var-name " = document.createElement(" (q tag) ");\n"
                cls-line text-line placeholder-line type-line action-lines
@@ -2225,42 +2334,48 @@ async function wakeFramStart() {
           all-bindings)))))
 
 (defn gen-component-fn!
-  [(comp Any) (store-name String) (allow-delete Bool)] String
-  (let [name (js/get comp .name)
-        props (js/get comp .props)
-        body (js/get comp .body)
-        fn-name (str (id->ref name) "_create")
-        counter {"n" 0}
-        root-results
+  [comp Any
+   store-name String
+   allow-delete Bool]
+  String
+  (let [name String (js/get comp .name)
+        props Any (js/get comp .props)
+        body Any (js/get comp .body)
+        fn-name String (str (id->ref name) "_create")
+        counter Any {"n" 0}
+        root-results (Vec RenderResult)
         (mapv
-          (fn [el] RenderResult
+          (fn [el Any] RenderResult
             (gen-element! el counter props store-name allow-delete))
           body)
-        root-code (js/call (mapv (fn [r] String (js/get r .code)) root-results) .join "")
-        all-bindings (reduce (fn [acc r] (Vec Binding) (into acc (js/get r .bindings))) [] root-results)
-        root-var (if (= (count root-results) 1)
+        root-code String (js/call (mapv (fn [r RenderResult] String (js/get r .code)) root-results) .join "")
+        all-bindings (Vec Binding) (reduce (fn
+                                             [acc (Vec Binding)
+                                              r RenderResult] (Vec Binding)
+                                             (into acc (js/get r .bindings))) [] root-results)
+        root-var String (if (= (count root-results) 1)
                    (js/get (nth root-results 0) .vname)
-                   (let [wrapper-var (str "el_" (js/get counter .n))]
-                     (let [(next-counter Int) (js/get counter .n)]
+                   (let [wrapper-var String (str "el_" (js/get counter .n))]
+                     (let [next-counter Int (js/get counter .n)]
                        (js/set! counter .n (+ next-counter 1)))
                      wrapper-var))
-        needs-wrapper (> (count root-results) 1)
-        wrapper-code (if needs-wrapper
+        needs-wrapper Bool (> (count root-results) 1)
+        wrapper-code String (if needs-wrapper
                        (str "  const " root-var " = document.createElement('div');\n"
-                            (js/call (mapv (fn [r] String (str "  " root-var ".appendChild(" (js/get r .vname) ");\n")) root-results) .join ""))
+                            (js/call (mapv (fn [r RenderResult] String (str "  " root-var ".appendChild(" (js/get r .vname) ");\n")) root-results) .join ""))
                        "")
-        update-fns (js/call
-          (mapv (fn [b] String
+        update-fns String (js/call
+          (mapv (fn [b Binding] String
             (if (= (js/get b .dom_prop) "_when")
               (str "    [" (q (js/get b .prop)) "](v) { " (js/get b .vname) "(v); }")
               (str "    [" (q (js/get b .prop)) "](v) { " (js/get b .vname) "."
                    (js/get b .dom_prop) " = v; }")))
             all-bindings) .join
           ",\n")
-        text-bindings (filterv (fn [b] Bool (not (= (js/get b .dom_prop) "_when"))) all-bindings)
-        nodes-entries (js/call
+        text-bindings (Vec Binding) (filterv (fn [b Binding] Bool (not (= (js/get b .dom_prop) "_when"))) all-bindings)
+        nodes-entries String (js/call
           (mapv
-            (fn [b] String (str "    [" (q (js/get b .prop)) "]: " (js/get b .vname)))
+            (fn [b Binding] String (str "    [" (q (js/get b .prop)) "]: " (js/get b .vname)))
             text-bindings) .join
           ",\n")]
     (str "function " fn-name "(props, store) {\n"
@@ -2276,7 +2391,7 @@ async function wakeFramStart() {
          "  };\n"
          "}\n")))
 
-(defn gen-view-program! [(g Any)] String
+(defn gen-view-program! [g Any] String
   (let [components (or (js/get g .components) [])
         view (first (or (js/get g .views) []))
         en (js/get view .entity_name)
@@ -2287,9 +2402,9 @@ async function wakeFramStart() {
         add-fields (js/get view .add_fields)
         has-form (> (count add-fields) 0)
         title (js/get view .title)
-        is-fram (fram-graph? g)
+        is-store (store-graph? g)
         view-publications
-        (if is-fram
+        (if is-store
           (filterv
             (fn [publication] Bool
               (= (js/get publication .revision_entity) en))
@@ -2298,7 +2413,7 @@ async function wakeFramStart() {
         has-publications (> (count view-publications) 0)
         persist (js/get g .persist)
         raw-persist-key (if (nil? persist) nil (js/get persist .key))
-        persist-key (if is-fram nil raw-persist-key)
+        persist-key (if is-store nil raw-persist-key)
         src-name (js/get g .ns)
         fn-name (str (id->ref comp-name) "_create")
         has-select (not (nil? (js/get view .select_component)))
@@ -2310,7 +2425,7 @@ async function wakeFramStart() {
           (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))
                   field (graph-field-named ge f)
-                  checkbox? (and is-fram (field-checkbox? field))]
+                  checkbox? (and is-store (field-checkbox? field))]
               (str "  const " fid "_label = document.createElement('label');\n"
                    "  " fid "_label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
                    "  " fid "_label.textContent = " (q (titlecase f)) ";\n"
@@ -2327,8 +2442,8 @@ async function wakeFramStart() {
             (let [fid (str "form_" (id->ref f))
                   field (graph-field-named ge f)]
               (str "[" (q f) "]: "
-                   (if is-fram
-                     (str "wakeFramReadInput(" fid ", wakeFramFieldMeta["
+                   (if is-store
+                     (str "wakeStoreReadInput(" fid ", wakeStoreFieldMeta["
                           (q en) "][" (q f) "])")
                      (str fid ".value.trim()")))))
             add-fields) .join
@@ -2337,7 +2452,7 @@ async function wakeFramStart() {
           (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))
                   field (graph-field-named ge f)]
-              (if (and is-fram (field-checkbox? field))
+              (if (and is-store (field-checkbox? field))
                 (str "    " fid ".checked = false;")
                 (str "    " fid ".value = '';"))))
             add-fields) .join
@@ -2345,7 +2460,7 @@ async function wakeFramStart() {
         first-field (if has-form (nth add-fields 0) "")
         first-fid (if has-form (str "form_" (id->ref first-field)) "")
         first-checkbox?
-        (and has-form is-fram
+        (and has-form is-store
              (field-checkbox? (graph-field-named ge first-field)))
         first-check
         (if (or (not has-form) first-checkbox?) ""
@@ -2459,7 +2574,7 @@ async function wakeFramStart() {
       (gen-equiv-runtime) "\n"
 
       "// ── Store ──────────────────────────────────────────\n"
-      (if is-fram
+      (if is-store
         (js/call
           (mapv
             (fn [entity] String (gen-store-for entity [] true))
@@ -2468,9 +2583,9 @@ async function wakeFramStart() {
         (gen-store-for ge [] false))
       "\n\n"
 
-      (if is-fram
-        (str "// ── FRAM gateway connector ────────────────────────────\n"
-             (gen-fram-connector
+      (if is-store
+        (str "// ── Store gateway connector ────────────────────────────\n"
+             (gen-store-connector
                (publication-entities g [ge])
                (js/get g .entities)
                (js/get g .publications)
@@ -2478,14 +2593,14 @@ async function wakeFramStart() {
         "")
 
       "// ── Component ────────────────────────────────────────\n"
-      (gen-component-fn! comp store-name (not is-fram)) "\n"
+      (gen-component-fn! comp store-name (not is-store)) "\n"
 
       (if has-select
         (str "// ── Detail Component ─────────────────────────────────\n"
-             (gen-component-fn! select-comp store-name (not is-fram)) "\n")
+             (gen-component-fn! select-comp store-name (not is-store)) "\n")
         "")
 
-      (if is-fram
+      (if is-store
         ""
         (str "// ── Undo / Redo ─────────────────────────────────────\n"
              (gen-undo-redo) "\n"))
@@ -2503,7 +2618,7 @@ async function wakeFramStart() {
         (str
           form-fields-code
           submit-btn "\n"
-          (if is-fram
+          (if is-store
             (str
               "  formEl.addEventListener('submit', async (e) => {\n"
               "    e.preventDefault();\n"
@@ -2538,14 +2653,14 @@ async function wakeFramStart() {
       "      const inst = " fn-name "(evt.entity, " store-name ");\n"
       "      inst.el.className = (inst.el.className || '') + ' cursor-pointer hover:bg-muted/50';\n"
       (if has-publications
-        (str "      wakeFramAttachPublicationActions(" (q en)
+        (str "      wakeStoreAttachPublicationActions(" (q en)
              ", evt.entity, inst, " store-name ");\n")
         "")
       "      listEl.appendChild(inst.el);\n"
       "      instances.set(evt.eid, inst);\n"
       (if has-select "      inst.el.addEventListener('click', () => selectItem(evt.eid));\n" "")
       "      statsEl.textContent = 'Total: ' + instances.size;\n"
-      (if is-fram ""
+      (if is-store ""
         (str "      recordUndo({ type: 'add', store: " store-name
              ", eid: evt.eid, entity: evt.entity });\n"))
       (cond (not (nil? persist-key)) "      saveDb();\n"
@@ -2553,7 +2668,7 @@ async function wakeFramStart() {
       "    }\n"
       watcher-update "\n"
       (if has-select "      if (selectedEid === evt.eid && detailInst && detailInst.update[evt.attr]) detailInst.update[evt.attr](evt.new || '');\n" "")
-      (if is-fram ""
+      (if is-store ""
         (str "      recordUndo({ type: 'update', store: " store-name
              ", eid: evt.eid, attr: evt.attr, old: evt.old, 'new': evt.new });\n"))
       (cond (not (nil? persist-key)) "      saveDb();\n"
@@ -2564,7 +2679,7 @@ async function wakeFramStart() {
       "      if (inst) { inst.destroy(); instances.delete(evt.eid); }\n"
       "      statsEl.textContent = 'Total: ' + instances.size;\n"
       (if has-select "      if (selectedEid === evt.eid) selectItem(null);\n" "")
-      (if is-fram ""
+      (if is-store ""
         (str "      recordUndo({ type: 'remove', store: " store-name
              ", eid: evt.eid, entity: evt.entity });\n"))
       (cond (not (nil? persist-key)) "      saveDb();\n"
@@ -2578,7 +2693,7 @@ async function wakeFramStart() {
       "        const inst = " fn-name "(entity, " store-name ");\n"
       "        inst.el.className = (inst.el.className || '') + ' cursor-pointer hover:bg-muted/50';\n"
       (if has-publications
-        (str "        wakeFramAttachPublicationActions(" (q en)
+        (str "        wakeStoreAttachPublicationActions(" (q en)
              ", entity, inst, " store-name ");\n")
         "")
       (if has-select "        inst.el.addEventListener('click', () => selectItem(entity.eid));\n" "")
@@ -2589,9 +2704,9 @@ async function wakeFramStart() {
       "    }\n"
       "  });\n\n"
 
-      (if is-fram "" (str keyboard-handler "\n\n"))
+      (if is-store "" (str keyboard-handler "\n\n"))
       (cond (not (nil? persist-key)) "  restoreDb();\n"
-            is-fram "  void wakeFramStart();\n"
+            is-store "  void wakeStoreStart();\n"
             :else "")
       "}\n\n"
       "init();\n"
@@ -2600,14 +2715,14 @@ async function wakeFramStart() {
 ;; === Multi-view routing codegen ===
 
 (defn gen-view-section
-  [(view Any)
-   (components Any)
-   (ge Any)
-   (store-name String)
-   (all-entities Any)
-   (all-views Any)
-   (publications Any)
-   (fram? Bool)]
+  [view Any
+   components Any
+   ge Any
+   store-name String
+   all-entities Any
+   all-views Any
+   publications Any
+   store? Bool]
   String
   (let [comp-name (js/get view .component)
         fn-name (str (id->ref comp-name) "_create")
@@ -2618,7 +2733,7 @@ async function wakeFramStart() {
         select-fn-name (if has-select (str (id->ref (js/get view .select_component)) "_create") nil)
         has-form (> (count add-fields) 0)
         view-publications
-        (if fram?
+        (if store?
           (filterv
             (fn [publication] Bool
               (= (js/get publication .revision_entity) (js/get ge .name)))
@@ -2640,7 +2755,7 @@ async function wakeFramStart() {
           (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))
                   field (graph-field-named ge f)
-                  checkbox? (and fram? (field-checkbox? field))]
+                  checkbox? (and store? (field-checkbox? field))]
               (str "    const " fid "_label = document.createElement('label');\n"
                    "    " fid "_label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
                    "    " fid "_label.textContent = " (q (titlecase f)) ";\n"
@@ -2656,8 +2771,8 @@ async function wakeFramStart() {
           (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))]
               (str "[" (q f) "]: "
-                   (if fram?
-                     (str "wakeFramReadInput(" fid ", wakeFramFieldMeta["
+                   (if store?
+                     (str "wakeStoreReadInput(" fid ", wakeStoreFieldMeta["
                           (q (js/get ge .name)) "][" (q f) "])")
                      (str fid ".value.trim()")))))
             add-fields) .join
@@ -2665,7 +2780,7 @@ async function wakeFramStart() {
         clear-lines (js/call
           (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))]
-              (if (and fram? (field-checkbox? (graph-field-named ge f)))
+              (if (and store? (field-checkbox? (graph-field-named ge f)))
                 (str "      " fid ".checked = false;")
                 (str "      " fid ".value = '';"))))
             add-fields) .join
@@ -2722,13 +2837,13 @@ async function wakeFramStart() {
 
         row-cb-add
         (if has-publications
-          (str "        wakeFramAttachPublicationActions("
+          (str "        wakeStoreAttachPublicationActions("
                (q (js/get ge .name)) ", evt.entity, inst, " store-name ");\n")
           "")
 
         row-cb-load
         (if has-publications
-          (str "          wakeFramAttachPublicationActions("
+          (str "          wakeStoreAttachPublicationActions("
                (q (js/get ge .name)) ", entity, inst, " store-name ");\n")
           "")
 
@@ -2796,7 +2911,7 @@ async function wakeFramStart() {
     formEl.appendChild(formActions);
     addToggle.addEventListener('click', () => { formEl.style.display = ''; addToggle.style.display = 'none'; });
 "#
-          (if fram?
+          (if store?
             #r#"
     formEl.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -2808,7 +2923,7 @@ async function wakeFramStart() {
       e.preventDefault();
 "#))
 
-        form-submit-tail (if fram?
+        form-submit-tail (if store?
           (str #r#"
       formEl.style.display = 'none';
       addToggle.style.display = '';
@@ -2926,20 +3041,20 @@ async function wakeFramStart() {
               "          if (node.parentNode) node.parentNode.insertBefore(_ni, node.nextSibling);\n"
               "        }\n")
             "")
-          (if fram?
-            (str "        const fieldMeta = wakeFramFieldMeta["
+          (if store?
+            (str "        const fieldMeta = wakeStoreFieldMeta["
                  (q (js/get ge .name)) "][attr];\n"
                  "        if (!fieldMeta || fieldMeta.identity || fieldMeta.write !== 'set') continue;\n")
             "")
           "        node.style.cursor = 'pointer';\n"
           "        node.addEventListener('click', () => {\n"
-          (if fram?
+          (if store?
             (str
               "          const checkbox = fieldMeta.cardinality === 'single' && (fieldMeta.type === 'Bool' || fieldMeta.type === 'Boolean');\n"
               "          const input = document.createElement('input');\n"
               "          const currentValue = " store-name ".get(selectedEid)?.[attr];\n"
               "          if (checkbox) { input.type = 'checkbox'; input.checked = currentValue === true; }\n"
-              "          else input.value = wakeFramInputValue(currentValue, fieldMeta);\n"
+              "          else input.value = wakeStoreInputValue(currentValue, fieldMeta);\n"
               "          input.className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm w-full';\n"
               "          node.replaceWith(input);\n"
               "          input.focus();\n"
@@ -2952,7 +3067,7 @@ async function wakeFramStart() {
               "          input.focus();\n"
               "          input.select();\n"))
           "          let done = false;\n"
-          (if fram?
+          (if store?
             (str
               "          let saving = false;\n"
               "          const commit = async () => {\n"
@@ -2960,7 +3075,7 @@ async function wakeFramStart() {
               "            saving = true;\n"
               "            input.disabled = true;\n"
               "            try {\n"
-              "              const value = wakeFramReadInput(input, fieldMeta);\n"
+              "              const value = wakeStoreReadInput(input, fieldMeta);\n"
               "              await " store-name
               ".update(selectedEid, attr, value);\n"
               "              done = true;\n"
@@ -2985,7 +3100,7 @@ async function wakeFramStart() {
           "          input.addEventListener('blur', commit);\n"
           "          input.addEventListener('keydown', (e) => {\n"
           "            if (e.key === 'Enter') { e.preventDefault(); commit(); }\n"
-          (if fram?
+          (if store?
             "            if (e.key === 'Escape' && !saving) { done = true; input.replaceWith(node); }\n"
             "            if (e.key === 'Escape') { done = true; input.replaceWith(node); }\n")
           "          });\n"
@@ -3077,13 +3192,13 @@ async function wakeFramStart() {
         (let [first-field (nth add-fields 0)
               first-fid (str "form_" (id->ref first-field))
               first-checkbox?
-              (and fram?
+              (and store?
                    (field-checkbox? (graph-field-named ge first-field)))]
           (str form-chrome form-fields form-actions
             (if first-checkbox? ""
               (str "      const first = " first-fid ".value.trim();\n"
                    "      if (!first) return;\n"))
-            "      " (if fram? "await " "") store-name
+            "      " (if store? "await " "") store-name
             ".add({ " add-obj " });\n"
             clear-lines "\n"
             form-submit-tail))
@@ -3135,13 +3250,17 @@ async function wakeFramStart() {
       "    main.appendChild(viewEl);\n"
       view-close)))
 
-(defn query-route? [(route Any)] Bool
+(defn query-route? [route Any] Bool
   (or (> (count (or (js/get route .parameters) [])) 0)
       (> (count (or (js/get route .required_props) [])) 0)
       (> (count (or (js/get route .queries) [])) 0)))
 
 (defn route-browser-definition
-  [(route Any) (queries Any) (views Any) (dynamic Bool)] String
+  [route Any
+   queries Any
+   views Any
+   dynamic Bool]
+  String
   (let [view
         (first
           (filterv (fn [candidate] Bool (= (js/get candidate .name) (js/get route .view_name))) views))
@@ -3197,7 +3316,7 @@ async function wakeFramStart() {
          ", requiredProps: " (strings (js/get route .required_props))
          ", queries: [" query-definitions "] }")))
 
-(defn gen-query-route-section [(route Any)] String
+(defn gen-query-route-section [route Any] String
   (str
     "  (function() {\n"
     "    const viewEl = document.createElement('section');\n"
@@ -3208,7 +3327,7 @@ async function wakeFramStart() {
     "    main.appendChild(viewEl);\n"
     "  })();"))
 
-(defn gen-routed-program! [(g Any)] String
+(defn gen-routed-program! [g Any] String
   (let [components (or (js/get g .components) [])
         views (or (js/get g .views) [])
         router (js/get g .router)
@@ -3220,10 +3339,10 @@ async function wakeFramStart() {
           (fn [view] Bool (not (js/call query-route-views .includes (js/get view .name)))) views)
         static-view-names (mapv (fn [view] String (js/get view .name)) static-views)
         default-route (js/get router .default_route)
-        is-fram (fram-graph? g)
+        is-store (store-graph? g)
         persist (js/get g .persist)
         raw-persist-key (if (nil? persist) nil (js/get persist .key))
-        persist-key (if is-fram nil raw-persist-key)
+        persist-key (if is-store nil raw-persist-key)
         src-name (js/get g .ns)
         layout (js/get g .layout)
         layout-title (if (and (some? layout) (some? (js/get layout .title)))
@@ -3279,7 +3398,7 @@ async function wakeFramStart() {
                   store-name (store-ref (js/get ge .store_name))]
               (gen-view-section
                 v components ge store-name (js/get g .entities) views
-                (js/get g .publications) is-fram)))
+                (js/get g .publications) is-store)))
             static-views) .join "\n")
 
         query-route-sections
@@ -3298,7 +3417,7 @@ async function wakeFramStart() {
           ",\n  ")
 
         undo-watchers
-        (if is-fram ""
+        (if is-store ""
           (js/call
             (mapv (fn [sn] String
               (let [save (cond (not (nil? persist-key)) "    saveDb();\n"
@@ -3349,13 +3468,13 @@ async function wakeFramStart() {
 
       "// ── Stores ────────────────────────────────────────\n"
       (js/call
-        (mapv (fn [e] String (gen-store-for e [] is-fram)) unique-entities) .join
+        (mapv (fn [e] String (gen-store-for e [] is-store)) unique-entities) .join
         "\n\n")
       "\n\n"
 
-      (if is-fram
-        (str "// ── FRAM gateway connector ────────────────────────────\n"
-             (gen-fram-connector
+      (if is-store
+        (str "// ── Store gateway connector ────────────────────────────\n"
+             (gen-store-connector
                unique-entities
                (js/get g .entities)
                (js/get g .publications)
@@ -3368,11 +3487,11 @@ async function wakeFramStart() {
           (gen-component-fn!
             (first (filterv (fn [c] Bool (= (js/get c .name) cn)) components))
             ""
-            (not is-fram)))
+            (not is-store)))
           unique-comp-names) .join "\n")
       "\n"
 
-      (if is-fram ""
+      (if is-store ""
         (str "// ── Undo / Redo ─────────────────────────────────────\n"
              (gen-undo-redo) "\n"))
 
@@ -3382,7 +3501,7 @@ async function wakeFramStart() {
                (gen-persistence persist-key all-stores) "\n")
         :else "")
 
-      (if is-fram ""
+      (if is-store ""
         (str "// ── Undo watchers ───────────────────────────────────\n"
              undo-watchers "\n"))
 
@@ -3515,7 +3634,7 @@ async function wakeFramStart() {
         const options = Object.create(null);
         if (descriptor.kind === 'page') options.limit = descriptor.defaultLimit;
         if (servedVersion !== null) options.asOf = servedVersion;
-        const result = await wakeFramPost('/api/wake/query', {
+        const result = await wakeStorePost('/api/wake/query', {
           op: 'execute',
           query: descriptor.name,
           input: parameters,
@@ -3624,14 +3743,14 @@ async function wakeFramStart() {
       #r#"
   });
 "#
-      (if is-fram "" #r#"
+      (if is-store "" #r#"
   document.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
     if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
   });
 "#)
       (cond (not (nil? persist-key)) "  restoreDb();\n"
-            is-fram "  void wakeFramStart();\n"
+            is-store "  void wakeStoreStart();\n"
             :else "")
       "}\n\n"
       "init();\n"
@@ -3639,7 +3758,7 @@ async function wakeFramStart() {
 
 ;; --- Main entry point ---
 
-(defn gen-program! [(g Any)] String
+(defn gen-program! [g Any] String
   (if (and (= (count (or (js/get g .views) [])) 0)
            (= (count (or (js/get g .list_details) [])) 0))
     (throw
@@ -3671,10 +3790,10 @@ async function wakeFramStart() {
         derived-attrs (js/get ug .derived)
 
         ;; Persist
-        is-fram (fram-graph? g)
+        is-store (store-graph? g)
         persist (js/get ug .persist)
         raw-persist-key (if (nil? persist) nil (js/get persist .key))
-        persist-key (if is-fram nil raw-persist-key)
+        persist-key (if is-store nil raw-persist-key)
         all-stores
         (into [store-name]
           (mapv (fn [ri] String (store-ref (js/get ri .store))) related-info))
@@ -3690,7 +3809,7 @@ async function wakeFramStart() {
         publication-generated-entities
         (publication-entities g generated-entities)
         primary-has-publications
-        (and is-fram
+        (and is-store
              (> (count
                   (filterv
                     (fn [publication] Bool
@@ -3710,7 +3829,7 @@ async function wakeFramStart() {
 
         subtitle-field (if (> (count overview-fields) 1) (nth overview-fields 1) nil)
 
-        layout-result (gen-layout en (js/get ug .form) title primary-ge is-fram)
+        layout-result (gen-layout en (js/get ug .form) title primary-ge is-store)
 
         src-name (js/get g .ns)]
 
@@ -3726,7 +3845,7 @@ async function wakeFramStart() {
 
       ;; Stores
       "// ── Stores ─────────────────────────────────────────\n"
-      (gen-store-for primary-ge [] is-fram) "\n"
+      (gen-store-for primary-ge [] is-store) "\n"
       "\n"
       (js/call
         (mapv (fn [ri] String
@@ -3735,10 +3854,10 @@ async function wakeFramStart() {
                   (filterv
                     (fn [e] Bool (= (js/get e .name) (js/get ri .entity)))
                     (js/get g .entities)))]
-            (gen-store-for related-ge [(js/get ri .fk_field)] is-fram)))
+            (gen-store-for related-ge [(js/get ri .fk_field)] is-store)))
           related-info) .join
         "\n")
-      (if is-fram
+      (if is-store
         (str "\n"
              (js/call
                (mapv
@@ -3747,9 +3866,9 @@ async function wakeFramStart() {
                "\n"))
         "")
 
-      (if is-fram
-        (str "\n// ── FRAM gateway connector ────────────────────────────\n"
-             (gen-fram-connector
+      (if is-store
+        (str "\n// ── Store gateway connector ────────────────────────────\n"
+             (gen-store-connector
                publication-generated-entities
                (js/get g .entities)
                (js/get g .publications)
@@ -3770,9 +3889,9 @@ async function wakeFramStart() {
         related-info
         (js/get ug .all_field_info)
         g
-        (if is-fram (entity-identity-name primary-ge) nil)
-        is-fram
-        (not is-fram)) "\n"
+        (if is-store (entity-identity-name primary-ge) nil)
+        is-store
+        (not is-store)) "\n"
 
       ;; List view
       "\n// ── List view ──────────────────────────────────────\n"
@@ -3787,7 +3906,7 @@ async function wakeFramStart() {
       ;; Form
       "\n// ── Form ─────────────────────────────────────────────\n"
       (if (some? (js/get ug .form))
-        (gen-form-handler en (js/get ug .form) primary-ge is-fram)
+        (gen-form-handler en (js/get ug .form) primary-ge is-store)
         "") "\n"
 
       ;; Persistence
@@ -3802,8 +3921,8 @@ async function wakeFramStart() {
       (gen-update-fns columns search-cols overview-fields subtitle-field
                       persist-key related-tab-keys derived-attrs store-name) "\n"
 
-      ;; Undo/redo is local because FRAM commands are authoritative.
-      (if is-fram ""
+      ;; Undo/redo is local because Store commands are authoritative.
+      (if is-store ""
         (str "\n// ── Undo / Redo ─────────────────────────────────────\n"
              (gen-undo-redo) "\n"))
 
@@ -3816,8 +3935,8 @@ async function wakeFramStart() {
         related-info
         persist-key
         layout-result
-        (not is-fram)
-        is-fram) "\n"
+        (not is-store)
+        is-store) "\n"
 
       "init();\n"
       "})();\n"))))

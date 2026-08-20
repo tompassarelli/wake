@@ -251,7 +251,7 @@ async function compileSubstratePlan() {
       manifest: JSON.parse(
         await Bun.file(`${temporary}/out/app.wake.manifest.json`).text(),
       ),
-      plan: JSON.parse(await Bun.file(`${temporary}/out/app.fram.json`).text()),
+      plan: JSON.parse(await Bun.file(`${temporary}/out/app.store.json`).text()),
     };
   } finally {
     run(["rm", "-rf", "--", temporary]);
@@ -723,7 +723,7 @@ describe("wake-wiki K0C data contract", () => {
       .toBe(declarationSourceTexts[declarationSourceIds.plugin]);
   });
 
-  test("links the delivered substrate into one checked FRAM graph", async () => {
+  test("links the delivered substrate into one checked Store graph", async () => {
     const { application, client, manifest: applicationManifest, plan } =
       await compileSubstratePlan();
     expect(plan.applicationId).toBe("wake-wiki-substrate-fixture");

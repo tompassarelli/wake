@@ -51,10 +51,10 @@ async function compileFixture() {
       }],
       schemaVersion: 1,
     }));
-    const planPath = `${temporary}/app.fram.json`;
+    const planPath = `${temporary}/app.store.json`;
     run([
       `${webRoot}/bin/wake-compile`,
-      "--fram",
+      "--store",
       `${temporary}/application.bjs`,
       planPath,
     ]);

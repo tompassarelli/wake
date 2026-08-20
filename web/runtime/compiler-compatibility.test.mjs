@@ -16,7 +16,7 @@ function compatibility() {
     },
     manifestSchemaVersion: 1,
     protocols: {
-      framPlanSchemaVersion: 2,
+      storePlanSchemaVersion: 2,
       httpOperationProtocolVersion: 2,
       pluginAbiVersion: 1,
     },

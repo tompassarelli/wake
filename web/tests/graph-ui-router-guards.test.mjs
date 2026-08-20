@@ -190,7 +190,7 @@ function resolvedProgram(overrides = {}) {
     mounts: [],
     declaration_provenance: [],
     ns: "wake.tests.graph-ui-router-guards",
-    backend: { kind: "fram" },
+    backend: { kind: "store" },
     entities: [entity("page")],
     persist: null,
     defstates: [],
