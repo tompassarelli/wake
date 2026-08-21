@@ -81,8 +81,7 @@ mkdir -p "$compile_cache_dir"
 
 mkdir -p "$dist/beagle"
 cp "$wake_root/package.json" "$staging_dir/package.json"
-cp "$BEAGLE_RUNTIME_DIR/core.js" "$dist/beagle/core.js"
-cp "$BEAGLE_RUNTIME_DIR/hamt.js" "$dist/beagle/hamt.js"
+cp "$BEAGLE_RUNTIME_DIR"/*.js "$dist/beagle/"
 
 modules=(ir graph ui js-ast emit-store codegen)
 for mod in "${modules[@]}"; do
