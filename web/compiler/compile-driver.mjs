@@ -499,7 +499,7 @@ async function main() {
     fail("compiled graph lacks check-linked-declaration-program");
   }
   const { gen_program_bang: generateProgram } = await import(new URL("codegen.js", distUrl).href);
-  const { gen_store: generateStore } = await import(new URL("emit-store.js", distUrl).href);
+  const { "gen-store": generateStore } = await import(new URL("emit-store.js", distUrl).href);
   const { generateWakeClient } = await import("./emit-client.mjs");
 
   const checkedGraph = checkLinkedDeclarations(linked);

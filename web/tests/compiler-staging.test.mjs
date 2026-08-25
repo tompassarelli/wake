@@ -49,7 +49,7 @@ source="${'$'}{@: -2:1}"
 output="${'$'}{!#}"
 case "${'$'}source" in
   *graph.bjs) printf '%s\\n' "import { ExceptionInfo } from './beagle/exception-info.js';" 'function check_linked_declaration_program(value) { return value ?? ExceptionInfo; }' > "${'$'}output" ;;
-  *emit-store.bjs) printf '%s\\n' 'export function gen_store() { return "{}"; }' > "${'$'}output" ;;
+  *emit-store.bjs) printf '%s\\n' 'function gen_store() { return "{}"; }' 'export { gen_store as "gen-store" };' > "${'$'}output" ;;
   *) printf '%s\\n' 'function generated() { return null; }' > "${'$'}output" ;;
 esac
 `);
@@ -59,6 +59,8 @@ import { pathToFileURL } from "node:url";
 const dist = Bun.argv[Bun.argv.indexOf("--dist") + 1];
 const graph = await import(new URL("graph.js", pathToFileURL(dist.replace(/\\/+$/u, "") + "/")).href);
 if (typeof graph.check_linked_declaration_program !== "function") process.exit(1);
+const emitStore = await import(new URL("emit-store.js", pathToFileURL(dist.replace(/\\/+$/u, "") + "/")).href);
+if (emitStore["gen-store"]() !== "{}") process.exit(1);
 `);
 
     const result = Bun.spawnSync(
