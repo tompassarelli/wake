@@ -53,8 +53,13 @@ compile() {
 }
 
 append_function_exports() {
-  local source="$1" output="$2" names
-  names="$(grep -oP '(?<=^function )\w+' "$source" | paste -sd, || true)"
+  local source="$1" output="$2" exported names
+  exported="$(grep -oP '(?<=^export \{ )[A-Za-z_$][\w$]*(?= as )' "$source" || true)"
+  names="$({
+    grep -oP '(?<=^function )[A-Za-z_$][\w$]*' "$source" \
+      | grep -vxFf <(printf '%s\n' "$exported") \
+      | paste -sd,
+  } || true)"
   {
     cat "$source"
     if [[ -n "$names" ]]; then
