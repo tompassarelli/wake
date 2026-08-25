@@ -1,7 +1,7 @@
 #lang beagle/js
 (ns wake.codegen)
-(require wake.graph :as graph)
-(require wake.ui :as ui)
+(require [wake.graph :as graph])
+(require [wake.ui :as ui])
 
 ;; Codegen: Checked Entity Graph → self-contained JavaScript IIFE.
 ;; Produces direct-DOM code: entity stores, compiled update paths,
@@ -73,7 +73,7 @@
     (loop [i Int 0 out String ""]
       (if (>= i (count serialized))
         out
-        (let [code Int (js/call serialized .charCodeAt i)]
+        (let [code Int (.charCodeAt serialized i)]
           (cond
             (= code 8232) (recur (+ i 1) (str out "\\u2028"))
             (= code 8233) (recur (+ i 1) (str out "\\u2029"))
@@ -86,12 +86,12 @@
     [(JsIdent name) name]
     [(JsLiteral value) (if (string? value) (q value) (str value))]
     [(JsRawExpr code) code]
-    [(JsCall callee args) (str (emit-expr callee) "(" (js/call (mapv emit-expr args) .join ", ") ")")]
+    [(JsCall callee args) (str (emit-expr callee) "(" (.join (mapv emit-expr args) ", ") ")")]
     [(JsMember obj prop) (str (emit-expr obj) "." prop)]
     [(JsBinary op left right) (str (emit-expr left) " " op " " (emit-expr right))]
     [(JsAwait expr) (str "await " (emit-expr expr))]
-    [(JsArrowBlock params body) (str "(" (js/call params .join ", ") ") => {\n" (emit-stmts body 1) "\n}")]
-    [(JsArray items) (str "[" (js/call (mapv emit-expr items) .join ", ") "]")]
+    [(JsArrowBlock params body) (str "(" (.join params ", ") ") => {\n" (emit-stmts body 1) "\n}")]
+    [(JsArray items) (str "[" (.join (mapv emit-expr items) ", ") "]")]
     [(JsSpread expr) (str "..." (emit-expr expr))]))
 
 (defn indent [depth Int] String
@@ -120,7 +120,7 @@
   [stmts (Vec JsStmt)
    depth Int]
   String
-  (js/call (mapv (fn [s JsStmt] String (emit-stmt s depth)) stmts) .join "\n"))
+  (.join (mapv (fn [s JsStmt] String (emit-stmt s depth)) stmts) "\n"))
 
 ;; --- DOM AST helpers ---
 
@@ -156,37 +156,35 @@
   (loop [i Int 0 out String "wake$"]
     (if (>= i (count s))
       out
-      (recur (+ i 1) (str out (js/call s .charCodeAt i) "$")))))
+      (recur (+ i 1) (str out (.charCodeAt s i) "$")))))
 
 (defn store-ref [store-name String] String
   (id->ref (str "store/" store-name)))
 
 (defn titlecase [s String] String
   (if (= (count s) 0) s
-    (js/call
-      (mapv (fn [w String] String (if (= (count w) 0) w (str (js/call (subs w 0 1) .toUpperCase) (subs w 1))))
-            (js/call s .split " ")) .join
-      " ")))
+    (.join (mapv (fn [w String] String (if (= (count w) 0) w (str (.toUpperCase (subs w 0 1)) (subs w 1))))
+            (.split s " ")) " ")))
 
 (defn sym? [x Any] Bool
-  (if (nil? x) false (= (js/get x ._tag) "Sym")))
+  (if (nil? x) false (= (.-_tag x) "Sym")))
 
 (defn sym-name [x Any] String
-  (js/get x .name))
+  (.-name x))
 
 (defn store-graph? [g Any] Bool
-  (let [backend (js/get g .backend)]
-    (and (not (nil? backend)) (= (js/get backend .kind) "store"))))
+  (let [backend (.-backend g)]
+    (and (not (nil? backend)) (= (.-kind backend) "store"))))
 
 (defn entity-identity-name [ge Any] Any
-  (let [identity-field (js/get ge .identity_field)]
-    (if (nil? identity-field) nil (js/get identity-field .name))))
+  (let [identity-field (.-identity_field ge)]
+    (if (nil? identity-field) nil (.-name identity-field))))
 
 (defn graph-entity-named
   [entities Any
    name String]
   Any
-  (first (filterv (fn [entity] Bool (= (js/get entity .name) name)) entities)))
+  (first (filterv (fn [entity] Bool (= (.-name entity) name)) entities)))
 
 (defn graph-field-named
   [entity Any
@@ -194,23 +192,23 @@
   Any
   (if (nil? entity) nil
     (first
-      (filterv (fn [field] Bool (= (js/get field .name) name)) (js/get entity .fields)))))
+      (filterv (fn [field] Bool (= (.-name field) name)) (.-fields entity)))))
 
 (defn field-wire-type
   [field Any
    entities Any]
   String
   (if (nil? field) "String"
-    (if (= (js/get field .value_kind) "ref")
-      (let [target (graph-entity-named entities (or (js/get field .target_entity) ""))
-            target-identity (if (nil? target) nil (js/get target .identity_field))]
-        (if (nil? target-identity) "String" (js/get target-identity .type)))
-      (js/get field .type))))
+    (if (= (.-value_kind field) "ref")
+      (let [target (graph-entity-named entities (or (.-target_entity field) ""))
+            target-identity (if (nil? target) nil (.-identity_field target))]
+        (if (nil? target-identity) "String" (.-type target-identity)))
+      (.-type field))))
 
 (defn field-checkbox? [field Any] Bool
   (if (nil? field) false
-    (and (= (js/get field .cardinality) "single")
-         (or (= (js/get field .type) "Bool") (= (js/get field .type) "Boolean")))))
+    (and (= (.-cardinality field) "single")
+         (or (= (.-type field) "Bool") (= (.-type field) "Boolean")))))
 
 (defn store-field-meta-expr
   [field Any
@@ -219,16 +217,16 @@
   (if (nil? field)
     "{ type: 'String', cardinality: 'single', write: 'set', identity: false }"
     (str "{ type: " (q (field-wire-type field entities))
-         ", cardinality: " (q (js/get field .cardinality))
-         ", write: " (q (js/get field .write_policy))
-         ", identity: " (if (js/get field .identity) "true" "false") " }")))
+         ", cardinality: " (q (.-cardinality field))
+         ", write: " (q (.-write_policy field))
+         ", identity: " (if (.-identity field) "true" "false") " }")))
 
 (defn add-entity-by-name
   [entities Any
    selected Any
    name String]
   Any
-  (if (some? (first (filterv (fn [entity] Bool (= (js/get entity .name) name)) selected)))
+  (if (some? (first (filterv (fn [entity] Bool (= (.-name entity) name)) selected)))
     selected
     (let [entity (graph-entity-named entities name)]
       (if (nil? entity) selected (conj selected entity)))))
@@ -240,12 +238,12 @@
   (reduce
     (fn [result publication] (Vec Any)
       (add-entity-by-name
-        (js/get g .entities)
+        (.-entities g)
         (add-entity-by-name
-          (js/get g .entities) result (js/get publication .owner_entity))
-        (js/get publication .revision_entity)))
+          (.-entities g) result (.-owner_entity publication))
+        (.-revision_entity publication)))
     selected
-    (or (js/get g .publications) [])))
+    (or (.-publications g) [])))
 
 (defn state-machine-field?
   [g Any
@@ -256,9 +254,9 @@
     (first
       (filterv
         (fn [machine] Bool
-          (and (= (js/get machine .entity) entity-name)
-               (= (js/get machine .field) field-name)))
-        (js/get g .state_machines)))))
+          (and (= (.-entity machine) entity-name)
+               (= (.-field machine) field-name)))
+        (.-state_machines g)))))
 
 (defn store-related-add-fields
   [g Any
@@ -267,40 +265,38 @@
   Any
   (filterv
     (fn [field] Bool
-      (and (not (= (js/get field .name) automatic-field))
-           (not (= (js/get field .write_policy) "command"))
+      (and (not (= (.-name field) automatic-field))
+           (not (= (.-write_policy field) "command"))
            (not
              (state-machine-field?
-               g (js/get entity .name) (js/get field .name)))))
-    (js/get entity .stored_fields)))
+               g (.-name entity) (.-name field)))))
+    (.-stored_fields entity)))
 
 (defn store-publication-meta-expr [publication Any] String
-  (str "{ owner: { entity: " (q (js/get publication .owner_entity))
-       ", pointer: " (q (js/get publication .pointer_field))
-       " }, revision: { entity: " (q (js/get publication .revision_entity))
-       ", ownerField: " (q (js/get publication .owner_field))
-       ", stateField: " (q (js/get publication .state_field))
-       " }, states: { draft: " (q (js/get publication .draft_state))
-       ", published: " (q (js/get publication .published_state))
-       ", retired: " (q (js/get publication .retired_state)) " } }"))
+  (str "{ owner: { entity: " (q (.-owner_entity publication))
+       ", pointer: " (q (.-pointer_field publication))
+       " }, revision: { entity: " (q (.-revision_entity publication))
+       ", ownerField: " (q (.-owner_field publication))
+       ", stateField: " (q (.-state_field publication))
+       " }, states: { draft: " (q (.-draft_state publication))
+       ", published: " (q (.-published_state publication))
+       ", retired: " (q (.-retired_state publication)) " } }"))
 
 
 (defn compile-derived-expr
   [expr Any
    subst Any]
   String
-  (let [tag (js/get expr ._tag)]
+  (let [tag (.-_tag expr)]
     (cond
       (= tag "IrFieldDerivedExpr")
-        (let [name (js/get (js/get expr .field) .name)]
+        (let [name (.-name (.-field expr))]
           (if (and (not (nil? subst)) (not (nil? (get subst name))))
             (get subst name)
             (str "(entity[" (q name) "] || '')")))
-      (= tag "IrStringDerivedExpr") (q (js/get expr .value))
+      (= tag "IrStringDerivedExpr") (q (.-value expr))
       (= tag "IrConcatDerivedExpr")
-        (js/call
-          (mapv (fn [part] String (compile-derived-expr part subst)) (js/get expr .parts)) .join
-          " + ")
+        (.join (mapv (fn [part] String (compile-derived-expr part subst)) (.-parts expr)) " + ")
       :else
         (throw (ex-info "wake: invalid checked derived expression" {})))))
 
@@ -312,8 +308,7 @@
 ;; change-gate: a write whose value is structurally EQUAL to the current value
 ;; becomes a true no-op (no mutation and no notification).
 (defn gen-equiv-runtime [] String
-  (js/call
-    ["// ── Value equality (Clojure = semantics) ─────────────"
+  (.join ["// ── Value equality (Clojure = semantics) ─────────────"
      "function equiv(a, b) {"
      "  // nil: both null and undefined represent Clojure nil."
      "  if (a == null || b == null) return a == null && b == null;"
@@ -387,8 +382,7 @@
      "  }"
      "  return mix(8, hash(String(x)));"
      "}"
-     ""] .join
-    "\n"))
+     ""] "\n"))
 
 ;; --- Entity store ---
 
@@ -397,9 +391,7 @@
    fk-methods Any]
   String
   (let [ref-name String (store-ref name)]
-    (js/call
-      (js/call
-        [(str "const " ref-name " = (() => {")
+    (.join (.concat [(str "const " ref-name " = (() => {")
          "  let nextEid = 1;"
          "  const entities = new Map();"
          "  const watchers = [];"
@@ -435,8 +427,7 @@
          "      entities.set(restored.eid, restored);"
          "      if (restored.eid >= nextEid) nextEid = restored.eid + 1;"
          "      notify({ type: 'add', eid: restored.eid, entity: restored });"
-         "    },"] .concat
-        [(if (> (count fk-methods) 0)
+         "    },"] [(if (> (count fk-methods) 0)
            "    by(field, value) { return Array.from(entities.values()).filter(entity => equiv(entity[field], value)); },"
            "")
          "    watch(fn) { watchers.push(fn); },"
@@ -449,8 +440,7 @@
          "    },"
          "    snapshot() { return Array.from(entities.values()); }"
          "  };"
-         "})();"]) .join
-      "\n")))
+         "})();"]) "\n")))
 
 ;; Store stores expose the same read/watch surface as local stores. Their eid is
 ;; only a stable browser-cache key; every command is addressed by the declared
@@ -459,13 +449,11 @@
   [ge Any
    fk-methods Any]
   String
-  (let [name String (store-ref (js/get ge .store_name))
-        entity-name String (js/get ge .name)
-        identity-field Any (js/get ge .identity_field)
-        identity-name String (if (nil? identity-field) "" (js/get identity-field .name))]
-    (js/call
-      (js/call
-        [(str "const " name " = (() => {")
+  (let [name String (store-ref (.-store_name ge))
+        entity-name String (.-name ge)
+        identity-field Any (.-identity_field ge)
+        identity-name String (if (nil? identity-field) "" (.-name identity-field))]
+    (.join (.concat [(str "const " name " = (() => {")
          "  let nextEid = 1;"
          "  const entities = new Map();"
          "  const identityIndex = new Map();"
@@ -519,8 +507,7 @@
          "    },"
          "    commandFailed(error) { reportCommandError(error); },"
          "    commandStarted() { clearCommandError(); },"
-         "    all() { return Array.from(entities.values()); },"] .concat
-        [(if (> (count fk-methods) 0)
+         "    all() { return Array.from(entities.values()); },"] [(if (> (count fk-methods) 0)
            "    by(field, value) { return Array.from(entities.values()).filter(entity => equiv(entity[field], value)); },"
            "")
          "    watch(fn) { watchers.push(fn); },"
@@ -543,8 +530,7 @@
          "      notify({ type: 'load' });"
          "    }"
          "  };"
-         "})();"]) .join
-      "\n")))
+         "})();"]) "\n")))
 
 (defn gen-store-for
   [ge Any
@@ -553,7 +539,7 @@
   String
   (if store?
     (gen-store-store ge fk-methods)
-    (gen-store (js/get ge .store_name) fk-methods)))
+    (gen-store (.-store_name ge) fk-methods)))
 
 (defn gen-store-connector
   [entities Any
@@ -561,36 +547,28 @@
    publications Any
    semantic-fingerprint String]
   String
-  (let [bindings String (js/call
-        (mapv (fn [ge Any] String
-            (let [identity-field Any (js/get ge .identity_field)]
-              (str "  [" (q (js/get ge .name)) ", { store: "
-                   (store-ref (js/get ge .store_name))
+  (let [bindings String (.join (mapv (fn [ge Any] String
+            (let [identity-field Any (.-identity_field ge)]
+              (str "  [" (q (.-name ge)) ", { store: "
+                   (store-ref (.-store_name ge))
                    ", identityField: "
-                   (if (nil? identity-field) "null" (q (js/get identity-field .name)))
+                   (if (nil? identity-field) "null" (q (.-name identity-field)))
                    ", loadedVersion: '0' }]")))
-            entities) .join
-          ",\n")
-        field-metas String (js/call
-          (mapv (fn [ge Any] String
-            (let [fields String (js/call
-                           (mapv
+            entities) ",\n")
+        field-metas String (.join (mapv (fn [ge Any] String
+            (let [fields String (.join (mapv
                              (fn [field Any] String
-                               (str "    [" (q (js/get field .name)) "]: "
+                               (str "    [" (q (.-name field)) "]: "
                                     (store-field-meta-expr field all-entities)))
-                             (js/get ge .stored_fields)) .join
-                           ",\n")]
-              (str "  [" (q (js/get ge .name)) "]: Object.assign(Object.create(null), {\n"
+                             (.-stored_fields ge)) ",\n")]
+              (str "  [" (q (.-name ge)) "]: Object.assign(Object.create(null), {\n"
                    fields "\n  })")))
-            entities) .join
-          ",\n")
-        publication-metas String (js/call
-          (mapv
+            entities) ",\n")
+        publication-metas String (.join (mapv
             (fn [publication Any] String
-              (str "  [" (q (js/get publication .name)) "]: "
+              (str "  [" (q (.-name publication)) "]: "
                    (store-publication-meta-expr publication)))
-            publications) .join
-          ",\n")]
+            publications) ",\n")]
     (str "const wakeApplicationFingerprint = " (q semantic-fingerprint) ";\n"
          #r#"const wakeStoreFieldMeta = Object.assign(Object.create(null), {
 "#
@@ -940,14 +918,12 @@ async function wakeStoreStart() {
         ;; Delete cascade lines
         delete-lines
         (if allow-delete
-          (js/call
-            (mapv (fn [ri] String
-              (let [rel-store (store-ref (js/get ri .store))]
+          (.join (mapv (fn [ri] String
+              (let [rel-store (store-ref (.-store ri))]
                 (str "    for (const r of " rel-store ".by("
-                     (q (js/get ri .fk_field)) ", selectedContact)) "
+                     (q (.-fk_field ri)) ", selectedContact)) "
                      rel-store ".remove(r.eid);")))
-              related-info) .join
-            "\n")
+              related-info) "\n")
           "")
 
         ;; Tab bar construction
@@ -957,21 +933,18 @@ async function wakeStoreStart() {
           "  detailNodes.tabOverview.className = '" tab-active-cls "';\n"
           "  detailNodes.tabOverview.addEventListener('click', () => { activeTab = 'overview'; renderDetail(); });\n"
           "  tabBar.appendChild(detailNodes.tabOverview);\n"
-          (js/call
-            (mapv (fn [ri] String
-              (let [key (js/get ri .key)
+          (.join (mapv (fn [ri] String
+              (let [key (.-key ri)
                     key-ref (id->ref key)]
                 (str "  detailNodes.tab_" key-ref " = document.createElement('button');\n"
                      "  detailNodes.tab_" key-ref ".textContent = " (q (titlecase key)) ";\n"
                      "  detailNodes.tab_" key-ref ".className = '" tab-inactive-cls "';\n"
                      "  detailNodes.tab_" key-ref ".addEventListener('click', () => { activeTab = " (q key) "; renderDetail(); });\n"
                      "  tabBar.appendChild(detailNodes.tab_" key-ref ");")))
-              related-info) .join
-            "\n"))
+              related-info) "\n"))
 
         ;; Overview field grid
-        field-grid-lines (js/call
-          (mapv (fn [f] String
+        field-grid-lines (.join (mapv (fn [f] String
             (let [field-ref (id->ref f)]
               (str "  const " field-ref "Label = document.createElement('span');\n"
                    "  " field-ref "Label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
@@ -981,14 +954,12 @@ async function wakeStoreStart() {
                    "  detailNodes.field_" field-ref ".className = 'text-sm';\n"
                    "  grid.appendChild(detailNodes.field_" field-ref ");\n"
                    "  makeEditable(detailNodes.field_" field-ref ", " (q f) ");")))
-            overview-fields) .join
-          "\n")
+            overview-fields) "\n")
 
         ;; Derived field grid entries (non-editable)
-        derived-grid-lines (js/call
-          (mapv (fn [da] String
-            (let [dname (id->ref (js/get da .name))
-                  label (titlecase (js/call (js/get da .name) .replaceAll "-" " "))]
+        derived-grid-lines (.join (mapv (fn [da] String
+            (let [dname (id->ref (.-name da))
+                  label (titlecase (.replaceAll (.-name da) "-" " "))]
               (str "  const " dname "Label = document.createElement('span');\n"
                    "  " dname "Label.className = 'text-xs font-medium uppercase text-muted-foreground';\n"
                    "  " dname "Label.textContent = " (q label) ";\n"
@@ -996,25 +967,23 @@ async function wakeStoreStart() {
                    "  detailNodes.field_" dname " = document.createElement('span');\n"
                    "  detailNodes.field_" dname ".className = 'text-sm italic text-muted-foreground';\n"
                    "  grid.appendChild(detailNodes.field_" dname ");")))
-            derived-attrs) .join
-          "\n")
+            derived-attrs) "\n")
 
         ;; Related tab content areas
-        related-content-lines (js/call
-          (mapv (fn [ri] String
-            (let [key (js/get ri .key)
+        related-content-lines (.join (mapv (fn [ri] String
+            (let [key (.-key ri)
                   key-ref (id->ref key)
-                  rel-en (js/get ri .entity)
-                  rel-store (store-ref (js/get ri .store))
-                  fk-field (js/get ri .fk_field)
-                  rel-ge (graph-entity-named (js/get g .entities) rel-en)
+                  rel-en (.-entity ri)
+                  rel-store (store-ref (.-store ri))
+                  fk-field (.-fk_field ri)
+                  rel-ge (graph-entity-named (.-entities g) rel-en)
                   add-fields
                   (if store?
                     (store-related-add-fields g rel-ge fk-field)
                     [])
-                  identity-field (if (nil? rel-ge) nil (js/get rel-ge .identity_field))
+                  identity-field (if (nil? rel-ge) nil (.-identity_field rel-ge))
                   related-identity-name
-                  (if (nil? identity-field) "" (js/get identity-field .name))
+                  (if (nil? identity-field) "" (.-name identity-field))
                   content-prop (str key-ref "Content")
                   header-prop (str key-ref "Header")
                   list-prop (str key-ref "List")
@@ -1022,10 +991,9 @@ async function wakeStoreStart() {
                   form-ref (id->ref (str "related/" key "/form"))
                   button-ref (id->ref (str "related/" key "/add"))
                   store-inputs
-                  (js/call
-                    (mapv
+                  (.join (mapv
                       (fn [field] String
-                        (let [field-name (js/get field .name)
+                        (let [field-name (.-name field)
                               input-ref
                               (id->ref
                                 (str "related/" key "/" field-name "/input"))
@@ -1045,13 +1013,11 @@ async function wakeStoreStart() {
                                       (q (titlecase field-name)) ";\n"))
                                "  " input-ref ".className = 'px-3 py-2 border border-input rounded-md bg-background text-foreground text-sm';\n"
                                "  " form-ref ".appendChild(" input-ref ");\n")))
-                      add-fields) .join
-                    "")
+                      add-fields) "")
                   store-values
-                  (js/call
-                    (mapv
+                  (.join (mapv
                       (fn [field] String
-                        (let [field-name (js/get field .name)
+                        (let [field-name (.-name field)
                               input-ref
                               (id->ref
                                 (str "related/" key "/" field-name "/input"))]
@@ -1059,21 +1025,18 @@ async function wakeStoreStart() {
                                "] = wakeStoreReadInput(" input-ref
                                ", wakeStoreFieldMeta[" (q rel-en) "]["
                                (q field-name) "]);\n")))
-                      add-fields) .join
-                    "")
+                      add-fields) "")
                   store-clears
-                  (js/call
-                    (mapv
+                  (.join (mapv
                       (fn [field] String
                         (let [input-ref
                               (id->ref
                                 (str "related/" key "/"
-                                     (js/get field .name) "/input"))]
+                                     (.-name field) "/input"))]
                           (if (field-checkbox? field)
                             (str "      " input-ref ".checked = false;\n")
                             (str "      " input-ref ".value = '';\n"))))
-                      add-fields) .join
-                    "")]
+                      add-fields) "")]
               (str
                 "  detailNodes." content-prop " = document.createElement('div');\n"
                 "  detailNodes." content-prop ".className = 'p-4 flex-1 overflow-y-auto flex flex-col';\n"
@@ -1139,17 +1102,15 @@ async function wakeStoreStart() {
                 "  detailNodes." content-prop ".appendChild(" form-ref ");\n"
                 "  detailNodes.wrapper.appendChild(detailNodes."
                 content-prop ");")))
-            related-info) .join
-          "\n")
+            related-info) "\n")
 
         ;; Related tab render functions
-        render-related-fns (js/call
-          (mapv (fn [ri] String
-            (let [key (js/get ri .key)
+        render-related-fns (.join (mapv (fn [ri] String
+            (let [key (.-key ri)
                   key-ref (id->ref key)
-                  rel-store (store-ref (js/get ri .store))
-                  fk-field (js/get ri .fk_field)
-                  display (or (js/get ri .display) [])
+                  rel-store (store-ref (.-store ri))
+                  fk-field (.-fk_field ri)
+                  display (or (.-display ri) [])
                   list-prop (str key-ref "List")
                   header-prop (str key-ref "Header")
                   render-fn (id->ref (str "render-related/" key))]
@@ -1178,8 +1139,7 @@ async function wakeStoreStart() {
                    "    el.className = 'p-2 border border-border rounded-md flex justify-between items-start gap-2';\n"
                    "    const elBody = document.createElement('div');\n"
                    "    elBody.className = 'flex-1 min-w-0';\n"
-                   (js/call
-                     (mapv (fn [col] String
+                   (.join (mapv (fn [col] String
                        (let [cref (id->ref col)
                              tag (if (= col "content") "p" "span")
                              cls (if (= col "content") "text-sm" "text-xs text-muted-foreground mt-1 block")]
@@ -1187,8 +1147,7 @@ async function wakeStoreStart() {
                               "    " cref "El.className = '" cls "';\n"
                               "    " cref "El.textContent = item[" (q col) "] || '';\n"
                               "    elBody.appendChild(" cref "El);")))
-                       display) .join
-                     "\n")
+                       display) "\n")
                    "\n    el.appendChild(elBody);\n"
                    (if allow-delete
                      (str
@@ -1202,32 +1161,23 @@ async function wakeStoreStart() {
                    "    detailNodes." list-prop ".appendChild(el);\n"
                    "  }\n"
                    "}\n")))
-            related-info) .join
-          "\n")
+            related-info) "\n")
 
         ;; renderDetail function
-        clear-fields (js/call
-          (mapv (fn [f] String
+        clear-fields (.join (mapv (fn [f] String
                   (str "    detailNodes.field_" (id->ref f)
                        ".textContent = '';"))
-                overview-fields) .join
-          "\n")
-        clear-derived (js/call
-          (mapv (fn [da] String
-            (str "    detailNodes.field_" (id->ref (js/get da .name)) ".textContent = '';"))
-            derived-attrs) .join
-          "\n")
-        set-fields (js/call
-          (mapv (fn [f] String
+                overview-fields) "\n")
+        clear-derived (.join (mapv (fn [da] String
+            (str "    detailNodes.field_" (id->ref (.-name da)) ".textContent = '';"))
+            derived-attrs) "\n")
+        set-fields (.join (mapv (fn [f] String
                   (str "  detailNodes.field_" (id->ref f)
                        ".textContent = entity[" (q f) "] || '';"))
-                overview-fields) .join
-          "\n")
-        set-derived (js/call
-          (mapv (fn [da] String
-            (str "  detailNodes.field_" (id->ref (js/get da .name)) ".textContent = " (compile-derived-expr (js/get da .expr) nil) ";"))
-            derived-attrs) .join
-          "\n")
+                overview-fields) "\n")
+        set-derived (.join (mapv (fn [da] String
+            (str "  detailNodes.field_" (id->ref (.-name da)) ".textContent = " (compile-derived-expr (.-expr da) nil) ";"))
+            derived-attrs) "\n")
         title-field
         (if (> (count overview-fields) 0) (nth overview-fields 0) "name")
         subtitle-field (if (> (count overview-fields) 1) (nth overview-fields 1) nil)
@@ -1235,32 +1185,26 @@ async function wakeStoreStart() {
           "  detailNodes.tabOverview.className = activeTab === 'overview'\n"
           "    ? '" tab-active-cls "'\n"
           "    : '" tab-inactive-cls "';\n"
-          (js/call
-            (mapv (fn [ri] String
-              (let [key (js/get ri .key)
+          (.join (mapv (fn [ri] String
+              (let [key (.-key ri)
                     key-ref (id->ref key)]
                 (str "  detailNodes.tab_" key-ref ".className = activeTab === " (q key) "\n"
                      "    ? '" tab-active-cls "'\n"
                      "    : '" tab-inactive-cls "';")))
-              related-info) .join
-            "\n"))
+              related-info) "\n"))
         tab-visibility (str
           "  detailNodes.overviewContent.style.display = activeTab !== 'overview' ? 'none' : '';\n"
-          (js/call
-            (mapv (fn [ri] String
-              (let [key (js/get ri .key)]
+          (.join (mapv (fn [ri] String
+              (let [key (.-key ri)]
                 (str "  detailNodes." (id->ref key)
                      "Content.style.display = activeTab !== " (q key)
                      " ? 'none' : '';")))
-              related-info) .join
-            "\n"))
-        tab-render (js/call
-          (mapv (fn [ri] String
-            (let [key (js/get ri .key)]
+              related-info) "\n"))
+        tab-render (.join (mapv (fn [ri] String
+            (let [key (.-key ri)]
               (str "  if (activeTab === " (q key) ") "
                    (id->ref (str "render-related/" key)) "();")))
-            related-info) .join
-          "\n")]
+            related-info) "\n")]
 
     (str
       "let selectedContact = null;\n"
@@ -1464,32 +1408,26 @@ async function wakeStoreStart() {
   (let [list-ref (id->ref (str "ld-" en "-list"))
         search-ref (id->ref (str "ld-" en "-search"))
         ;; Column cells in addRow
-        col-cells (js/call
-          (mapv (fn [col] String
+        col-cells (.join (mapv (fn [col] String
             (let [col-ref (id->ref col)]
               (str "  const " col-ref "Cell = document.createElement('span');\n"
                    "  " col-ref "Cell.className = 'text-sm truncate flex-1';\n"
                    "  " col-ref "Cell.textContent = entity[" (q col) "] || '';\n"
                    "  inner.appendChild(" col-ref "Cell);")))
-            columns) .join
-          "\n")
+            columns) "\n")
         ;; Derived cells in addRow
-        derived-cells (js/call
-          (mapv (fn [da] String
-            (let [dname (id->ref (js/get da .name))
-                  expr (js/get da .expr)]
+        derived-cells (.join (mapv (fn [da] String
+            (let [dname (id->ref (.-name da))
+                  expr (.-expr da)]
               (str "  const " dname "Cell = document.createElement('span');\n"
                    "  " dname "Cell.className = 'text-sm truncate flex-1 text-muted-foreground italic';\n"
                    "  " dname "Cell.textContent = " (compile-derived-expr expr nil) ";\n"
                    "  inner.appendChild(" dname "Cell);")))
-            derived-attrs) .join
-          "\n")
+            derived-attrs) "\n")
         ;; Search text expression
         search-text-expr
         (str "["
-             (js/call
-               (mapv (fn [c] String (str "entity[" (q c) "] || ''")) search-cols) .join
-               ", ")
+             (.join (mapv (fn [c] String (str "entity[" (q c) "] || ''")) search-cols) ", ")
              "].join(' ').toLowerCase()")
         ;; Cells object entries
         column-cell-entries
@@ -1500,11 +1438,11 @@ async function wakeStoreStart() {
         derived-cell-entries
         (mapv
           (fn [da] String
-            (str "[" (q (js/get da .name)) "]: "
-                 (id->ref (js/get da .name)) "Cell"))
+            (str "[" (q (.-name da)) "]: "
+                 (id->ref (.-name da)) "Cell"))
           derived-attrs)
         cells-entries
-        (js/call (into column-cell-entries derived-cell-entries) .join ", ")]
+        (.join (into column-cell-entries derived-cell-entries) ", ")]
 
     (str
       "const rowEls = new Map();\n\n"
@@ -1574,16 +1512,15 @@ async function wakeStoreStart() {
    ge Any
    store? Bool]
   String
-  (let [form-name (js/get form .name)
-        fields (js/get form .fields)
-        field-info (js/get form .field_info)
-        status-default (js/get form .status_default)
+  (let [form-name (.-name form)
+        fields (.-fields form)
+        field-info (.-field_info form)
+        status-default (.-status_default form)
         ;; Val declarations — type-aware
-        val-decls (js/call
-          (mapv (fn [f] String
+        val-decls (.join (mapv (fn [f] String
             (let [ref (id->ref (str "form-" form-name "-" f))
                   fi (field-info-for field-info f)
-                  kind (if (nil? fi) "text" (js/get fi .kind))]
+                  kind (if (nil? fi) "text" (.-kind fi))]
               (if store?
                 (str "  const " ref "_val = wakeStoreReadInput(" ref
                      ", wakeStoreFieldMeta[" (q en) "][" (q f) "]);")
@@ -1592,25 +1529,21 @@ async function wakeStoreStart() {
                     (str "  const " ref "_val = " ref ".checked;")
                   :else
                     (str "  const " ref "_val = " ref ".value.trim();")))))
-            fields) .join
-          "\n")
+            fields) "\n")
         ;; First field validation
         first-ref (id->ref (str "form-" form-name "-" (nth fields 0)))
         ;; Add fields
-        add-fields (js/call
-          (mapv (fn [f] String
+        add-fields (.join (mapv (fn [f] String
             (let [ref (id->ref (str "form-" form-name "-" f))]
               (if (and (= f "status") (not (nil? status-default)))
                 (str "[" (q f) "]: " ref "_val || " (q status-default))
                 (str "[" (q f) "]: " ref "_val"))))
-            fields) .join
-          ", ")
+            fields) ", ")
         ;; Clear fields — type-aware
-        clear-lines (js/call
-          (mapv (fn [f] String
+        clear-lines (.join (mapv (fn [f] String
             (let [ref (id->ref (str "form-" form-name "-" f))
                   fi (field-info-for field-info f)
-                  kind (if (nil? fi) "text" (js/get fi .kind))]
+                  kind (if (nil? fi) "text" (.-kind fi))]
               (cond
                 (= kind "checkbox")
                   (str "  " ref ".checked = false;")
@@ -1618,10 +1551,9 @@ async function wakeStoreStart() {
                   (str "  " ref ".selectedIndex = 0;")
                 :else
                   (str "  " ref ".value = '';"))))
-            fields) .join
-          "\n")
+            fields) "\n")
         status-in-form (some (fn [f] Bool (= f "status")) fields)
-        store-name (store-ref (js/get ge .store_name))
+        store-name (store-ref (.-store_name ge))
         status-field (if (and (not (nil? status-default))
                               (not status-in-form))
                        (str ", [" (q "status") "]: " (q status-default))
@@ -1661,12 +1593,8 @@ async function wakeStoreStart() {
   [persist-key Any
    all-stores Any]
   String
-  (let [snapshot-entries (js/call
-          (mapv (fn [s] String (str "      " s ": " s ".snapshot()")) all-stores) .join
-          ",\n")
-        restore-lines (js/call
-          (mapv (fn [s] String (str "      if (data." s ") " s ".load(data." s ");")) all-stores) .join
-          "\n")]
+  (let [snapshot-entries (.join (mapv (fn [s] String (str "      " s ": " s ".snapshot()")) all-stores) ",\n")
+        restore-lines (.join (mapv (fn [s] String (str "      if (data." s ") " s ".load(data." s ");")) all-stores) "\n")]
     (str "function saveDb() {\n"
          "  try {\n"
          "    localStorage.setItem(" (q persist-key) ", JSON.stringify({\n"
@@ -1694,10 +1622,8 @@ async function wakeStoreStart() {
 ;; (Was parsed-and-threaded but never emitted — a silent no-op; this closes that.) ---
 (defn gen-theme-style [theme Any] String
   (if (nil? theme) ""
-    (let [colors Any (js/get theme .colors)
-          decls String (js/call
-                  (mapv (fn [k] String (str "    --" k ": " (get colors k) ";\n")) (keys colors)) .join
-                  "")
+    (let [colors Any (.-colors theme)
+          decls String (.join (mapv (fn [k] String (str "    --" k ": " (get colors k) ";\n")) (keys colors)) "")
           css String (str ":root {\n" decls "}")]
       (str "  { const _themeStyle = document.createElement('style');\n"
            "    _themeStyle.textContent = " (q css) ";\n"
@@ -1717,42 +1643,35 @@ async function wakeStoreStart() {
   String
   (let [search-text-expr
         (str "["
-             (js/call
-               (mapv (fn [c] String (str "entity[" (q c) "] || ''")) search-cols) .join
-               ", ")
+             (.join (mapv (fn [c] String (str "entity[" (q c) "] || ''")) search-cols) ", ")
              "].join(' ').toLowerCase()")
-        attr-fns (js/call
-          (mapv (fn [col] String
-            (let [is-search (js/call search-cols .includes col)
+        attr-fns (.join (mapv (fn [col] String
+            (let [is-search (.includes search-cols col)
                   is-title (= col "name")
                   is-subtitle (and (not (nil? subtitle-field)) (= col subtitle-field))
-                  is-overview (js/call overview-fields .includes col)
+                  is-overview (.includes overview-fields col)
                   needs-detail (or is-overview is-title is-subtitle)
                   ;; Derived fields that depend on this column
                   affected-derived (filterv (fn [da] Bool
-                    (js/call (js/get da .deps) .includes col))
+                    (.includes (.-deps da) col))
                     derived-attrs)
                   needs-entity (or is-search (> (count affected-derived) 0))
                   ;; Row-level derived recomputation
-                  row-derived (js/call
-                    (mapv (fn [da] String
-                      (let [dname (js/get da .name)
-                            expr (js/get da .expr)
+                  row-derived (.join (mapv (fn [da] String
+                      (let [dname (.-name da)
+                            expr (.-expr da)
                             subst (assoc {} col "value")]
                         (str "      rowEntry.cells[" (q dname)
                              "].textContent = "
                              (compile-derived-expr expr subst) ";")))
-                      affected-derived) .join
-                    "\n")
+                      affected-derived) "\n")
                   ;; Detail-level derived recomputation
-                  detail-derived (js/call
-                    (mapv (fn [da] String
-                      (let [dname (id->ref (js/get da .name))
-                            expr (js/get da .expr)
+                  detail-derived (.join (mapv (fn [da] String
+                      (let [dname (id->ref (.-name da))
+                            expr (.-expr da)
                             subst (assoc {} col "value")]
                         (str "      if (detailNodes.field_" dname ") detailNodes.field_" dname ".textContent = " (compile-derived-expr expr subst) ";")))
-                      affected-derived) .join
-                    "\n")]
+                      affected-derived) "\n")]
 
               (str "  [" (q col) "](eid, value) {\n"
                    "    const rowEntry = rowEls.get(eid);\n"
@@ -1771,14 +1690,12 @@ async function wakeStoreStart() {
                           (if is-title "      detailNodes.title.textContent = value;\n" "")
                           (if is-subtitle "      detailNodes.subtitle.textContent = value;\n" "")
                           (if (and is-title (> (count related-tab-keys) 0))
-                            (js/call
-                              (mapv (fn [key] String
+                            (.join (mapv (fn [key] String
                                 (str "      detailNodes." (id->ref key)
                                      "Header.textContent = "
                                      (q (str (titlecase key) " for "))
                                      " + value;"))
-                                related-tab-keys) .join
-                              "\n")
+                                related-tab-keys) "\n")
                             "")
                           (if (> (count affected-derived) 0) (str "\n" detail-derived "\n") "")
                           "    }\n")
@@ -1787,16 +1704,14 @@ async function wakeStoreStart() {
                    (cond (not (nil? persist-key)) "    saveDb();\n"
                          :else "")
                    "  }")))
-            columns) .join
-          ",\n")]
+            columns) ",\n")]
     (str "const updateAttr = Object.assign(Object.create(null), {\n"
          attr-fns "\n});\n")))
 
 ;; --- Undo/Redo ---
 
 (defn gen-undo-redo [] String
-  (js/call
-    ["const undoStack = [];"
+  (.join ["const undoStack = [];"
      "const redoStack = [];"
      "let undoing = false;"
      "let txBuffer = null;"
@@ -1853,8 +1768,7 @@ async function wakeStoreStart() {
      "  }"
      "  undoing = false;"
      "}"
-     ""] .join
-    "\n"))
+     ""] "\n"))
 
 ;; --- Layout (DOM construction for init) ---
 
@@ -1862,22 +1776,22 @@ async function wakeStoreStart() {
   [fi-list Any
    fname String]
   Any
-  (first (filterv (fn [fi] Bool (= (js/get fi .name) fname)) fi-list)))
+  (first (filterv (fn [fi] Bool (= (.-name fi) fname)) fi-list)))
 
 (defn gen-field-types-map [fi-list Any] String
   (if (or (nil? fi-list) (= (count fi-list) 0)) "Object.create(null)"
-    (let [entries (filterv (fn [fi] Bool (not (= (js/get fi .kind) "text"))) fi-list)
+    (let [entries (filterv (fn [fi] Bool (not (= (.-kind fi) "text"))) fi-list)
           parts (mapv (fn [fi] String
-            (let [name (js/get fi .name)
-                  kind (js/get fi .kind)
-                  opts (js/get fi .options)
+            (let [name (.-name fi)
+                  kind (.-kind fi)
+                  opts (.-options fi)
                   opts-str (if (= (count opts) 0) "[]"
-                    (str "[" (js/call (mapv (fn [o] String (q o)) opts) .join ", ") "]"))]
+                    (str "[" (.join (mapv (fn [o] String (q o)) opts) ", ") "]"))]
               (str "[" (q name) "]: { kind: " (q kind)
                    ", options: " opts-str " }")))
             entries)]
       (str "Object.assign(Object.create(null), { "
-           (js/call parts .join ", ") " })"))))
+           (.join parts ", ") " })"))))
 
 (defn gen-layout
   [en String
@@ -1887,11 +1801,11 @@ async function wakeStoreStart() {
    store? Bool]
   Any
   (let [has-form Bool (some? form)
-        form-name String (if has-form (js/get form .name) "")
-        fields Any (if has-form (js/get form .fields) [])
-        required Any (if has-form (js/get form .required) [])
-        submit-label String (if has-form (js/get form .label) "")
-        field-info Any (if has-form (js/get form .field_info) [])]
+        form-name String (if has-form (.-name form) "")
+        fields Any (if has-form (.-fields form) [])
+        required Any (if has-form (.-required form) [])
+        submit-label String (if has-form (.-label form) "")
+        field-info Any (if has-form (.-field_info form) [])]
     ;; Build form fields, threading counter
     (loop [i Int 0 c Int 2 code String "" refs (Vec LayoutRef) []]
       (if (>= i (count fields))
@@ -1978,28 +1892,24 @@ async function wakeStoreStart() {
                 rest-code)
 
               ;; Refs in reverse order (matching Racket cons behavior)
-              all-refs (Vec LayoutRef) (js/call
-                (js/call
-                  [(->LayoutRef detail-id (str "el_" dtl))
+              all-refs (Vec LayoutRef) (.reverse (.concat [(->LayoutRef detail-id (str "el_" dtl))
                    (->LayoutRef list-id (str "el_" lst))
                    (->LayoutRef stats-id (str "el_" stat))
-                   (->LayoutRef search-id (str "el_" srch))] .concat
-                  (js/call refs .reverse)
-                  (if has-form [(->LayoutRef form-id "el_2")] [])) .reverse)]
+                   (->LayoutRef search-id (str "el_" srch))] (.reverse refs) (if has-form [(->LayoutRef form-id "el_2")] [])))]
           (->LayoutResult full-code all-refs))
 
         ;; Build one form field
         (let [field String (nth fields i)
-              is-req Bool (js/call required .includes field)
+              is-req Bool (.includes required field)
               fid String (str "form-" form-name "-" field)
               fi Any (field-info-for field-info field)
               graph-field Any (graph-field-named ge field)
-              base-kind String (if (nil? fi) "text" (js/get fi .kind))
+              base-kind String (if (nil? fi) "text" (.-kind fi))
               kind String (if (and store? (not (nil? graph-field))
-                            (= (js/get graph-field .cardinality) "multi"))
+                            (= (.-cardinality graph-field) "multi"))
                      "text"
                      base-kind)
-              options (Vec String) (if (nil? fi) [] (js/get fi .options))
+              options (Vec String) (if (nil? fi) [] (.-options fi))
               d Int (+ c 1)
               l Int (+ c 2)
               inp Int (+ c 3)
@@ -2013,9 +1923,9 @@ async function wakeStoreStart() {
                     "  el_" inp ".className = " (q input-css) ";\n"
                     "  el_" inp ".name = " (q fid) ";\n"
                     "  { const _ph = document.createElement('option'); _ph.value = ''; _ph.textContent = " (q (str "Select " (titlecase field))) "; el_" inp ".appendChild(_ph); }\n"
-                    (js/call (mapv (fn [opt String] String
+                    (.join (mapv (fn [opt String] String
                       (str "  { const _o = document.createElement('option'); _o.value = " (q opt) "; _o.textContent = " (q (titlecase opt)) "; el_" inp ".appendChild(_o); }\n"))
-                      options) .join ""))
+                      options) ""))
                 (= kind "checkbox")
                   (str
                     "  const el_" inp " = document.createElement(\"input\");\n"
@@ -2052,10 +1962,10 @@ async function wakeStoreStart() {
 ;; --- Ref declarations ---
 
 (defn gen-ref-decls [refs Any] String
-  (js/call (mapv (fn [r] String (str "let " (id->ref (js/get r .id)) ";")) refs) .join "\n"))
+  (.join (mapv (fn [r] String (str "let " (id->ref (.-id r)) ";")) refs) "\n"))
 
 (defn gen-ref-assigns [refs Any] String
-  (js/call (mapv (fn [r] String (str "  " (id->ref (js/get r .id)) " = " (js/get r .vname) ";")) refs) .join "\n"))
+  (.join (mapv (fn [r] String (str "  " (id->ref (.-id r)) " = " (.-vname r) ";")) refs) "\n"))
 
 ;; --- Init function ---
 
@@ -2072,11 +1982,10 @@ async function wakeStoreStart() {
   (let [has-form Bool (some? form-name)
         form-ref String (if has-form (id->ref (str "form-" form-name)) "")
         search-ref String (id->ref (str "ld-" en "-search"))
-        ref-assigns String (gen-ref-assigns (js/get layout-result .refs))
-        related-watchers String (js/call
-          (mapv (fn [ri Any] String
-            (let [rel-store String (store-ref (js/get ri .store))
-                  key String (js/get ri .key)
+        ref-assigns String (gen-ref-assigns (.-refs layout-result))
+        related-watchers String (.join (mapv (fn [ri Any] String
+            (let [rel-store String (store-ref (.-store ri))
+                  key String (.-key ri)
                   render-fn String (id->ref (str "render-related/" key))]
               (str "  " rel-store ".watch((evt) => {\n"
                    "    if (evt.type === 'add' || evt.type === 'load' || evt.type === 'remove') " render-fn "();\n"
@@ -2097,13 +2006,12 @@ async function wakeStoreStart() {
                          :else "")
                    "    }\n"
                    "  });\n")))
-            related-info) .join
-          "\n")]
+            related-info) "\n")]
     (str
       "function init() {\n"
       "  const root = document.getElementById(window.WAKE_MOUNT_ID || 'app');\n"
       "\n"
-      (js/get layout-result .code) "\n"
+      (.-code layout-result) "\n"
       "\n"
       ref-assigns "\n"
       "\n"
@@ -2180,8 +2088,8 @@ async function wakeStoreStart() {
    allow-delete Bool]
   String
   (if (nil? action) ""
-    (let [verb String (js/get action .verb)
-          args Any (js/get action .args)
+    (let [verb String (.-verb action)
+          args Any (.-args action)
           argval (Fn [Any] String) (fn [a Any] String
                    (cond
                      (= (get a "kind") "literal") (q (get a "value"))
@@ -2211,21 +2119,20 @@ async function wakeStoreStart() {
    store-name String
    allow-delete Bool]
   Any
-  (let [prop String (js/get node .prop)
+  (let [prop String (.-prop node)
         wc Int (get counter "n")
         when-var String (str "when_" wc)
         anchor-var String (str "whenAnchor_" wc)]
-    (js/set! counter .n (+ wc 1))
+    (set! (.-n counter) (+ wc 1))
     (let [child-results (Vec RenderResult)
           (mapv
             (fn [el Any] RenderResult
               (gen-element! el counter props store-name allow-delete))
-            (js/get node .children))
-          child-code String (js/call (mapv (fn [cr RenderResult] String (js/get cr .code)) child-results) .join "")
-          child-appends String (js/call
-            (mapv (fn [cr RenderResult] String (str "      " parent-var ".insertBefore(" (js/get cr .vname) ", " anchor-var ");\n"))
-              child-results) .join "")
-          child-vars (Vec String) (mapv (fn [cr RenderResult] String (js/get cr .vname)) child-results)]
+            (.-children node))
+          child-code String (.join (mapv (fn [cr RenderResult] String (.-code cr)) child-results) "")
+          child-appends String (.join (mapv (fn [cr RenderResult] String (str "      " parent-var ".insertBefore(" (.-vname cr) ", " anchor-var ");\n"))
+              child-results) "")
+          child-vars (Vec String) (mapv (fn [cr RenderResult] String (.-vname cr)) child-results)]
       (->RenderResult
         (str "  const " anchor-var " = document.createComment('when:" prop "');\n"
              "  " parent-var ".appendChild(" anchor-var ");\n"
@@ -2234,7 +2141,7 @@ async function wakeStoreStart() {
              "    if (condition && " when-var ".length === 0) {\n"
              child-code
              child-appends
-             "      " when-var " = [" (js/call child-vars .join ", ") "];\n"
+             "      " when-var " = [" (.join child-vars ", ") "];\n"
              "    } else if (!condition && " when-var ".length > 0) {\n"
              "      for (const el of " when-var ") el.remove();\n"
              "      " when-var " = [];\n"
@@ -2251,14 +2158,14 @@ async function wakeStoreStart() {
    store-name String
    allow-delete Bool]
   Any
-  (if (not (nil? (js/get el .prop)))
+  (if (not (nil? (.-prop el)))
     nil
     (let [c Int (get counter "n")
           var-name String (str "el_" c)
-          tag String (js/get el .tag)
-          attrs Any (js/get el .attrs)
-          children Any (js/get el .children)]
-      (js/set! counter .n (+ c 1))
+          tag String (.-tag el)
+          attrs Any (.-attrs el)
+          children Any (.-children el)]
+      (set! (.-n counter) (+ c 1))
       (let [cls-attr Any (get attrs "class")
             text-attr Any (get attrs "text")
             placeholder-attr Any (get attrs "placeholder")
@@ -2274,8 +2181,7 @@ async function wakeStoreStart() {
                               (str "  " var-name ".placeholder = " (q (get placeholder-attr "value")) ";\n"))
             type-line String (if (nil? type-attr) ""
                        (str "  " var-name ".type = " (q (get type-attr "value")) ";\n"))
-            action-lines String (js/call
-              (mapv (fn [k String] String
+            action-lines String (.join (mapv (fn [k String] String
                       (let [a Any (get attrs k)
                             action-code String (compile-action
                                           (get a "action")
@@ -2295,37 +2201,35 @@ async function wakeStoreStart() {
                                action-code " } catch (error) { if ("
                                store-expr ") " store-expr
                                ".commandFailed(error); } });\n"))))
-                (filterv (fn [k String] Bool (= (get (get attrs k) "type") "action")) (keys attrs))) .join
-              "")
+                (filterv (fn [k String] Bool (= (get (get attrs k) "type") "action")) (keys attrs))) "")
             bindings (Vec Binding) (if (and (not (nil? text-attr)) (= (get text-attr "type") "bind"))
                       [(->Binding (get text-attr "prop") var-name "textContent")]
                       [])
-            when-children (Vec Any) (filterv (fn [child Any] Bool (not (nil? (js/get child .prop)))) children)
-            element-children (Vec Any) (filterv (fn [child Any] Bool (nil? (js/get child .prop))) children)
+            when-children (Vec Any) (filterv (fn [child Any] Bool (not (nil? (.-prop child)))) children)
+            element-children (Vec Any) (filterv (fn [child Any] Bool (nil? (.-prop child))) children)
             child-results (Vec RenderResult)
             (mapv
               (fn [child Any] RenderResult
                 (gen-element! child counter props store-name allow-delete))
               element-children)
-            child-code String (js/call (mapv (fn [cr RenderResult] String (js/get cr .code)) child-results) .join "")
-            child-appends String (js/call
-              (mapv (fn [cr RenderResult] String (str "  " var-name ".appendChild(" (js/get cr .vname) ");\n"))
-                child-results) .join "")
+            child-code String (.join (mapv (fn [cr RenderResult] String (.-code cr)) child-results) "")
+            child-appends String (.join (mapv (fn [cr RenderResult] String (str "  " var-name ".appendChild(" (.-vname cr) ");\n"))
+                child-results) "")
             when-results (Vec RenderResult)
             (mapv
               (fn [wc Any] RenderResult
                 (gen-when-block!
                   wc counter var-name props store-name allow-delete))
               when-children)
-            when-code String (js/call (mapv (fn [wr RenderResult] String (js/get wr .code)) when-results) .join "")
+            when-code String (.join (mapv (fn [wr RenderResult] String (.-code wr)) when-results) "")
             child-bindings (Vec Binding) (reduce (fn
                                                    [acc (Vec Binding)
                                                     cr RenderResult] (Vec Binding)
-                                                   (into acc (js/get cr .bindings))) bindings child-results)
+                                                   (into acc (.-bindings cr))) bindings child-results)
             all-bindings (Vec Binding) (reduce (fn
                                                  [acc (Vec Binding)
                                                   wr RenderResult] (Vec Binding)
-                                                 (into acc (js/get wr .bindings))) child-bindings when-results)]
+                                                 (into acc (.-bindings wr))) child-bindings when-results)]
         (->RenderResult
           (str "  const " var-name " = document.createElement(" (q tag) ");\n"
                cls-line text-line placeholder-line type-line action-lines
@@ -2338,9 +2242,9 @@ async function wakeStoreStart() {
    store-name String
    allow-delete Bool]
   String
-  (let [name String (js/get comp .name)
-        props Any (js/get comp .props)
-        body Any (js/get comp .body)
+  (let [name String (.-name comp)
+        props Any (.-props comp)
+        body Any (.-body comp)
         fn-name String (str (id->ref name) "_create")
         counter Any {"n" 0}
         root-results (Vec RenderResult)
@@ -2348,36 +2252,32 @@ async function wakeStoreStart() {
           (fn [el Any] RenderResult
             (gen-element! el counter props store-name allow-delete))
           body)
-        root-code String (js/call (mapv (fn [r RenderResult] String (js/get r .code)) root-results) .join "")
+        root-code String (.join (mapv (fn [r RenderResult] String (.-code r)) root-results) "")
         all-bindings (Vec Binding) (reduce (fn
                                              [acc (Vec Binding)
                                               r RenderResult] (Vec Binding)
-                                             (into acc (js/get r .bindings))) [] root-results)
+                                             (into acc (.-bindings r))) [] root-results)
         root-var String (if (= (count root-results) 1)
-                   (js/get (nth root-results 0) .vname)
-                   (let [wrapper-var String (str "el_" (js/get counter .n))]
-                     (let [next-counter Int (js/get counter .n)]
-                       (js/set! counter .n (+ next-counter 1)))
+                   (.-vname (nth root-results 0))
+                   (let [wrapper-var String (str "el_" (.-n counter))]
+                     (let [next-counter Int (.-n counter)]
+                       (set! (.-n counter) (+ next-counter 1)))
                      wrapper-var))
         needs-wrapper Bool (> (count root-results) 1)
         wrapper-code String (if needs-wrapper
                        (str "  const " root-var " = document.createElement('div');\n"
-                            (js/call (mapv (fn [r RenderResult] String (str "  " root-var ".appendChild(" (js/get r .vname) ");\n")) root-results) .join ""))
+                            (.join (mapv (fn [r RenderResult] String (str "  " root-var ".appendChild(" (.-vname r) ");\n")) root-results) ""))
                        "")
-        update-fns String (js/call
-          (mapv (fn [b Binding] String
-            (if (= (js/get b .dom_prop) "_when")
-              (str "    [" (q (js/get b .prop)) "](v) { " (js/get b .vname) "(v); }")
-              (str "    [" (q (js/get b .prop)) "](v) { " (js/get b .vname) "."
-                   (js/get b .dom_prop) " = v; }")))
-            all-bindings) .join
-          ",\n")
-        text-bindings (Vec Binding) (filterv (fn [b Binding] Bool (not (= (js/get b .dom_prop) "_when"))) all-bindings)
-        nodes-entries String (js/call
-          (mapv
-            (fn [b Binding] String (str "    [" (q (js/get b .prop)) "]: " (js/get b .vname)))
-            text-bindings) .join
-          ",\n")]
+        update-fns String (.join (mapv (fn [b Binding] String
+            (if (= (.-dom_prop b) "_when")
+              (str "    [" (q (.-prop b)) "](v) { " (.-vname b) "(v); }")
+              (str "    [" (q (.-prop b)) "](v) { " (.-vname b) "."
+                   (.-dom_prop b) " = v; }")))
+            all-bindings) ",\n")
+        text-bindings (Vec Binding) (filterv (fn [b Binding] Bool (not (= (.-dom_prop b) "_when"))) all-bindings)
+        nodes-entries String (.join (mapv
+            (fn [b Binding] String (str "    [" (q (.-prop b)) "]: " (.-vname b)))
+            text-bindings) ",\n")]
     (str "function " fn-name "(props, store) {\n"
          root-code
          wrapper-code
@@ -2392,37 +2292,36 @@ async function wakeStoreStart() {
          "}\n")))
 
 (defn gen-view-program! [g Any] String
-  (let [components (or (js/get g .components) [])
-        view (first (or (js/get g .views) []))
-        en (js/get view .entity_name)
-        ge (first (filterv (fn [e] Bool (= (js/get e .name) en)) (js/get g .entities)))
-        store-name (store-ref (js/get ge .store_name))
-        comp-name (js/get view .component)
-        comp (first (filterv (fn [c] Bool (= (js/get c .name) comp-name)) components))
-        add-fields (js/get view .add_fields)
+  (let [components (or (.-components g) [])
+        view (first (or (.-views g) []))
+        en (.-entity_name view)
+        ge (first (filterv (fn [e] Bool (= (.-name e) en)) (.-entities g)))
+        store-name (store-ref (.-store_name ge))
+        comp-name (.-component view)
+        comp (first (filterv (fn [c] Bool (= (.-name c) comp-name)) components))
+        add-fields (.-add_fields view)
         has-form (> (count add-fields) 0)
-        title (js/get view .title)
+        title (.-title view)
         is-store (store-graph? g)
         view-publications
         (if is-store
           (filterv
             (fn [publication] Bool
-              (= (js/get publication .revision_entity) en))
-            (js/get g .publications))
+              (= (.-revision_entity publication) en))
+            (.-publications g))
           [])
         has-publications (> (count view-publications) 0)
-        persist (js/get g .persist)
-        raw-persist-key (if (nil? persist) nil (js/get persist .key))
+        persist (.-persist g)
+        raw-persist-key (if (nil? persist) nil (.-key persist))
         persist-key (if is-store nil raw-persist-key)
-        src-name (js/get g .ns)
+        src-name (.-ns g)
         fn-name (str (id->ref comp-name) "_create")
-        has-select (not (nil? (js/get view .select_component)))
+        has-select (not (nil? (.-select_component view)))
         select-comp (if has-select
-                      (first (filterv (fn [c] Bool (= (js/get c .name) (js/get view .select_component))) components))
+                      (first (filterv (fn [c] Bool (= (.-name c) (.-select_component view))) components))
                       nil)
-        select-fn-name (if has-select (str (id->ref (js/get select-comp .name)) "_create") nil)
-        form-fields-code (js/call
-          (mapv (fn [f] String
+        select-fn-name (if has-select (str (id->ref (.-name select-comp)) "_create") nil)
+        form-fields-code (.join (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))
                   field (graph-field-named ge f)
                   checkbox? (and is-store (field-checkbox? field))]
@@ -2436,9 +2335,8 @@ async function wakeStoreStart() {
                    (if checkbox? ""
                      (str "  " fid ".placeholder = " (q (titlecase f)) ";\n"))
                    "  formEl.appendChild(" fid ");\n")))
-            add-fields) .join "")
-        add-obj (js/call
-          (mapv (fn [f] String
+            add-fields) "")
+        add-obj (.join (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))
                   field (graph-field-named ge f)]
               (str "[" (q f) "]: "
@@ -2446,17 +2344,14 @@ async function wakeStoreStart() {
                      (str "wakeStoreReadInput(" fid ", wakeStoreFieldMeta["
                           (q en) "][" (q f) "])")
                      (str fid ".value.trim()")))))
-            add-fields) .join
-          ", ")
-        clear-lines (js/call
-          (mapv (fn [f] String
+            add-fields) ", ")
+        clear-lines (.join (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))
                   field (graph-field-named ge f)]
               (if (and is-store (field-checkbox? field))
                 (str "    " fid ".checked = false;")
                 (str "    " fid ".value = '';"))))
-            add-fields) .join
-          "\n")
+            add-fields) "\n")
         first-field (if has-form (nth add-fields 0) "")
         first-fid (if has-form (str "form_" (id->ref first-field)) "")
         first-checkbox?
@@ -2575,11 +2470,9 @@ async function wakeStoreStart() {
 
       "// ── Store ──────────────────────────────────────────\n"
       (if is-store
-        (js/call
-          (mapv
+        (.join (mapv
             (fn [entity] String (gen-store-for entity [] true))
-            (publication-entities g [ge])) .join
-          "\n\n")
+            (publication-entities g [ge])) "\n\n")
         (gen-store-for ge [] false))
       "\n\n"
 
@@ -2587,9 +2480,9 @@ async function wakeStoreStart() {
         (str "// ── Store gateway connector ────────────────────────────\n"
              (gen-store-connector
                (publication-entities g [ge])
-               (js/get g .entities)
-               (js/get g .publications)
-               (js/get g .semantic_fingerprint)) "\n")
+               (.-entities g)
+               (.-publications g)
+               (.-semantic_fingerprint g)) "\n")
         "")
 
       "// ── Component ────────────────────────────────────────\n"
@@ -2613,7 +2506,7 @@ async function wakeStoreStart() {
 
       "// ── Init ─────────────────────────────────────────────\n"
       init-open "\n"
-      (gen-theme-style (js/get g .theme))
+      (gen-theme-style (.-theme g))
       (if has-form
         (str
           form-fields-code
@@ -2724,35 +2617,34 @@ async function wakeStoreStart() {
    publications Any
    store? Bool]
   String
-  (let [comp-name (js/get view .component)
+  (let [comp-name (.-component view)
         fn-name (str (id->ref comp-name) "_create")
-        add-fields (or (js/get view .add_fields) [])
-        title (js/get view .title)
-        view-name (js/get view .name)
-        has-select (not (nil? (js/get view .select_component)))
-        select-fn-name (if has-select (str (id->ref (js/get view .select_component)) "_create") nil)
+        add-fields (or (.-add_fields view) [])
+        title (.-title view)
+        view-name (.-name view)
+        has-select (not (nil? (.-select_component view)))
+        select-fn-name (if has-select (str (id->ref (.-select_component view)) "_create") nil)
         has-form (> (count add-fields) 0)
         view-publications
         (if store?
           (filterv
             (fn [publication] Bool
-              (= (js/get publication .revision_entity) (js/get ge .name)))
+              (= (.-revision_entity publication) (.-name ge)))
             publications)
           [])
         has-publications (> (count view-publications) 0)
-        tabs (or (js/get view .tabs) [])
+        tabs (or (.-tabs view) [])
         has-tabs false
 
-        view-filters (or (js/get view .filters) [])
-        view-date-filters (or (js/get view .date_filters) [])
+        view-filters (or (.-filters view) [])
+        view-date-filters (or (.-date_filters view) [])
         filter-fields-meta []
         has-filters (> (count filter-fields-meta) 0)
         date-filter-fields-meta []
         has-date-filters (> (count date-filter-fields-meta) 0)
 
         nav-map-js ""
-        form-fields (js/call
-          (mapv (fn [f] String
+        form-fields (.join (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))
                   field (graph-field-named ge f)
                   checkbox? (and store? (field-checkbox? field))]
@@ -2766,41 +2658,37 @@ async function wakeStoreStart() {
                    (if checkbox? ""
                      (str "    " fid ".placeholder = " (q (titlecase f)) ";\n"))
                    "    formEl.appendChild(" fid ");\n")))
-            add-fields) .join "")
-        add-obj (js/call
-          (mapv (fn [f] String
+            add-fields) "")
+        add-obj (.join (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))]
               (str "[" (q f) "]: "
                    (if store?
                      (str "wakeStoreReadInput(" fid ", wakeStoreFieldMeta["
-                          (q (js/get ge .name)) "][" (q f) "])")
+                          (q (.-name ge)) "][" (q f) "])")
                      (str fid ".value.trim()")))))
-            add-fields) .join
-          ", ")
-        clear-lines (js/call
-          (mapv (fn [f] String
+            add-fields) ", ")
+        clear-lines (.join (mapv (fn [f] String
             (let [fid (str "form_" (id->ref f))]
               (if (and store? (field-checkbox? (graph-field-named ge f)))
                 (str "      " fid ".checked = false;")
                 (str "      " fid ".value = '';"))))
-            add-fields) .join
-          "\n")
+            add-fields) "\n")
 
         ;; Column header from row component's children
-        comp (first (filterv (fn [c] Bool (= (js/get c .name) comp-name)) components))
-        root-el (first (js/get comp .body))
+        comp (first (filterv (fn [c] Bool (= (.-name c) comp-name)) components))
+        root-el (first (.-body comp))
         col-children (filterv
           (fn [ch] Bool
-            (let [attrs (js/get ch .attrs)]
+            (let [attrs (.-attrs ch)]
               (if (nil? attrs) false
                 (let [ta (get attrs "text")]
                   (and (not (nil? ta)) (= (get ta "type") "bind"))))))
-          (js/get root-el .children))
-        grid-tpl (js/call (mapv (fn [ch] String
-            (let [cls (or (get (get (js/get ch .attrs) "class") "value") "")
+          (.-children root-el))
+        grid-tpl (.join (mapv (fn [ch] String
+            (let [cls (or (get (get (.-attrs ch) "class") "value") "")
                   width-cls (first (filterv
-                    (fn [c] Bool (or (= (js/call c .indexOf "flex-") 0) (= (js/call c .indexOf "w-") 0)))
-                    (js/call cls .split " ")))]
+                    (fn [c] Bool (or (= (.indexOf c "flex-") 0) (= (.indexOf c "w-") 0)))
+                    (.split cls " ")))]
               (cond
                 (nil? width-cls) "2fr"
                 (= width-cls "flex-1") "3fr"
@@ -2811,8 +2699,8 @@ async function wakeStoreStart() {
                 (= width-cls "w-40") "3fr"
                 (= width-cls "w-48") "4fr"
                 :else "2fr")))
-            col-children) .join " ")
-        col-props (mapv (fn [ch] String (get (get (js/get ch .attrs) "text") "prop")) col-children)
+            col-children) " ")
+        col-props (mapv (fn [ch] String (get (get (.-attrs ch) "text") "prop")) col-children)
         grid-tpl-sel (if has-publications (str grid-tpl " auto") grid-tpl)
 
         tab-stores []
@@ -2838,13 +2726,13 @@ async function wakeStoreStart() {
         row-cb-add
         (if has-publications
           (str "        wakeStoreAttachPublicationActions("
-               (q (js/get ge .name)) ", evt.entity, inst, " store-name ");\n")
+               (q (.-name ge)) ", evt.entity, inst, " store-name ");\n")
           "")
 
         row-cb-load
         (if has-publications
           (str "          wakeStoreAttachPublicationActions("
-               (q (js/get ge .name)) ", entity, inst, " store-name ");\n")
+               (q (.-name ge)) ", entity, inst, " store-name ");\n")
           "")
 
         col-header-js (str
@@ -2853,8 +2741,8 @@ async function wakeStoreStart() {
           "    colHeader.style.display = 'grid';\n"
           "    colHeader.style.gridTemplateColumns = '" grid-tpl-sel "';\n"
           ""
-          (js/call (mapv (fn [ch] String
-            (let [prop (get (get (js/get ch .attrs) "text") "prop")
+          (.join (mapv (fn [ch] String
+            (let [prop (get (get (.-attrs ch) "text") "prop")
                   ref (id->ref prop)]
               (str "    const hdr_" ref " = document.createElement('span');\n"
                    "    hdr_" ref ".className = 'text-xs font-medium uppercase text-muted-foreground truncate';\n"
@@ -2862,7 +2750,7 @@ async function wakeStoreStart() {
                    "    hdr_" ref ".dataset.label = " (q (titlecase prop)) ";\n"
                    ""
                    "    colHeader.appendChild(hdr_" ref ");\n")))
-            col-children) .join "")
+            col-children) "")
           (if has-publications
             (str "    const hdr_actions = document.createElement('span');\n"
                  "    hdr_actions.className = 'text-xs font-medium uppercase text-muted-foreground text-right';\n"
@@ -3043,7 +2931,7 @@ async function wakeStoreStart() {
             "")
           (if store?
             (str "        const fieldMeta = wakeStoreFieldMeta["
-                 (q (js/get ge .name)) "][attr];\n"
+                 (q (.-name ge)) "][attr];\n"
                  "        if (!fieldMeta || fieldMeta.identity || fieldMeta.write !== 'set') continue;\n")
             "")
           "        node.style.cursor = 'pointer';\n"
@@ -3251,9 +3139,9 @@ async function wakeStoreStart() {
       view-close)))
 
 (defn query-route? [route Any] Bool
-  (or (> (count (or (js/get route .parameters) [])) 0)
-      (> (count (or (js/get route .required_props) [])) 0)
-      (> (count (or (js/get route .queries) [])) 0)))
+  (or (> (count (or (.-parameters route) [])) 0)
+      (> (count (or (.-required_props route) [])) 0)
+      (> (count (or (.-queries route) [])) 0)))
 
 (defn route-browser-definition
   [route Any
@@ -3263,57 +3151,53 @@ async function wakeStoreStart() {
   String
   (let [view
         (first
-          (filterv (fn [candidate] Bool (= (js/get candidate .name) (js/get route .view_name))) views))
+          (filterv (fn [candidate] Bool (= (.-name candidate) (.-view_name route))) views))
         query-definitions
-        (js/call
-          (mapv
+        (.join (mapv
             (fn [query-reference] String
               (let [query
                     (first
                       (filterv
                         (fn [candidate] Bool
-                          (= (js/get candidate .name) (js/get query-reference .name)))
+                          (= (.-name candidate) (.-name query-reference)))
                         queries))
                     public-column-names
                     (mapv
-                      (fn [column] String (js/get column .name))
+                      (fn [column] String (.-name column))
                       (filterv
-                        (fn [column] Bool (not (js/get column .internal)))
-                        (js/get query .columns)))
+                        (fn [column] Bool (not (.-internal column)))
+                        (.-columns query)))
                     provider-result-names
                     (mapv
-                      (fn [provider] String (js/get provider .name))
-                      (or (js/get query .result_providers) []))
+                      (fn [provider] String (.-name provider))
+                      (or (.-result_providers query) []))
                     output-names
                     (into public-column-names provider-result-names)]
-                (str "{ name: " (q (js/get query-reference .name))
+                (str "{ name: " (q (.-name query-reference))
                      ", prefix: "
-                     (if (nil? (js/get query-reference .prefix))
+                     (if (nil? (.-prefix query-reference))
                        "null"
-                       (q (js/get query-reference .prefix)))
-                     ", kind: " (q (js/get query .result_kind))
+                       (q (.-prefix query-reference)))
+                     ", kind: " (q (.-result_kind query))
                      ", defaultLimit: "
-                     (if (nil? (js/get query .default_limit)) "null" (str (js/get query .default_limit)))
+                     (if (nil? (.-default_limit query)) "null" (str (.-default_limit query)))
                      ", maxLimit: "
-                     (if (nil? (js/get query .max_limit)) "null" (str (js/get query .max_limit)))
+                     (if (nil? (.-max_limit query)) "null" (str (.-max_limit query)))
                      ", columns: ["
-                     (js/call
-                       (mapv q output-names) .join
-                       ", ")
+                     (.join (mapv q output-names) ", ")
                      "]"
                      " }")))
-            (js/get route .queries)) .join
-          ", ")
+            (.-queries route)) ", ")
         strings
         (fn [items] String
-          (str "[" (js/call (mapv q (or items [])) .join ", ") "]"))]
-    (str "{ path: " (q (js/get route .path))
-         ", view: " (q (js/get route .view_name))
+          (str "[" (.join (mapv q (or items [])) ", ") "]"))]
+    (str "{ path: " (q (.-path route))
+         ", view: " (q (.-view_name route))
          ", dynamic: " (if dynamic "true" "false")
-         ", component: " (id->ref (js/get view .component)) "_create"
-         ", parameters: " (strings (js/get route .parameters))
-         ", inputParameters: " (strings (js/get route .input_parameters))
-         ", requiredProps: " (strings (js/get route .required_props))
+         ", component: " (id->ref (.-component view)) "_create"
+         ", parameters: " (strings (.-parameters route))
+         ", inputParameters: " (strings (.-input_parameters route))
+         ", requiredProps: " (strings (.-required_props route))
          ", queries: [" query-definitions "] }")))
 
 (defn gen-query-route-section [route Any] String
@@ -3323,55 +3207,55 @@ async function wakeStoreStart() {
     "    viewEl.className = 'view-card wake-query-route';\n"
     "    viewEl.setAttribute('aria-live', 'polite');\n"
     "    viewEl.tabIndex = -1;\n"
-    "    viewContainers[" (q (js/get route .view_name)) "] = viewEl;\n"
+    "    viewContainers[" (q (.-view_name route)) "] = viewEl;\n"
     "    main.appendChild(viewEl);\n"
     "  })();"))
 
 (defn gen-routed-program! [g Any] String
-  (let [components (or (js/get g .components) [])
-        views (or (js/get g .views) [])
-        router (js/get g .router)
-        routes (js/get router .routes)
+  (let [components (or (.-components g) [])
+        views (or (.-views g) [])
+        router (.-router g)
+        routes (.-routes router)
         query-routes (filterv query-route? routes)
-        query-route-views (mapv (fn [route] String (js/get route .view_name)) query-routes)
+        query-route-views (mapv (fn [route] String (.-view_name route)) query-routes)
         static-views
         (filterv
-          (fn [view] Bool (not (js/call query-route-views .includes (js/get view .name)))) views)
-        static-view-names (mapv (fn [view] String (js/get view .name)) static-views)
-        default-route (js/get router .default_route)
+          (fn [view] Bool (not (.includes query-route-views (.-name view)))) views)
+        static-view-names (mapv (fn [view] String (.-name view)) static-views)
+        default-route (.-default_route router)
         is-store (store-graph? g)
-        persist (js/get g .persist)
-        raw-persist-key (if (nil? persist) nil (js/get persist .key))
+        persist (.-persist g)
+        raw-persist-key (if (nil? persist) nil (.-key persist))
         persist-key (if is-store nil raw-persist-key)
-        src-name (js/get g .ns)
-        layout (js/get g .layout)
-        layout-title (if (and (some? layout) (some? (js/get layout .title)))
-                       (js/get layout .title)
+        src-name (.-ns g)
+        layout (.-layout g)
+        layout-title (if (and (some? layout) (some? (.-title layout)))
+                       (.-title layout)
                        (titlecase src-name))
-        nav-groups (if (and (some? layout) (> (count (js/get layout .groups)) 0))
-                     (js/get layout .groups)
+        nav-groups (if (and (some? layout) (> (count (.-groups layout)) 0))
+                     (.-groups layout)
                      nil)
 
         view-entities (reduce
           (fn [acc v] (Vec Any)
-            (let [en (js/get v .entity_name)]
-              (if (some? (first (filterv (fn [e] Bool (= (js/get e .name) en)) acc)))
+            (let [en (.-entity_name v)]
+              (if (some? (first (filterv (fn [e] Bool (= (.-name e) en)) acc)))
                 acc
-                (let [ge (first (filterv (fn [e] Bool (= (js/get e .name) en)) (js/get g .entities)))]
+                (let [ge (first (filterv (fn [e] Bool (= (.-name e) en)) (.-entities g)))]
                   (conj acc ge)))))
           [] static-views)
         unique-entities (publication-entities g view-entities)
-        all-stores (mapv (fn [e] String (store-ref (js/get e .store_name))) unique-entities)
+        all-stores (mapv (fn [e] String (store-ref (.-store_name e))) unique-entities)
 
         unique-comp-names (reduce
           (fn [acc v] (Vec String)
-            (let [names (filterv some? [(js/get v .component) (js/get v .select_component)])]
-              (reduce (fn [a n] (Vec String) (if (js/call a .includes n) a (conj a n))) acc names)))
+            (let [names (filterv some? [(.-component v) (.-select_component v)])]
+              (reduce (fn [a n] (Vec String) (if (.includes a n) a (conj a n))) acc names)))
           [] views)
 
         gen-nav-btn (fn [vname] String
-          (let [v (first (filterv (fn [vi] Bool (= (js/get vi .name) vname)) views))
-                label (if (some? v) (or (js/get v .title) (titlecase vname)) (titlecase vname))]
+          (let [v (first (filterv (fn [vi] Bool (= (.-name vi) vname)) views))
+                label (if (some? v) (or (.-title v) (titlecase vname)) (titlecase vname))]
             (str "    const nav_" (id->ref vname) " = document.createElement('button');\n"
                  "    nav_" (id->ref vname) ".className = 'sidebar-item';\n"
                  "    nav_" (id->ref vname) ".textContent = " (q label) ";\n"
@@ -3380,46 +3264,40 @@ async function wakeStoreStart() {
                  "    navButtons[" (q vname) "] = nav_" (id->ref vname) ";\n")))
 
         nav-buttons (if (some? nav-groups)
-          (js/call
-            (mapv (fn [grp] String
-              (str "    const grpLabel_" (id->ref (js/get grp .label)) " = document.createElement('div');\n"
-                   "    grpLabel_" (id->ref (js/get grp .label)) ".className = 'sidebar-group-label';\n"
-                   "    grpLabel_" (id->ref (js/get grp .label)) ".textContent = " (q (js/get grp .label)) ";\n"
-                   "    sidebarContent.appendChild(grpLabel_" (id->ref (js/get grp .label)) ");\n"
-                   (js/call (mapv gen-nav-btn (js/get grp .items)) .join "\n")))
-              nav-groups) .join "\n")
-          (js/call
-            (mapv (fn [r] String (gen-nav-btn (js/get r .view_name))) routes) .join "\n"))
+          (.join (mapv (fn [grp] String
+              (str "    const grpLabel_" (id->ref (.-label grp)) " = document.createElement('div');\n"
+                   "    grpLabel_" (id->ref (.-label grp)) ".className = 'sidebar-group-label';\n"
+                   "    grpLabel_" (id->ref (.-label grp)) ".textContent = " (q (.-label grp)) ";\n"
+                   "    sidebarContent.appendChild(grpLabel_" (id->ref (.-label grp)) ");\n"
+                   (.join (mapv gen-nav-btn (.-items grp)) "\n")))
+              nav-groups) "\n")
+          (.join (mapv (fn [r] String (gen-nav-btn (.-view_name r))) routes) "\n"))
 
-        view-sections (js/call
-          (mapv (fn [v] String
-            (let [en (js/get v .entity_name)
-                  ge (first (filterv (fn [e] Bool (= (js/get e .name) en)) (js/get g .entities)))
-                  store-name (store-ref (js/get ge .store_name))]
+        view-sections (.join (mapv (fn [v] String
+            (let [en (.-entity_name v)
+                  ge (first (filterv (fn [e] Bool (= (.-name e) en)) (.-entities g)))
+                  store-name (store-ref (.-store_name ge))]
               (gen-view-section
-                v components ge store-name (js/get g .entities) views
-                (js/get g .publications) is-store)))
-            static-views) .join "\n")
+                v components ge store-name (.-entities g) views
+                (.-publications g) is-store)))
+            static-views) "\n")
 
         query-route-sections
-        (js/call (mapv gen-query-route-section query-routes) .join "\n")
+        (.join (mapv gen-query-route-section query-routes) "\n")
 
         browser-route-definitions
-        (js/call
-          (mapv
+        (.join (mapv
             (fn [route] String
               (route-browser-definition
                 route
-                (or (js/get g .queries) [])
+                (or (.-queries g) [])
                 views
                 (query-route? route)))
-            routes) .join
-          ",\n  ")
+            routes) ",\n  ")
 
         undo-watchers
         (if is-store ""
-          (js/call
-            (mapv (fn [sn] String
+          (.join (mapv (fn [sn] String
               (let [save (cond (not (nil? persist-key)) "    saveDb();\n"
                                :else "")]
                 (str sn ".watch((evt) => {\n"
@@ -3439,7 +3317,7 @@ async function wakeStoreStart() {
                      save
                      "  }\n"
                      "});\n")))
-              all-stores) .join "\n"))
+              all-stores) "\n"))
 
         navigate-fn #r#"
   let currentView = '';
@@ -3467,28 +3345,25 @@ async function wakeStoreStart() {
       (gen-equiv-runtime) "\n"
 
       "// ── Stores ────────────────────────────────────────\n"
-      (js/call
-        (mapv (fn [e] String (gen-store-for e [] is-store)) unique-entities) .join
-        "\n\n")
+      (.join (mapv (fn [e] String (gen-store-for e [] is-store)) unique-entities) "\n\n")
       "\n\n"
 
       (if is-store
         (str "// ── Store gateway connector ────────────────────────────\n"
              (gen-store-connector
                unique-entities
-               (js/get g .entities)
-               (js/get g .publications)
-               (js/get g .semantic_fingerprint)) "\n")
+               (.-entities g)
+               (.-publications g)
+               (.-semantic_fingerprint g)) "\n")
         "")
 
       "// ── Components ──────────────────────────────────────\n"
-      (js/call
-        (mapv (fn [cn] String
+      (.join (mapv (fn [cn] String
           (gen-component-fn!
-            (first (filterv (fn [c] Bool (= (js/get c .name) cn)) components))
+            (first (filterv (fn [c] Bool (= (.-name c) cn)) components))
             ""
             (not is-store)))
-          unique-comp-names) .join "\n")
+          unique-comp-names) "\n")
       "\n"
 
       (if is-store ""
@@ -3507,7 +3382,7 @@ async function wakeStoreStart() {
 
       "// ── Init ─────────────────────────────────────────────\n"
       "function init() {\n"
-      (gen-theme-style (js/get g .theme))
+      (gen-theme-style (.-theme g))
       #r#"
   const root = document.getElementById(window.WAKE_MOUNT_ID || 'app');
   const app = document.createElement('div');
@@ -3568,7 +3443,7 @@ async function wakeStoreStart() {
 "#
       "\n" navigate-fn "\n"
       "  const wakeStaticViews = new Set(["
-      (js/call (mapv q static-view-names) .join ", ")
+      (.join (mapv q static-view-names) ", ")
       "]);\n"
       "  const wakeBrowserRoutes = [\n  " browser-route-definitions "\n  ];\n"
       #r#"
@@ -3759,51 +3634,51 @@ async function wakeStoreStart() {
 ;; --- Main entry point ---
 
 (defn gen-program! [g Any] String
-  (if (and (= (count (or (js/get g .views) [])) 0)
-           (= (count (or (js/get g .list_details) [])) 0))
+  (if (and (= (count (or (.-views g) [])) 0)
+           (= (count (or (.-list_details g) [])) 0))
     (throw
       (ex-info
         "wake: browser generation requires one view or one list detail"
         {}))
     nil)
-  (if (and (not (nil? (js/get g .views))) (> (count (js/get g .views)) 0))
-    (if (not (nil? (js/get g .router)))
+  (if (and (not (nil? (.-views g))) (> (count (.-views g)) 0))
+    (if (not (nil? (.-router g)))
       (gen-routed-program! g)
       (gen-view-program! g))
   (let [;; Expand list-detail into UI graph
-        ld (first (js/get g .list_details))
-        sf (first (js/get g .forms))
+        ld (first (.-list_details g))
+        sf (first (.-forms g))
         ug (ui/expand-list-detail g ld sf)
 
         ;; Read from UI graph — no CRM-specific derivation here
-        en (js/get ug .entity)
+        en (.-entity ug)
         primary-ge
-        (first (filterv (fn [e] Bool (= (js/get e .name) en)) (js/get g .entities)))
-        store-name (store-ref (js/get ug .store_name))
-        columns (js/get ug .columns)
-        search-cols (js/get ug .search_cols)
-        overview-fields (js/get ug .overview_fields)
-        title (js/get ug .title)
-        related-info (js/get ug .related)
-        related-tab-keys (mapv (fn [ri] String (js/get ri .key)) related-info)
+        (first (filterv (fn [e] Bool (= (.-name e) en)) (.-entities g)))
+        store-name (store-ref (.-store_name ug))
+        columns (.-columns ug)
+        search-cols (.-search_cols ug)
+        overview-fields (.-overview_fields ug)
+        title (.-title ug)
+        related-info (.-related ug)
+        related-tab-keys (mapv (fn [ri] String (.-key ri)) related-info)
 
-        derived-attrs (js/get ug .derived)
+        derived-attrs (.-derived ug)
 
         ;; Persist
         is-store (store-graph? g)
-        persist (js/get ug .persist)
-        raw-persist-key (if (nil? persist) nil (js/get persist .key))
+        persist (.-persist ug)
+        raw-persist-key (if (nil? persist) nil (.-key persist))
         persist-key (if is-store nil raw-persist-key)
         all-stores
         (into [store-name]
-          (mapv (fn [ri] String (store-ref (js/get ri .store))) related-info))
+          (mapv (fn [ri] String (store-ref (.-store ri))) related-info))
         related-entities
         (mapv
           (fn [ri] Any
             (first
               (filterv
-                (fn [e] Bool (= (js/get e .name) (js/get ri .entity)))
-                (js/get g .entities))))
+                (fn [e] Bool (= (.-name e) (.-entity ri)))
+                (.-entities g))))
           related-info)
         generated-entities (into [primary-ge] related-entities)
         publication-generated-entities
@@ -3813,8 +3688,8 @@ async function wakeStoreStart() {
              (> (count
                   (filterv
                     (fn [publication] Bool
-                      (= (js/get publication .revision_entity) en))
-                    (js/get g .publications)))
+                      (= (.-revision_entity publication) en))
+                    (.-publications g)))
                 0))
         publication-extra-entities
         (filterv
@@ -3823,15 +3698,15 @@ async function wakeStoreStart() {
               (first
                 (filterv
                   (fn [generated] Bool
-                    (= (js/get generated .name) (js/get entity .name)))
+                    (= (.-name generated) (.-name entity)))
                   generated-entities))))
           publication-generated-entities)
 
         subtitle-field (if (> (count overview-fields) 1) (nth overview-fields 1) nil)
 
-        layout-result (gen-layout en (js/get ug .form) title primary-ge is-store)
+        layout-result (gen-layout en (.-form ug) title primary-ge is-store)
 
-        src-name (js/get g .ns)]
+        src-name (.-ns g)]
 
     (str
       "// Generated by wake — semantic UI compiler\n"
@@ -3847,37 +3722,33 @@ async function wakeStoreStart() {
       "// ── Stores ─────────────────────────────────────────\n"
       (gen-store-for primary-ge [] is-store) "\n"
       "\n"
-      (js/call
-        (mapv (fn [ri] String
+      (.join (mapv (fn [ri] String
           (let [related-ge
                 (first
                   (filterv
-                    (fn [e] Bool (= (js/get e .name) (js/get ri .entity)))
-                    (js/get g .entities)))]
-            (gen-store-for related-ge [(js/get ri .fk_field)] is-store)))
-          related-info) .join
-        "\n")
+                    (fn [e] Bool (= (.-name e) (.-entity ri)))
+                    (.-entities g)))]
+            (gen-store-for related-ge [(.-fk_field ri)] is-store)))
+          related-info) "\n")
       (if is-store
         (str "\n"
-             (js/call
-               (mapv
+             (.join (mapv
                  (fn [entity] String (gen-store-for entity [] true))
-                 publication-extra-entities) .join
-               "\n"))
+                 publication-extra-entities) "\n"))
         "")
 
       (if is-store
         (str "\n// ── Store gateway connector ────────────────────────────\n"
              (gen-store-connector
                publication-generated-entities
-               (js/get g .entities)
-               (js/get g .publications)
-               (js/get g .semantic_fingerprint)) "\n")
+               (.-entities g)
+               (.-publications g)
+               (.-semantic_fingerprint g)) "\n")
         "")
 
       ;; Ref declarations
       "\n// ── DOM refs ──────────────────────────────────────\n"
-      (gen-ref-decls (js/get layout-result .refs)) "\n\n"
+      (gen-ref-decls (.-refs layout-result)) "\n\n"
 
       ;; Detail panel
       "// ── Detail panel ────────────────────────────────────\n"
@@ -3887,7 +3758,7 @@ async function wakeStoreStart() {
         overview-fields
         derived-attrs
         related-info
-        (js/get ug .all_field_info)
+        (.-all_field_info ug)
         g
         (if is-store (entity-identity-name primary-ge) nil)
         is-store
@@ -3905,8 +3776,8 @@ async function wakeStoreStart() {
 
       ;; Form
       "\n// ── Form ─────────────────────────────────────────────\n"
-      (if (some? (js/get ug .form))
-        (gen-form-handler en (js/get ug .form) primary-ge is-store)
+      (if (some? (.-form ug))
+        (gen-form-handler en (.-form ug) primary-ge is-store)
         "") "\n"
 
       ;; Persistence
@@ -3930,7 +3801,7 @@ async function wakeStoreStart() {
       "// ── Init ─────────────────────────────────────────────\n"
       (gen-init-fn
         en
-        (if (some? (js/get ug .form)) (js/get (js/get ug .form) .name) nil)
+        (if (some? (.-form ug)) (.-name (.-form ug)) nil)
         store-name
         related-info
         persist-key
