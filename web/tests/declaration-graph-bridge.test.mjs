@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -252,14 +253,22 @@ beforeAll(async () => {
   writeFileSync(join(buildDir, "graph.js"), appendFunctionExports(compiledGraph));
   writeFileSync(join(buildDir, "package.json"), '{"type":"module"}\n');
   mkdirSync(join(buildDir, "beagle"));
-  for (const runtimeModule of ["core.js", "hamt.js"]) {
+  for (const runtimeModule of readdirSync(beagleRuntime).filter((name) => name.endsWith(".js"))) {
     copyFileSync(
       join(beagleRuntime, runtimeModule),
       join(buildDir, "beagle", runtimeModule),
     );
   }
 
-  graph = await import(pathToFileURL(join(buildDir, "graph.js")).href);
+  const graphModule = await import(pathToFileURL(join(buildDir, "graph.js")).href);
+  const { clj_to_js: cljToJs, js_to_clj: jsToClj } = await import(
+    pathToFileURL(join(buildDir, "beagle", "host.js")).href
+  );
+  graph = {
+    ...graphModule,
+    check_linked_declaration_program: (value) =>
+      cljToJs(graphModule.check_linked_declaration_program(jsToClj(value))),
+  };
 }, 30_000);
 
 afterAll(() => {
@@ -274,7 +283,7 @@ test("lowers an exact linked declaration program without erasing its typed sidec
 
   assert.equal(checked._tag, "CheckedApplication");
   assert.equal(checked.application_id, "bridge-fixture");
-  assert.strictEqual(checked.linked_declarations, linked);
+  assert.deepEqual(checked.linked_declarations, linked);
   assert.deepEqual(checked.source_units, [sourceUnit]);
   assert.equal(checked.backend.kind, "store");
   assert.deepEqual(checked.value_types, [{

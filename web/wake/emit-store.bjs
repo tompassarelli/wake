@@ -219,4 +219,4 @@
 
 (js/export
   (defn gen-store [checked Any] String
-    (str (JSON/stringify (store-plan checked) nil 2) "\n")))
+    (str (JSON/stringify (clj->js (store-plan checked)) nil 2) "\n")))

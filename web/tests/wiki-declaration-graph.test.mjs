@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -147,13 +148,21 @@ beforeAll(async () => {
   );
   writeFileSync(join(buildDir, "package.json"), '{"type":"module"}\n');
   mkdirSync(join(buildDir, "beagle"));
-  for (const runtimeModule of ["core.js", "hamt.js"]) {
+  for (const runtimeModule of readdirSync(beagleRuntime).filter((name) => name.endsWith(".js"))) {
     copyFileSync(
       join(beagleRuntime, runtimeModule),
       join(buildDir, "beagle", runtimeModule),
     );
   }
-  graph = await import(pathToFileURL(join(buildDir, "graph.js")).href);
+  const compiledGraph = await import(pathToFileURL(join(buildDir, "graph.js")).href);
+  const { clj_to_js: cljToJs, js_to_clj: jsToClj } = await import(
+    pathToFileURL(join(buildDir, "beagle", "host.js")).href
+  );
+  graph = {
+    ...compiledGraph,
+    check_linked_declaration_program: (value) =>
+      cljToJs(compiledGraph.check_linked_declaration_program(jsToClj(value))),
+  };
 }, 30_000);
 
 afterAll(() => {

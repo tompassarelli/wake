@@ -492,6 +492,9 @@ async function main() {
   const linked = linkCheckedDeclarations({ application, plugins, compilerVersion });
 
   const distUrl = Bun.pathToFileURL(`${options.dist.replace(/\/+$/u, "")}/`);
+  const { clj_to_js: cljToJs, js_to_clj: jsToClj } = await import(
+    new URL("beagle/host.js", distUrl).href
+  );
   const { check_linked_declaration_program: checkLinkedDeclarations } = await import(
     new URL("graph.js", distUrl).href
   );
@@ -502,27 +505,28 @@ async function main() {
   const { "gen-store": generateStore } = await import(new URL("emit-store.js", distUrl).href);
   const { generateWakeClient } = await import("./emit-client.mjs");
 
-  const checkedGraph = checkLinkedDeclarations(linked);
+  const checkedGraph = cljToJs(checkLinkedDeclarations(jsToClj(linked)));
   const checked = {
     ...checkedGraph,
     commands: checkCommandGraph(checkedGraph.commands ?? [], checkedGraph),
   };
   const fingerprint = sha256Digest(canonicalDocument(semanticValue(checked)));
   const checkedWithFingerprint = { ...checked, semantic_fingerprint: fingerprint };
+  const beagleInput = jsToClj(checkedWithFingerprint);
 
   if (options.mode === "js") {
-    const generated = `// wake: checked-application ${fingerprint}\n${generateProgram(checkedWithFingerprint)}`;
+    const generated = `// wake: checked-application ${fingerprint}\n${generateProgram(beagleInput)}`;
     await writeOutput(options.output, generated);
     return;
   }
   if (options.mode === "store") {
-    await writeOutput(options.output, generateStore(checkedWithFingerprint));
+    await writeOutput(options.output, generateStore(beagleInput));
     return;
   }
 
-  const generatedJavaScript = `// wake: checked-application ${fingerprint}\n${generateProgram(checkedWithFingerprint)}`;
+  const generatedJavaScript = `// wake: checked-application ${fingerprint}\n${generateProgram(beagleInput)}`;
   const browserClient = generateWakeClient(checkedWithFingerprint);
-  const storePlan = generateStore(checkedWithFingerprint);
+  const storePlan = generateStore(beagleInput);
   const manifest = applicationManifest({
     browserClient,
     checked: checkedWithFingerprint,

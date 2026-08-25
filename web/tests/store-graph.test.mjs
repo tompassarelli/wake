@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -174,18 +175,18 @@ export function IrView(
 `);
   writeFileSync(join(buildDir, "package.json"), '{"type":"module"}\n');
   mkdirSync(join(buildDir, "beagle"));
-  copyFileSync(
-    join(beagleRoot, "beagle-lib", "lib", "beagle", "core.js"),
-    join(buildDir, "beagle", "core.js"),
-  );
-  copyFileSync(
-    join(beagleRoot, "beagle-lib", "lib", "beagle", "hamt.js"),
-    join(buildDir, "beagle", "hamt.js"),
-  );
+  const runtime = join(beagleRoot, "beagle-lib", "lib", "beagle");
+  for (const module of readdirSync(runtime).filter((name) => name.endsWith(".js"))) {
+    copyFileSync(join(runtime, module), join(buildDir, "beagle", module));
+  }
 
-  ({ check_resolved_declaration_program: checkResolvedDeclarationProgram } = await import(
+  const { clj_to_js: cljToJs, js_to_clj: jsToClj } = await import(
+    pathToFileURL(join(buildDir, "beagle", "host.js")).href
+  );
+  const { check_resolved_declaration_program: checkResolved } = await import(
     pathToFileURL(join(buildDir, "graph.js")).href
-  ));
+  );
+  checkResolvedDeclarationProgram = (value) => cljToJs(checkResolved(jsToClj(value)));
 }, 30_000);
 
 afterAll(() => {

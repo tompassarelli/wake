@@ -33,6 +33,10 @@ function runBeagle(args) {
     : [args[0], ...moduleRoot, ...args.slice(1)];
   const result = Bun.spawnSync([beagle, ...command], {
     cwd: webRoot,
+    env: {
+      ...process.env,
+      BEAGLE_JS_RUNTIME_PREFIX: `${join(beagleRoot, "beagle-lib", "lib", "beagle")}/`,
+    },
     stdout: "pipe",
     stderr: "pipe",
     timeout: 55_000,

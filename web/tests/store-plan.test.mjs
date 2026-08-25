@@ -4,6 +4,7 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -163,12 +164,16 @@ beforeAll(async () => {
 
   assert.equal(built.status, 0, built.stderr || built.stdout);
   mkdirSync(join(buildDir, "beagle"));
-  copyFileSync(
-    join(beagleRoot, "beagle-lib", "lib", "beagle", "core.js"),
-    join(buildDir, "beagle", "core.js"),
-  );
+  const runtime = join(beagleRoot, "beagle-lib", "lib", "beagle");
+  for (const module of readdirSync(runtime).filter((name) => name.endsWith(".js"))) {
+    copyFileSync(join(runtime, module), join(buildDir, "beagle", module));
+  }
   writeFileSync(join(buildDir, "package.json"), '{"type":"module"}\n');
-  ({ gen_store: genStore } = await import(pathToFileURL(output).href));
+  const { js_to_clj: jsToClj } = await import(
+    pathToFileURL(join(buildDir, "beagle", "host.js")).href
+  );
+  const { "gen-store": generateStore } = await import(pathToFileURL(output).href);
+  genStore = (value) => generateStore(jsToClj(value));
 });
 
 afterAll(() => {
