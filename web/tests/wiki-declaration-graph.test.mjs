@@ -11,6 +11,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { toBeagleValue } from "../compiler/beagle-host-adapter.mjs";
 import { afterAll, beforeAll, test } from "bun:test";
 import {
   checkedDeclarationProgramFromBundle,
@@ -161,7 +162,7 @@ beforeAll(async () => {
   graph = {
     ...compiledGraph,
     check_linked_declaration_program: (value) =>
-      cljToJs(compiledGraph.check_linked_declaration_program(jsToClj(value))),
+      cljToJs(compiledGraph.check_linked_declaration_program(toBeagleValue(value, jsToClj))),
   };
 }, 30_000);
 

@@ -11,6 +11,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { toBeagleValue } from "../compiler/beagle-host-adapter.mjs";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const wakeRoot = join(testDir, "..", "..");
@@ -41,6 +42,7 @@ const field = (
     write = "set",
   } = {},
 ) => ({
+  _tag: "GField",
   name,
   storage_id: `wiki/field/${name}`,
   type,
@@ -68,6 +70,7 @@ const pluginClosure = [{
 }];
 
 const checkedWiki = {
+  _tag: "CheckedApplication",
   application_id: "wiki.app",
   semantic_fingerprint: semanticFingerprint,
   plugin_closure: pluginClosure,
@@ -75,6 +78,7 @@ const checkedWiki = {
   backend: { kind: "store" },
   entities: [
     {
+      _tag: "GEntity",
       name: "page",
       storage_id: "wiki/entity/page",
       identity_field: pageSlug,
@@ -90,6 +94,7 @@ const checkedWiki = {
       ],
     },
     {
+      _tag: "GEntity",
       name: "revision",
       storage_id: "wiki/entity/revision",
       identity_field: revisionId,
@@ -108,6 +113,7 @@ const checkedWiki = {
   ],
   state_machines: [
     {
+      _tag: "StateMachine",
       entity: "page",
       field: "visibility",
       state_type: "PageVisibility",
@@ -119,6 +125,7 @@ const checkedWiki = {
       },
     },
     {
+      _tag: "StateMachine",
       entity: "revision",
       field: "status",
       state_type: "RevisionStatus",
@@ -132,6 +139,7 @@ const checkedWiki = {
   ],
   publications: [
     {
+      _tag: "PublicationPolicy",
       name: "canonical",
       owner_entity: "page",
       pointer_field: "canonical-revision",
@@ -173,7 +181,7 @@ beforeAll(async () => {
     pathToFileURL(join(buildDir, "beagle", "host.js")).href
   );
   const { "gen-store": generateStore } = await import(pathToFileURL(output).href);
-  genStore = (value) => generateStore(jsToClj(value));
+  genStore = (value) => generateStore(toBeagleValue(value, jsToClj));
 });
 
 afterAll(() => {

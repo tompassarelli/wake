@@ -12,6 +12,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { toBeagleValue } from "../compiler/beagle-host-adapter.mjs";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
@@ -267,7 +268,7 @@ beforeAll(async () => {
   graph = {
     ...graphModule,
     check_linked_declaration_program: (value) =>
-      cljToJs(graphModule.check_linked_declaration_program(jsToClj(value))),
+      cljToJs(graphModule.check_linked_declaration_program(toBeagleValue(value, jsToClj))),
   };
 }, 30_000);
 

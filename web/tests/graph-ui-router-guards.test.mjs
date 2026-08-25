@@ -12,6 +12,7 @@ import {
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { toBeagleValue } from "../compiler/beagle-host-adapter.mjs";
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const webRoot = join(testDir, "..");
@@ -299,7 +300,8 @@ export function IrRouter(default_route, routes) {
   const { check_resolved_declaration_program: checkResolved } = await import(
     pathToFileURL(join(buildDir, "graph.js")).href
   );
-  checkResolvedDeclarationProgram = (value) => cljToJs(checkResolved(jsToClj(value)));
+  checkResolvedDeclarationProgram = (value) =>
+    cljToJs(checkResolved(toBeagleValue(value, jsToClj)));
 }, 30_000);
 
 afterAll(() => {

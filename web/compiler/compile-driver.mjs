@@ -15,6 +15,7 @@ import { checkCommandGraph } from "./command-contract.mjs";
 import { checkedDeclarationProgramFromBundle } from "./checked-declarations.mjs";
 import { linkCheckedDeclarations } from "./declaration-linker.mjs";
 import { generateDeploymentReceipt } from "./deployment-receipt.mjs";
+import { toBeagleValue } from "./beagle-host-adapter.mjs";
 
 const DRIVER_SCHEMA_VERSION = 1;
 const STORE_PLAN_SCHEMA_VERSION = 2;
@@ -505,14 +506,14 @@ async function main() {
   const { "gen-store": generateStore } = await import(new URL("emit-store.js", distUrl).href);
   const { generateWakeClient } = await import("./emit-client.mjs");
 
-  const checkedGraph = cljToJs(checkLinkedDeclarations(jsToClj(linked)));
+  const checkedGraph = cljToJs(checkLinkedDeclarations(toBeagleValue(linked, jsToClj)));
   const checked = {
     ...checkedGraph,
     commands: checkCommandGraph(checkedGraph.commands ?? [], checkedGraph),
   };
   const fingerprint = sha256Digest(canonicalDocument(semanticValue(checked)));
   const checkedWithFingerprint = { ...checked, semantic_fingerprint: fingerprint };
-  const beagleInput = jsToClj(checkedWithFingerprint);
+  const beagleInput = toBeagleValue(checkedWithFingerprint, jsToClj);
 
   if (options.mode === "js") {
     const generated = `// wake: checked-application ${fingerprint}\n${generateProgram(beagleInput)}`;
