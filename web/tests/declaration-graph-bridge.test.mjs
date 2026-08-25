@@ -37,8 +37,13 @@ function spawnSync(command, args, { cwd, env = process.env } = {}) {
 }
 
 function appendFunctionExports(source) {
+  const exported = new Set(
+    [...source.matchAll(/^export \{ ([A-Za-z_$][\w$]*) as /gmu)]
+      .map((match) => match[1]),
+  );
   const names = [...source.matchAll(/^function ([A-Za-z_$][\w$]*)/gmu)]
-    .map((match) => match[1]);
+    .map((match) => match[1])
+    .filter((name) => !exported.has(name));
   return `${source}\nexport { ${names.join(", ")} };\n`;
 }
 

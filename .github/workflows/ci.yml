@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: tompassarelli/beagle
-          ref: b7e941e2323f38778bf68c3230fc52d4aca46ac0
+          ref: 75ef28442092572c274e71d8dbd1bfdd37c5e866
           path: .beagle
 
       - name: Link Beagle packages
